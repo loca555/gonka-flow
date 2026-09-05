@@ -23,9 +23,9 @@ services:
       - key: POLL_SECONDS
         value: "15"
       - key: ETH_RPC_URLS
-        value: https://ethereum-rpc.publicnode.com,https://rpc.mevblocker.io
+        value: https://ethereum.public.blockpi.network/v1/rpc/public,https://rpc.mevblocker.io
       - key: ETH_ARCHIVE_RPC_URLS
-        value: https://ethereum-rpc.publicnode.com,https://rpc.mevblocker.io
+        value: https://rpc.mevblocker.io
       - key: ETH_RPC_INTERVAL
         value: "1.5"
       - key: ETH_HISTORY_BATCH

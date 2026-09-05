@@ -1,11 +1,11 @@
 {
   "format": 1,
   "network": "ethereum",
-  "height": 25912331,
-  "ts": 1788625751,
+  "height": 25912490,
+  "ts": 1788627671,
   "events": 11165,
   "mints": 743,
-  "sha256": "67816b2164d7206e2ea84d69566942efa9f3891b9d18fda76c707176ff107d69",
+  "sha256": "60e4ae8babd37b0099bd0cb2e85139b23dff8e4578019f5564f86c6c1983e0fa",
   "unpacked_bytes": 15056896,
-  "archive_bytes": 2891272
+  "archive_bytes": 2891785
 }
