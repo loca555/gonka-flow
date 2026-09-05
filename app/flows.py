@@ -186,7 +186,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     result={"now":now,"timezone":TIME_ZONE,"status":status,"snapshot":snapshot,"ready":False,
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
-            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],
+            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],"address_balance":None,
             "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
     if not deployment or not target: return result
     start=deployment["height"];end=history_end(db,start,target)
@@ -196,6 +196,9 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     cut=snapshot["height"]
     rows=event_rows(db,start,cut)
     ledger,minted,burned=balances(rows)
+    if re.fullmatch("0x[0-9a-f]{40}",q) and snapshot.get("ledger_verified") and ledger.get(q,0)>=0:
+        result["address_balance"]={"address":q,"amount":tokens(ledger.get(q,0)),
+            "amount_raw":str(ledger.get(q,0)),"height":cut,"ts":snapshot["ts"],"source":"verified_transfer_ledger"}
     pools={p["address"]:p for p in snapshot["pools"]}
     all_sales=[e for e in rows if e["kind"]=="sell" and e["pool"] in pools]
     recipient_data={}
@@ -242,15 +245,21 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     pooled=sum(int(p["balance_raw"]) for p in pools.values())
     supply=int(snapshot["supply_raw"])
     liquidity_added=sum(int(e["amount_raw"]) for e in rows if e["kind"]=="liquidity_add" and e["pool"] in pools)
-    daily=defaultdict(lambda:{"raw":0,"quote":0,"events":0})
+    daily=defaultdict(lambda:{"raw":0,"quote_raw":0,"events":0,"sold_raw":0,"bought_raw":0,
+                              "sale_quote_raw":0,"buy_quote_raw":0,"sales_count":0,"buys_count":0})
     for e in selected:
         day=daily[local_day(e["ts"])]
-        day["raw"]+=int(e["amount_raw"]);day["quote"]+=int(e["quote_raw"]);day["events"]+=1
+        day["raw"]+=int(e["amount_raw"]);day["quote_raw"]+=int(e["quote_raw"]);day["events"]+=1
+        buy=e["kind"]=="buy"
+        day["bought_raw" if buy else "sold_raw"]+=int(e["amount_raw"])
+        day["buy_quote_raw" if buy else "sale_quote_raw"]+=int(e["quote_raw"])
+        day["buys_count" if buy else "sales_count"]+=1
     for e in selected:
         e["amount"]=tokens(e["amount_raw"]);e["quote"]=tokens(e["quote_raw"],6)
         e["price"]=tokens(price_raw(e["quote_raw"],e["amount_raw"]),12)
         e["time_local"]=local_time(e["ts"])
         e["attribution"]=e["meta"].get("attribution","pool_only")
+    page_limit=len(selected) if limit is None else limit
     result.update(ready=True,summary={"minted":tokens(minted),"burned":tokens(burned),"supply":tokens(supply),
         "pooled":tokens(pooled),"outside_pools":tokens(supply-pooled),"pooled_raw":str(pooled),
         "outside_raw":str(supply-pooled),"minted_raw":str(minted),"burned_raw":str(burned),
@@ -266,9 +275,9 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
         "average_price":tokens(price_raw(quote,sold),12) if sold else None,
         "transactions":len({e["tx_hash"] for e in selected}),"swaps":len(selected),
         "liquidity_added":tokens(liquidity_added),"all_sales":len(all_sales)},
-        pools=list(pools.values()),trades=selected[offset:offset+limit],
-        sales=selected[offset:offset+limit] if side=="sell" else [],total=len(selected),
-        has_more=offset+limit<len(selected),minters=minters,
-        daily=[{"date":day,"raw":str(d["raw"]),"events":d["events"],
-                "price_raw":str(price_raw(d["quote"],d["raw"]))} for day,d in sorted(daily.items())])
+        pools=list(pools.values()),trades=selected[offset:offset+page_limit],
+        sales=selected[offset:offset+page_limit] if side=="sell" else [],total=len(selected),limit=page_limit,
+        has_more=offset+page_limit<len(selected),minters=minters,
+        daily=[{"date":day,**{key:str(value) if key.endswith("raw") else value for key,value in d.items()},
+                "price_raw":str(price_raw(d["quote_raw"],d["raw"]))} for day,d in sorted(daily.items())])
     return result

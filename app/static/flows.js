@@ -10,9 +10,9 @@
   '<div class="sales-heading"><div><h2>Торговля</h2><p>Все адреса, не только минтеры · два пула Uniswap V3 · WGNK / USDT</p></div><label>Период сделок <select id="sales-period"><option value="0">Вся история</option><option value="720">30 дней</option><option value="168">7 дней</option><option value="24">24 часа</option></select></label></div>'+
   '<form id="sales-search" class="sales-search"><input id="sales-query" aria-label="Поиск сделок" placeholder="Полный адрес или хеш транзакции — 0x…" maxlength="66" autocomplete="off"><button type="button" data-trade-side="all" aria-pressed="true">Все сделки</button><button type="button" data-trade-side="sell" aria-pressed="false">Найти продажи</button><button type="button" data-trade-side="buy" aria-pressed="false">Найти покупки</button><button type="button" id="sales-reset">Сбросить</button></form>'+
   '<p id="sales-result" class="search-result" role="status" aria-live="polite">Загружаем сделки всех адресов…</p>'+
-  '<section class="metrics sales-metrics" aria-label="Итоги сделок"><article><span><span id="flow-volume-label">Продано в пулах</span> <small>WGNK</small></span><strong id="flow-sold">—</strong><p id="flow-sales-count"></p></article><article><span><span id="flow-quote-label">Выдано пулами</span> <small>USDT</small></span><strong id="flow-proceeds">—</strong><p id="flow-quote-note">Выход USDT по этим продажам</p></article><article><span><span id="flow-price-label">Средняя цена продажи</span> <small>USDT / WGNK</small></span><strong id="flow-price">—</strong><p>Взвешено по объёму WGNK</p></article></section>'+
+  '<section class="metrics sales-metrics" aria-label="Итоги сделок"><article><span><span id="flow-volume-label">Оборот торгов</span> <small>WGNK</small></span><strong id="flow-sold">—</strong><dl id="flow-volume-breakdown" class="trade-breakdown" hidden></dl><p id="flow-sales-count"></p></article><article><span><span id="flow-quote-label">Оборот USDT</span> <small>USDT</small></span><strong id="flow-proceeds">—</strong><dl id="flow-quote-breakdown" class="trade-breakdown" hidden></dl><p id="flow-quote-note">Сумма USDT по покупкам и продажам, не прибыль</p></article><article><span><span id="flow-price-label">Средняя цена за 1 000 WGNK</span> <small>USDT</small></span><strong id="flow-price">—</strong><dl id="flow-price-breakdown" class="trade-breakdown" hidden></dl><p>Взвешено по объёму WGNK</p></article></section>'+
   '<p id="trade-explanation" class="flow-explanation">Это валовой оборот: одни и те же токены могут продаваться повторно. Цена = USDT на выходе пула / WGNK на входе, без газа и возможных комиссий маршрутизатора. Другие DEX, CEX и внебиржевые сделки не учтены. Обычные переводы не обозначаются продажами.</p>'+
-  '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="volume-key">Столбцы · объём</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 000 WGNK · объём: WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+
+  '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="trade-key buy" data-chart-side="buy">Покупки</span><span class="trade-key sell" data-chart-side="sell">Продажи</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 000 WGNK · столбцы: покупки + продажи WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+
   '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Покупки и продажи показаны вместе по умолчанию.</p></div></div>'+
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 000 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
   '<div class="pagination"><button id="sales-prev">← Назад</button><span id="sales-page"></span><button id="sales-next">Далее →</button></div>';
@@ -43,8 +43,13 @@
  function renderChart(data){
   if(ui("trading-view").hidden)return;
   ui("sales-chart-title").textContent="Цена и объём "+(data.side==="all"?"торгов":data.side==="buy"?"покупок":"продаж");
-  GonkaChart.renderMarket(ui("sales-chart"),data.daily);
-  ui("sales-chart-note").textContent="Средневзвешенная цена: USDT за 1 000 WGNK · объём: WGNK";
+  document.querySelectorAll("[data-chart-side]").forEach(key=>{key.hidden=data.side!=="all"&&key.dataset.chartSide!==data.side;});
+  GonkaChart.renderMarket(ui("sales-chart"),data.daily,{side:data.side});
+  ui("sales-chart-note").textContent="Средневзвешенная цена: USDT за 1 000 WGNK · "+(data.side==="all"?"столбцы: покупки + продажи WGNK":"объём: WGNK");
+ }
+ function renderBreakdown(id,visible,rows){
+  const host=ui(id);host.hidden=!visible;
+  host.innerHTML=visible?rows.map(r=>'<div data-trade-kind="'+r.side+'"><dt><span class="trade-key '+r.side+'">'+(r.side==="buy"?"Покупки":"Продажи")+'</span>'+(r.note?'<small>'+esc(r.note)+'</small>':'')+'</dt><dd><b>'+esc(r.value)+'</b> <small>'+esc(r.unit)+'</small></dd></div>').join(""):"";
  }
  function renderMinters(data){
   const [field,direction]=flow.minterSort.split("_"),sign=direction==="asc"?1:-1;
@@ -102,6 +107,15 @@
   ui("flow-sales-count").textContent=count(summary.swaps)+" исполнений · "+count(summary.transactions)+" транзакций";
   ui("flow-proceeds").textContent=compact(summary.quote);ui("flow-proceeds").title=amount(summary.quote,6)+" USDT";
   ui("flow-price").textContent=price(summary.average_price);ui("flow-price").title="USDT за 1 000 WGNK";
+  renderBreakdown("flow-volume-breakdown",all,[
+   {side:"buy",value:fmt(summary.bought),unit:"WGNK",note:count(summary.buys_count)+" исполнений"},
+   {side:"sell",value:fmt(summary.sold),unit:"WGNK",note:count(summary.sales_count)+" исполнений"}]);
+  renderBreakdown("flow-quote-breakdown",all,[
+   {side:"buy",value:fmt(summary.buy_quote),unit:"USDT",note:"Уплачено в пулы"},
+   {side:"sell",value:fmt(summary.sale_quote),unit:"USDT",note:"Получено из пулов"}]);
+  renderBreakdown("flow-price-breakdown",all,[
+   {side:"buy",value:price(summary.buy_average_price),unit:"USDT"},
+   {side:"sell",value:price(summary.sale_average_price),unit:"USDT"}]);
   ui("sales-total").textContent=count(data.total);
   ui("sales-rows").innerHTML=data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td>'+
    (e.attribution==="initiator_net"?addr(e.actor):'<span class="mono" title="'+esc(e.actor)+'">'+esc(e.actor?short(e.actor,10):"Не установлен")+'</span>')+

@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from app.codec import blank
 from app.config import TOKEN, USDT, ZERO, SEED_POOLS
 from app.db import Database
@@ -107,6 +107,89 @@ class FlowTests(unittest.TestCase):
         self.assertFalse(result["coverage"]["complete"])
         self.assertIsNone(result["summary"])
         self.assertFalse(bridge_listing(self.db,minimum=0)["ready"])
+
+    def test_daily_sides_reconcile_with_full_filtered_totals(self):
+        result=analysis(self.db,side="all",limit=1)
+        self.assertEqual(len(result["trades"]),1)
+        self.assertEqual(result["daily"],[{
+            "date":local_day(block(3)["ts"]),"raw":str(50*UNIT),"quote_raw":"22000000","events":3,
+            "bought_raw":str(10*UNIT),"sold_raw":str(40*UNIT),"buy_quote_raw":"4000000",
+            "sale_quote_raw":"18000000","buys_count":1,"sales_count":2,"price_raw":"440000000000"}])
+        self.assertEqual(result["daily"],analysis(self.db,side="all",limit=1,offset=2)["daily"])
+        for side in ("all","buy","sell"):
+            for q in ("",A,"0x"+"f"*40):
+                data=analysis(self.db,side=side,q=q)
+                for daily_key,summary_key in (("raw","volume_raw"),("quote_raw","quote_raw"),
+                        ("bought_raw","bought_raw"),("sold_raw","sold_raw"),("buy_quote_raw","buy_quote_raw"),
+                        ("sale_quote_raw","sale_quote_raw"),("buys_count","buys_count"),("sales_count","sales_count")):
+                    self.assertEqual(sum(int(d[daily_key]) for d in data["daily"]),int(data["summary"][summary_key]))
+                for day in data["daily"]:
+                    self.assertEqual(int(day["raw"]),int(day["bought_raw"])+int(day["sold_raw"]))
+                    self.assertEqual(int(day["quote_raw"]),int(day["buy_quote_raw"])+int(day["sale_quote_raw"]))
+                    self.assertEqual(day["events"],day["buys_count"]+day["sales_count"])
+
+    def test_daily_sides_preserve_large_integers_dates_and_period_filter(self):
+        stamps=["2026-07-01T20:59:00+00:00","2026-07-01T21:01:00+00:00","2026-07-04T12:00:00+00:00"]
+        for h,value in zip((3,5,7),stamps):
+            self.db.conn.execute("UPDATE events SET ts=? WHERE height=?",
+                                 (int(datetime.fromisoformat(value).timestamp()),h))
+        raw=2**200+1;quote=2**210+3
+        self.db.conn.execute("UPDATE events SET amount_raw=?,quote_raw=? WHERE kind='buy'",(str(raw),str(quote)))
+        self.db.conn.commit()
+        data=analysis(self.db,side="all")
+        self.assertEqual([d["date"] for d in data["daily"]],["2026-07-01","2026-07-02","2026-07-04"])
+        day=data["daily"][1]
+        self.assertEqual((day["bought_raw"],day["buy_quote_raw"],day["sold_raw"]),(str(raw),str(quote),"0"))
+        self.assertEqual(day["price_raw"],str(price_raw(quote,raw)))
+        with patch("app.flows.time.time",return_value=datetime.fromisoformat(stamps[-1]).timestamp()+60):
+            recent=analysis(self.db,side="all",hours=24)
+        self.assertEqual(len(recent["daily"]),1)
+        self.assertEqual((recent["daily"][0]["date"],recent["summary"]["bought"],recent["summary"]["sold"]),
+                         ("2026-07-04","0","10"))
+
+    def test_address_balance_uses_all_transfers_at_verified_snapshot(self):
+        balance=analysis(self.db,q=A,side="all")["address_balance"]
+        self.assertEqual((balance["amount"],balance["amount_raw"],balance["height"]),("45",str(45*UNIT),12))
+        self.assertEqual(analysis(self.db,q=A,side="buy",hours=1)["address_balance"],balance)
+        self.assertEqual(analysis(self.db,q=POOL)["address_balance"]["amount"],"50")
+        self.assertEqual(analysis(self.db,q="0x"+"f"*40)["address_balance"]["amount"],"0")
+        self.db.save_batch("ethereum",11,13,[
+            {**event(11,"transfer",3,A,POOL),"finalized":0},event(13,"transfer",4,A,POOL)],
+            [block(h) for h in range(11,14)])
+        self.assertEqual(analysis(self.db,q=A)["address_balance"],balance)
+        self.db.put("flow:status",{"error":"RPC offline"})
+        self.assertEqual(analysis(self.db,q=A)["address_balance"],balance)
+        snapshot=self.db.get("flow:snapshot")
+        self.db.put("flow:snapshot",{**snapshot,"ledger_verified":False})
+        self.assertIsNone(analysis(self.db,q=A)["address_balance"])
+        self.db.put("flow:snapshot",None)
+        self.assertIsNone(analysis(self.db,q=A)["address_balance"])
+
+    def test_address_endpoint_returns_all_trades_beyond_normal_page_limit(self):
+        from fastapi.testclient import TestClient
+        from app.config import Settings
+        from app.main import create_app
+        cfg=Settings(mode="mints",data_dir=Path(self.temp.name)/"api",indexer_enabled=False,history_from="")
+        with TestClient(create_app(cfg)) as client:
+            db=client.app.state.db
+            db.put("mints:deployment",block(1));db.put("mints:status",{"finalized_height":12})
+            extra=[blank("ethereum",block(11),"0x"+format(2000+i,"064x"),0,"buy",UNIT,
+                         actor=A,pool=POOL,quote_raw="1000000",quote_asset="USDT",
+                         meta={"attribution":"initiator_net"}) for i in range(230)]
+            db.save_batch("ethereum",1,12,self.events+extra,[block(h) for h in range(1,13)])
+            db.put("flow:snapshot",self.db.get("flow:snapshot"))
+            data=client.get("/api/mints/address/"+A).json()
+            self.assertTrue(data["ready"]);self.assertFalse(data["has_more"])
+            self.assertEqual((data["total"],len(data["trades"]),data["offset"]),(232,232,0))
+            self.assertEqual(data["address_balance"]["amount"],"45")
+            self.assertEqual(data["summary"]["buys_count"],230)
+            asc=client.get("/api/mints/address/"+A+"?sort=time_asc").json()
+            self.assertEqual([e["id"] for e in asc["trades"]],list(reversed([e["id"] for e in data["trades"]])))
+            self.assertEqual(client.get("/api/mints/flows?q="+A+"&side=all").json()["limit"],25)
+            self.assertEqual(client.get("/api/mints/address/0x123").status_code,400)
+            self.assertEqual(client.get("/api/mints/address/"+A+"?sort=unsafe").status_code,422)
+            empty=client.get("/api/mints/address/"+"0x"+"f"*40).json()
+            self.assertEqual((empty["total"],empty["trades"],empty["address_balance"]["amount"]),(0,[],"0"))
 
     def test_bridge_feed_includes_mints_burns_not_transfers_or_swaps(self):
         data=bridge_listing(self.db,minimum=0)

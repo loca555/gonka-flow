@@ -119,6 +119,17 @@ def create_app(settings=None):
             cache[key]=(time.time(),flow_analysis(request.app.state.db,hours,q.lower(),limit,offset,side,sort))
         return cache[key][1]
 
+    @app.get("/api/mints/address/{address}")
+    async def mint_address(request:Request,address:str,sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN)):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if not re.fullmatch("0x[0-9a-fA-F]{40}",address): raise HTTPException(400,"Нужен полный Ethereum-адрес")
+        address=address.lower()
+        key=("address_trades",address,sort)
+        if len(cache)>1000: cache.clear()
+        if key not in cache or time.time()-cache[key][0]>8:
+            cache[key]=(time.time(),flow_analysis(request.app.state.db,q=address,side="all",sort=sort,limit=None))
+        return cache[key][1]
+
     @app.get("/api/mints/bridge")
     async def bridge_feed(request:Request,minimum:int=Query(10000,ge=0,le=10**12),
                           hours:int=Query(0,ge=0,le=175200),

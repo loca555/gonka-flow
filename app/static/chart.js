@@ -97,13 +97,16 @@ window.GonkaChart=(()=>{
    if(event.key==="Escape")hide();
   });
  }
- function renderMarket(host,points){
+ function renderMarket(host,points,{side="all"}={}){
   if(!points.length){host.innerHTML='<p class="empty">Нет сделок по выбранным фильтрам.</p>';return;}
   const lookup=new Map(points.map(p=>[p.date,p])),rows=[];
   const end=Date.parse(points[points.length-1].date+"T00:00:00Z");
   for(let ts=Date.parse(points[0].date+"T00:00:00Z");ts<=end;ts+=86400000){
    const day=new Date(ts).toISOString().slice(0,10),p=lookup.get(day);
-   rows.push({date:day,volume:p?BigInt(p.raw):0n,price:p?BigInt(p.price_raw):null,events:p?.events||0});
+   rows.push({date:day,volume:p?BigInt(p.raw):0n,price:p?BigInt(p.price_raw):null,events:p?.events||0,
+    buy:p?BigInt(p.bought_raw):0n,sell:p?BigInt(p.sold_raw):0n,
+    buyQuote:p?BigInt(p.buy_quote_raw):0n,sellQuote:p?BigInt(p.sale_quote_raw):0n,
+    buys:p?.buys_count||0,sales:p?.sales_count||0});
   }
   const W=Math.max(280,host.clientWidth),H=W<500?320:350;
   const left=W<500?48:76,right=W<500?54:80,top=W<500?52:30,bottom=H-42,plot=W-left-right;
@@ -111,19 +114,27 @@ window.GonkaChart=(()=>{
   const priceHigh=ceiling(rows.reduce((a,r)=>r.price!==null&&r.price>a?r.price:a,0n));
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
   const y=(raw,high)=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
-  let svg='<svg class="market-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Цена линией и объём WGNK столбцами по дням. Цена в USDT за 1 000 WGNK. Стрелки выбирают день.">';
+  const kinds=side==="all"?["buy","sell"]:[side],names={buy:"Покупки",sell:"Продажи"};
+  let svg='<svg class="market-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Цена линией. '+(side==="all"?"Покупки и продажи WGNK раздельными частями дневных столбцов":names[side]+" WGNK столбцами по дням")+'. Цена в USDT за 1 000 WGNK. Стрелки выбирают день.">';
   svg+='<text class="chart-unit price-axis" x="'+left+'" y="14">USDT / 1 000 WGNK</text><text class="chart-unit volume-axis" x="'+(W-right)+'" y="'+(W<500?33:14)+'" text-anchor="end">Объём · WGNK</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
    svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text class="price-axis" x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(priceHigh*BigInt(i)/4n,9))+'</text><text class="volume-axis" x="'+(W-right+9)+'" y="'+(py+4)+'">'+escape(axis(volumeHigh*BigInt(i)/4n,9))+'</text>';
   }
   const barWidth=Math.max(1,Math.min(24,plot/rows.length*.65));
-  rows.forEach((r,i)=>{if(r.volume>0n)svg+='<rect class="market-volume" x="'+(x(i)-barWidth/2)+'" y="'+y(r.volume,volumeHigh)+'" width="'+barWidth+'" height="'+(bottom-y(r.volume,volumeHigh))+'" rx="1"/>';});
+  rows.forEach((r,i)=>{
+   let base=0n;
+   kinds.forEach(kind=>{
+    const volume=r[kind],total=base+volume;
+    if(volume>0n)svg+='<rect class="market-volume '+kind+'" data-kind="'+kind+'" data-date="'+r.date+'" data-raw="'+volume+'" x="'+(x(i)-barWidth/2)+'" y="'+y(total,volumeHigh)+'" width="'+barWidth+'" height="'+(y(base,volumeHigh)-y(total,volumeHigh))+'" rx="1"><title>'+fullDate(r.date)+' · '+names[kind]+': '+escape(exact(volume,9))+' WGNK</title></rect>';
+    base=total;
+   });
+  });
   let segment=[];
   const draw=()=>{
    if(!segment.length)return;
    svg+='<path class="market-price" d="'+segment.map((i,j)=>(j?"L":"M")+x(i).toFixed(2)+","+y(rows[i].price,priceHigh).toFixed(2)).join(" ")+'"/>';
-   if(segment.length===1)svg+='<circle cx="'+x(segment[0])+'" cy="'+y(rows[segment[0]].price,priceHigh)+'" r="3" fill="var(--accent)"/>';
+   if(segment.length===1)svg+='<circle cx="'+x(segment[0])+'" cy="'+y(rows[segment[0]].price,priceHigh)+'" r="3" fill="var(--market-price)"/>';
    segment=[];
   };
   rows.forEach((r,i)=>{if(r.price===null)draw();else segment.push(i);});draw();
@@ -142,10 +153,12 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
    const dot=cursor.querySelector("circle");dot.setAttribute("cx",px);dot.setAttribute("cy",r.price===null?bottom:y(r.price,priceHigh));dot.setAttribute("visibility",r.price===null?"hidden":"visible");
-   tooltip.innerHTML='<span>'+fullDate(r.date)+'</span><strong>Цена: '+(r.price===null?"нет сделок":escape(exact(r.price,9)))+'</strong><span>USDT за 1 000 WGNK · средневзвешенная</span><strong>Объём: '+escape(exact(r.volume,9))+' <small>WGNK</small></strong><span>Исполнений: '+r.events.toLocaleString("ru-RU")+'</span>';
+   tooltip.innerHTML='<span>'+fullDate(r.date)+'</span><strong>Цена: '+(r.price===null?"нет сделок":escape(exact(r.price,9)))+'</strong><span>USDT за 1 000 WGNK · средневзвешенная</span>'+
+    '<div class="market-tooltip-sides">'+kinds.map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(r[kind],9))+' WGNK</b><small>'+escape(exact(r[kind+"Quote"],6))+' USDT · '+(kind==="buy"?r.buys:r.sales).toLocaleString("ru-RU")+' исп.</small></div>').join("")+'</div>'+
+    '<strong>Объём: '+escape(exact(r.volume,9))+' <small>WGNK</small></strong><span>Исполнений: '+r.events.toLocaleString("ru-RU")+'</span>';
    tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
-   tooltip.style.top=(top+8)+"px";
+   tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
   }
   const hide=()=>{cursor.setAttribute("visibility","hidden");tooltip.hidden=true;};
   const pointer=event=>{

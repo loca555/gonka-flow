@@ -25,13 +25,21 @@ const path=require("node:path");
   assert.equal(BigInt(all.summary.pooled_raw)+BigInt(all.summary.outside_raw)+BigInt(all.summary.burned_raw),BigInt(all.summary.minted_raw));
   assert.equal(BigInt(all.summary.sold_raw)+BigInt(all.summary.bought_raw),BigInt(all.summary.volume_raw));
   assert(all.summary.sales_count>0&&all.summary.buys_count>0);
+  for(const key of ["sold_raw","bought_raw","sale_quote_raw","buy_quote_raw"]){
+   assert.equal(all.daily.reduce((sum,d)=>sum+BigInt(d[key]),0n),BigInt(all.summary[key]));
+  }
+  for(const d of all.daily){
+   assert.equal(BigInt(d.raw),BigInt(d.sold_raw)+BigInt(d.bought_raw));
+   assert.equal(BigInt(d.quote_raw),BigInt(d.sale_quote_raw)+BigInt(d.buy_quote_raw));
+   assert.equal(d.events,d.buys_count+d.sales_count);
+  }
   assert(bridge.items.every(e=>e.finalized&&!e.native_side_checked));
   async function action(run,route,match=()=>true,settle="main"){
    const [response]=await Promise.all([page.waitForResponse(r=>{
     const u=new URL(r.url());return u.pathname===route&&r.status()===200&&match(u.searchParams);
    }),run()]);
    const data=await response.json();
-   if(route.endsWith("flows")){
+   if(route.endsWith("flows")||route.includes("/address/")){
     await page.waitForFunction(mode=>document.getElementById(mode==="address"?"address-dialog":"sales-search").getAttribute("aria-busy")==="false",settle);
    }else if(route.endsWith("bridge")&&data.ready){
     await page.waitForFunction(d=>document.getElementById("mint-table").dataset.order===d.sort&&
@@ -88,22 +96,41 @@ const path=require("node:path");
   assert(mintDates.includes(await page.evaluate(ts=>date(ts),chosen.first_mint_ts)));
   assert(mintDates.includes(await page.evaluate(ts=>date(ts),chosen.last_mint_ts)));
   await page.screenshot({path:path.join(out,"minters-updated-light.png")});
-  const trades=await action(()=>button.click(),"/api/mints/flows",p=>p.get("side")==="all"&&p.get("q")===chosen.address,"address");
+  const addressRoute="/api/mints/address/"+chosen.address;
+  const trades=await action(()=>button.click(),addressRoute,()=>true,"address");
   assert.equal(await page.locator("#address-dialog").isVisible(),true);
   assert.equal(new URL(page.url()).hash,"#minters");
   assert(trades.trades.every(e=>e.actor===chosen.address&&e.attribution==="initiator_net"));
   assert.equal(await page.locator("#address-link").getAttribute("href"),"https://etherscan.io/address/"+chosen.address);
   assert((await page.locator("#address-metrics").innerText()).includes("Куплено"));
   assert((await page.locator("#address-metrics").innerText()).includes("Продано"));
+  assert.equal(await page.locator("#address-balance").innerText(),await page.evaluate(value=>amount(value),trades.address_balance.amount));
+  assert.equal(trades.address_balance.height,trades.snapshot.height);
+  assert.equal(trades.trades.length,trades.total);assert.equal(trades.has_more,false);
+  assert.equal(await page.locator("#address-rows tr").count(),trades.total);
+  assert.equal(await page.locator("#address-prev,#address-next,#address-page").count(),0);
   for(const field of ["time","kind","amount","quote","price","pool","tx"]){
-   const data=await action(()=>page.locator('#address-trades-table th[data-sort="'+field+'"] button').click(),"/api/mints/flows",
-    p=>p.get("q")===chosen.address&&p.get("sort").startsWith(field+"_"),"address");
+   const data=await action(()=>page.locator('#address-trades-table th[data-sort="'+field+'"] button').click(),addressRoute,
+    p=>p.get("sort").startsWith(field+"_"),"address");
    assert.equal(data.offset,0);assert.equal(data.total,trades.total);
+   assert.equal(data.trades.length,data.total);
   }
   if(trades.total>25){
-   const next=await action(()=>page.locator("#address-next").click(),"/api/mints/flows",p=>p.get("q")===chosen.address&&p.get("offset")==="25","address");
-   assert.equal(next.offset,25);assert.equal(next.summary.sales_count,trades.summary.sales_count);
+   await page.locator(".address-table").hover();await page.mouse.wheel(0,550);
+   await page.waitForFunction(()=>document.querySelector(".address-table").scrollTop>100);
+   const scroll=await page.locator(".address-table").evaluate(e=>e.scrollTop);
+   await action(()=>page.locator("#address-refresh").click(),addressRoute,()=>true,"address");
+   assert.equal(await page.locator(".address-table").evaluate(e=>e.scrollTop),scroll);
   }
+  const savedBalance=await page.locator("#address-balance").innerText();
+  await page.route("**"+addressRoute+"?*",route=>route.fulfill({status:503,body:"test outage"}));
+  await page.locator("#address-refresh").click();
+  await page.waitForFunction(()=>document.getElementById("address-status").textContent.startsWith("Не удалось"));
+  assert.equal(await page.locator("#address-balance").innerText(),savedBalance);
+  assert.equal(await page.locator("#address-rows tr").count(),trades.total);
+  await page.unroute("**"+addressRoute+"?*");
+  await action(()=>page.locator("#address-refresh").click(),addressRoute,()=>true,"address");
+  await page.locator("#address-dialog").evaluate(d=>{d.scrollTop=0;});
   await page.screenshot({path:path.join(out,"address-trades-light.png")});
   await page.keyboard.press("Escape");assert.equal(await page.locator("#address-dialog").isVisible(),false);
   await switchView("bridge");
@@ -130,23 +157,82 @@ const path=require("node:path");
   await switchView("trading");
   assert.equal(await page.locator(".transactions").isVisible(),false);
   assert.equal(await page.locator("#trading-view").isVisible(),true);
+  const chartData=await action(()=>page.locator("#sales-reset").click(),"/api/mints/flows",p=>p.get("side")==="all");
   await page.locator("#sales-chart svg").scrollIntoViewIfNeeded();
   assert(await page.locator("#sales-chart .market-price").count()>0);
   assert(await page.locator("#sales-chart .market-volume").count()>0);
+  assert(await page.locator("#sales-chart .market-volume.buy").count()>0);
+  assert(await page.locator("#sales-chart .market-volume.sell").count()>0);
+  const fills=await page.locator("#sales-chart .market-volume").evaluateAll(bars=>Object.fromEntries(bars.map(b=>[b.dataset.kind,getComputedStyle(b).fill])));
+  assert.notEqual(fills.buy,fills.sell);
   assert.equal(await page.locator("[data-sales-chart]").count(),0);
   await page.locator("#sales-chart svg").focus();await page.locator("#sales-chart svg").press("End");
   assert.match(await page.locator("#sales-chart .chart-tooltip").innerText(),/Цена:/);
   assert.match(await page.locator("#sales-chart .chart-tooltip").innerText(),/Объём:/);
+  assert.match(await page.locator("#sales-chart .chart-tooltip").innerText(),/Покупки/);
+  assert.match(await page.locator("#sales-chart .chart-tooltip").innerText(),/Продажи/);
+  async function checkBreakdowns(data){
+   assert.equal(await page.locator("#flow-volume-breakdown").isVisible(),data.side==="all");
+   if(data.side!=="all")return;
+   for(const [id,buy,sell,format] of [["volume","bought","sold","amount"],["quote","buy_quote","sale_quote","amount"],
+     ["price","buy_average_price","sale_average_price","price"]]){
+    for(const [side,key] of [["buy",buy],["sell",sell]]){
+     const expected=await page.evaluate(({value,format})=>format==="price"?price(value):amount(value),{value:data.summary[key],format});
+     assert.equal(await page.locator('#flow-'+id+'-breakdown [data-trade-kind="'+side+'"] b').innerText(),expected);
+    }
+   }
+  }
+  await checkBreakdowns(chartData);
+  const bars=await page.locator("#sales-chart .market-volume").evaluateAll(items=>items.map(b=>({kind:b.dataset.kind,date:b.dataset.date,raw:b.dataset.raw})));
+  for(const day of chartData.daily){
+   for(const [kind,key] of [["buy","bought_raw"],["sell","sold_raw"]]){
+    assert.equal(bars.filter(b=>b.kind===kind&&b.date===day.date).reduce((sum,b)=>sum+BigInt(b.raw),0n),BigInt(day[key]));
+   }
+  }
+  const chartFixtures=await page.evaluate(()=>{
+   const host=document.createElement("div");host.id="chart-fixture";host.style.width="320px";document.body.append(host);
+   try{
+    const day={date:"2026-07-01",raw:"100000000000",quote_raw:"20000000",price_raw:"200000000000",
+     bought_raw:"75000000000",sold_raw:"25000000000",buy_quote_raw:"15000000",sale_quote_raw:"5000000",buys_count:3,sales_count:1,events:4};
+    GonkaChart.renderMarket(host,[day,{...day,date:"2026-07-03"}]);
+    const one=host.querySelector(".market-volume.buy"),two=host.querySelector(".market-volume.sell");
+    const stack=Math.abs(Number(two.getAttribute("y"))+Number(two.getAttribute("height"))-Number(one.getAttribute("y")))<.01;
+    const ratio=Number(one.getAttribute("height"))/Number(two.getAttribute("height"));
+    const gaps=host.querySelectorAll(".market-price").length;
+    host.querySelector("svg").dispatchEvent(new KeyboardEvent("keydown",{key:"Home"}));
+    host.querySelector("svg").dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowRight"}));
+    const gapTooltip=host.querySelector(".chart-tooltip").textContent;
+    GonkaChart.renderMarket(host,[{...day,sold_raw:"0",raw:day.bought_raw}],{side:"buy"});
+    const buyOnly=host.querySelectorAll(".market-volume.buy").length===1&&!host.querySelector(".market-volume.sell");
+    GonkaChart.renderMarket(host,[]);
+    return {stack,ratio,gaps,gapTooltip,buyOnly,empty:!host.querySelector("svg")};
+   }finally{host.remove();}
+  });
+  assert.equal(chartFixtures.stack,true);assert.equal(chartFixtures.ratio,3);
+  assert.equal(chartFixtures.gaps,2);assert.match(chartFixtures.gapTooltip,/нет сделок/);
+  assert.equal(chartFixtures.buyOnly,true);assert.equal(chartFixtures.empty,true);
+  await page.locator(".sales-metrics").screenshot({path:path.join(out,"trade-breakdowns-light.png")});
   await page.locator(".sales-chart-panel").screenshot({path:path.join(out,"market-combined-light.png")});
   const q="0x30dcdc27753d626f371ae2a18c5bb2a404a9ce40";
   await page.locator("#sales-query").fill(q);
   const found=await action(()=>page.getByRole("button",{name:"Найти продажи",exact:true}).click(),"/api/mints/flows",p=>p.get("q")===q&&p.get("side")==="sell");
   assert(found.total>=4&&found.trades.every(e=>e.kind==="sell"&&e.actor===q));
+  await checkBreakdowns(found);
+  assert.equal(await page.locator("#sales-chart .market-volume.buy").count(),0);
+  assert.equal(await page.locator('[data-chart-side="buy"]').isVisible(),false);
   await page.locator("#sales-query").fill("");
   const buys=await action(()=>page.getByRole("button",{name:"Найти покупки",exact:true}).click(),"/api/mints/flows",p=>p.get("side")==="buy"&&!p.get("q"));
   assert(buys.total>0&&buys.trades.every(e=>e.kind==="buy"));
+  await checkBreakdowns(buys);
+  assert.equal(await page.locator("#sales-chart .market-volume.sell").count(),0);
+  assert.equal(await page.locator('[data-chart-side="sell"]').isVisible(),false);
+  const filtered=await action(()=>page.locator("#sales-period").selectOption("168"),"/api/mints/flows",p=>p.get("hours")==="168");
+  assert.equal(filtered.hours,168);
+  const together=await action(()=>page.getByRole("button",{name:"Все сделки",exact:true}).click(),"/api/mints/flows",p=>p.get("side")==="all"&&p.get("hours")==="168");
+  await checkBreakdowns(together);
   const reset=await action(()=>page.locator("#sales-reset").click(),"/api/mints/flows",p=>p.get("side")==="all"&&!p.get("q"));
   assert(reset.summary.sales_count>0&&reset.summary.buys_count>0);
+  await checkBreakdowns(reset);
   assert.equal(await page.locator("#trades-table-title").innerText(),"Торговля");
   for(const field of ["time","kind","actor","amount","quote","price","pool","tx"]){
    const data=await action(()=>page.locator('#trades-table th[data-sort="'+field+'"] button').click(),"/api/mints/flows",p=>p.get("sort").startsWith(field+"_")&&p.get("side")==="all");
@@ -162,6 +248,7 @@ const path=require("node:path");
   await page.unroute("**/api/mints/flows?*");
   await action(()=>page.locator("#sales-reset").click(),"/api/mints/flows");
   await page.locator("#theme-toggle").click();
+  await page.locator(".sales-metrics").screenshot({path:path.join(out,"trade-breakdowns-dark.png")});
   await page.locator(".sales-chart-panel").screenshot({path:path.join(out,"market-combined-dark.png")});
   await page.setViewportSize({width:390,height:844});
   await switchView("bridge");
@@ -171,11 +258,16 @@ const path=require("node:path");
   assert.equal(await page.locator("#mints-view").isVisible(),false);
   await page.screenshot({path:path.join(out,"trading-tab-mobile.png")});
   await page.locator(".sales-chart-panel").screenshot({path:path.join(out,"market-combined-mobile.png")});
+  await page.locator("#sales-chart svg").focus();await page.locator("#sales-chart svg").press("End");
+  assert(await page.locator("#sales-chart .chart-tooltip").evaluate(e=>e.getBoundingClientRect().right<=innerWidth));
+  await page.locator(".sales-chart-panel").screenshot({path:path.join(out,"market-tooltip-mobile.png")});
+  await page.locator(".sales-metrics").screenshot({path:path.join(out,"trade-breakdowns-mobile.png")});
   assert(await page.evaluate(()=>document.body.scrollWidth<=innerWidth));
   await switchView("minters");
   await page.screenshot({path:path.join(out,"minters-updated-mobile.png")});
-  await action(()=>page.locator('#minter-rows [data-flow-address="'+chosen.address+'"]').click(),"/api/mints/flows",p=>p.get("q")===chosen.address,"address");
+  await action(()=>page.locator('#minter-rows [data-flow-address="'+chosen.address+'"]').click(),addressRoute,()=>true,"address");
   assert(await page.locator("#address-dialog").evaluate(d=>d.scrollWidth<=d.clientWidth));
+  assert(await page.locator("#address-dialog").evaluate(d=>d.getBoundingClientRect().height<=innerHeight));
   await page.screenshot({path:path.join(out,"address-trades-mobile.png")});
   await page.locator("#address-close").click();
   await page.reload();await page.locator("#minter-rows tr").first().waitFor();
