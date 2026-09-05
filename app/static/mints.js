@@ -49,14 +49,19 @@ function configureTableSort(id,sort,onChange){
  setTableSort(id,sort);
 }
 function showView(){
- const minters=location.hash==="#minters";
- el("mints-view").hidden=minters;el("minters-view").hidden=!minters;
+ if(location.hash==="#mints")history.replaceState(null,"",location.pathname+"#bridge");
+ const view=location.hash==="#minters"?"minters":["#bridge","#method"].includes(location.hash)?"bridge":"trading";
+ const panels={bridge:"mints-view",trading:"trading-view",minters:"minters-view"};
+ Object.entries(panels).forEach(([name,id])=>{el(id).hidden=name!==view;});
  document.querySelectorAll("[data-view]").forEach(link=>{
-  const active=link.dataset.view===(minters?"minters":"mints");
+  const active=link.dataset.view===view;
   link.classList.toggle("nav-active",active);
   if(active)link.setAttribute("aria-current","page");else link.removeAttribute("aria-current");
  });
- if(!minters&&state.data)renderChart(state.data);
+ if(view==="bridge"&&state.data)renderChart(state.data);
+ if(location.hash==="#method")el("method").scrollIntoView({block:"start"});
+ else if(state.view!==view)window.scrollTo(0,0);
+ state.view=view;
  window.dispatchEvent(new Event("gonka:view"));
 }
 function renderCoverage(d){
@@ -80,6 +85,7 @@ function renderMetrics(d){
  el("metric-events").textContent=count(d.summary.events)+" событий чеканки";
 }
 function renderChart(d){
+ if(el("mints-view").hidden)return;
  GonkaChart.render(el("mint-chart"),{points:d.daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
   complete:d.coverage.complete,type:state.chartType||"line",title:"Чеканка WGNK по дням",countLabel:"Выпусков"});
  el("chart-window").textContent=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным";
@@ -143,7 +149,7 @@ document.addEventListener("click",async e=>{
  const detail=e.target.closest("[data-tx]");
  if(detail)details(detail.dataset.tx,Number(detail.dataset.log));
 });
-history.replaceState(null,"",location.pathname+(["#method","#mints","#minters"].includes(location.hash)?location.hash:"#mints"));
+history.replaceState(null,"",location.pathname+(["#method","#bridge","#trading","#mints","#minters"].includes(location.hash)?location.hash:"#trading"));
 document.querySelectorAll("[data-chart-type]").forEach(button=>button.addEventListener("click",()=>{
  state.chartType=button.dataset.chartType;
  document.querySelectorAll("[data-chart-type]").forEach(b=>b.setAttribute("aria-pressed",String(b===button)));

@@ -41,6 +41,7 @@
   });
  }
  function renderChart(data){
+  if(ui("trading-view").hidden)return;
   ui("sales-chart-title").textContent="Цена и объём "+(data.side==="all"?"торгов":data.side==="buy"?"покупок":"продаж");
   GonkaChart.renderMarket(ui("sales-chart"),data.daily);
   ui("sales-chart-note").textContent="Средневзвешенная цена: USDT за 1 000 WGNK · объём: WGNK";
@@ -66,11 +67,12 @@
   ui("minter-rows").innerHTML=rows.map(r=>'<tr><td>'+addr(r.address)+'</td><td class="mint-dates" data-last-mint="'+r.last_mint_ts+'"><span title="'+clock(r.first_mint_ts)+'">Первая · '+date(r.first_mint_ts)+'</span><small title="'+clock(r.last_mint_ts)+'">Последняя · '+date(r.last_mint_ts)+'</small></td><td class="numeric" data-raw="'+r.minted_raw+'">'+esc(fmt(r.minted))+'</td><td class="numeric" data-balance="'+esc(r.balance)+'">'+esc(fmt(r.balance))+'</td><td class="numeric" data-raw="'+r.sales_raw+'">'+esc(fmt(r.sold))+'</td><td class="numeric">'+esc(price(r.average_price))+'</td><td>'+count(r.sales_count)+'</td></tr>').join("");
  }
  function render(data){
-  const snapshot=data.snapshot,summary=data.summary,buy=data.side==="buy",all=data.side==="all";
+  const summary=data.summary,buy=data.side==="buy",all=data.side==="all";
   if(!data.ready)ui("sales-result").textContent="Сверенный снимок ещё не готов. Сделки пока не показаны.";
-  ui("flow-loading").textContent=!data.ready?(data.status.error?"Повторяем проверку: "+data.status.error:"Проверяем пулы и сверяем историю переводов с totalSupply…"):
-   "Снимок #"+count(snapshot.height)+" · "+date(snapshot.ts)+" "+clock(snapshot.ts)+" · "+(data.coverage.complete?"история без пропусков":"догоняем "+count(data.coverage.missing)+" блоков")+
-   (data.status.error?" · RPC: "+data.status.error:"");
+  const warning=!data.ready?(data.status.error?"Повторяем проверку торговых данных: "+data.status.error:"Загружаем торговые данные…"):
+   data.status.error?"Свежие торговые данные временно недоступны. Показаны последние проверенные значения.":
+   data.now-data.snapshot.checked_at>180?"Торговые данные обновляются. Показаны последние проверенные значения.":"";
+  ui("trade-status").textContent=warning;ui("trade-status").hidden=!warning;
   ui("flow-content").hidden=!data.ready;
   if(!data.ready)return;
   const noun=all?"Торговля":buy?"Покупки":"Продажи";
@@ -122,7 +124,8 @@
    const data=await response.json();if(id!==flow.request)return;
    flow.data=data;render(data);
   }catch(error){if(id===flow.request){
-   ui("flow-loading").textContent="Нет свежего ответа по пулам и сделкам. Последние данные сохранены. "+(error.name==="AbortError"?"Таймаут.":error.message);
+   ui("trade-status").textContent="Нет свежего ответа по пулам и сделкам. Последние данные сохранены. "+(error.name==="AbortError"?"Таймаут.":error.message);
+   ui("trade-status").hidden=false;
    ui("sales-result").textContent="Поиск не выполнен. Ниже сохранён предыдущий результат. Повторите запрос.";
   }}
   finally{clearTimeout(timer);if(id===flow.request){flow.loading=false;ui("sales-search").setAttribute("aria-busy","false");}}
