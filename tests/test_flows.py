@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 from app.codec import blank
 from app.config import TOKEN, USDT, ZERO, SEED_POOLS
 from app.db import Database
-from app.flows import analysis, balances, event_rows, price_raw, FlowCollector
+from app.flows import analysis, balances, event_rows, price_raw, FlowCollector, bridge_listing
 from app.mints import initialize, save_batch, listing
 from app.timezones import local_day, local_time, TIME_ZONE
 
@@ -66,6 +66,39 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(analysis(self.db)["minters"][0]["sold"],"30")
         self.assertEqual(analysis(self.db,limit=1,offset=1)["sales"][0]["height"],3)
 
+    def test_minter_dates_only_include_final_mints_through_snapshot(self):
+        first=analysis(self.db)["minters"][0]
+        self.assertEqual((first["first_mint_ts"],first["last_mint_ts"],first["mint_count"]),
+                         (block(1)["ts"],block(1)["ts"],1))
+        self.db.save_batch("ethereum",11,14,[
+            event(11,"bridge_mint",5,ZERO,A),
+            {**event(12,"bridge_mint",7,ZERO,A),"finalized":0},
+            event(13,"bridge_mint",8,ZERO,A)], [block(h) for h in range(11,15)])
+        result=analysis(self.db,hours=24,q="0x"+"f"*40,side="buy")["minters"][0]
+        self.assertEqual((result["first_mint_ts"],result["last_mint_ts"],result["mint_count"]),
+                         (block(1)["ts"],block(11)["ts"],2))
+        self.assertEqual(result["minted"],"105")
+
+    def test_address_all_trades_separates_sides_and_pages_full_history(self):
+        self.db.conn.execute("UPDATE events SET meta=? WHERE kind='buy'",(json.dumps({"attribution":"initiator_net"}),))
+        self.db.conn.commit()
+        result=analysis(self.db,q=A,side="all",limit=2)
+        s=result["summary"]
+        self.assertEqual((result["total"],s["sold"],s["bought"],s["sale_quote"],s["buy_quote"]),(3,"40","10","18","4"))
+        self.assertEqual((s["sales_count"],s["buys_count"],s["sale_average_price"],s["buy_average_price"]),(2,1,"0.45","0.4"))
+        self.assertEqual(s["average_price"],"0.44")
+        self.assertEqual(result["sales"],[])
+        self.assertEqual([e["kind"] for e in result["trades"]],["sell","buy"])
+        self.assertTrue(result["has_more"])
+        page=analysis(self.db,q=A,side="all",limit=2,offset=2)
+        self.assertEqual([e["height"] for e in page["trades"]],[3])
+        self.assertEqual(page["summary"],s)
+        self.assertEqual([e["kind"] for e in analysis(self.db,q=A,side="all",sort="kind_asc")["trades"]],["buy","sell","sell"])
+        self.db.conn.execute("UPDATE events SET meta=? WHERE kind='buy'",(json.dumps({"attribution":"initiator_only"}),))
+        self.db.conn.commit()
+        self.assertEqual(analysis(self.db,q=A,side="all")["total"],2)
+        self.assertEqual(analysis(self.db,q="0x"+"f"*40,side="all")["total"],0)
+
     def test_partial_history_does_not_support_a_newer_snapshot(self):
         self.db.conn.execute("DELETE FROM ranges WHERE chain='ethereum'")
         self.db._range("ethereum",1,5);self.db._range("ethereum",7,12);self.db.conn.commit()
@@ -73,6 +106,27 @@ class FlowTests(unittest.TestCase):
         self.assertFalse(result["ready"])
         self.assertFalse(result["coverage"]["complete"])
         self.assertIsNone(result["summary"])
+        self.assertFalse(bridge_listing(self.db,minimum=0)["ready"])
+
+    def test_bridge_feed_includes_mints_burns_not_transfers_or_swaps(self):
+        data=bridge_listing(self.db,minimum=0)
+        self.assertTrue(data["ready"])
+        self.assertEqual(data["total"],2)
+        self.assertEqual([e["kind"] for e in data["items"]],["bridge_burn","bridge_mint"])
+        self.assertEqual([e["address"] for e in data["items"]],[A,A])
+        self.assertEqual([e["amount"] for e in data["items"]],["5","100"])
+        self.assertTrue(all(e["finalized"] and not e["native_side_checked"] for e in data["items"]))
+        self.assertEqual(bridge_listing(self.db,minimum=6)["total"],1)
+        self.assertEqual(bridge_listing(self.db,minimum=0,q="0x"+"f"*40)["total"],0)
+        self.assertEqual(bridge_listing(self.db,minimum=0,q=A,limit=1,offset=1)["items"][0]["kind"],"bridge_mint")
+        for field in ("time","kind","recipient","amount","tx","status"):
+            asc=bridge_listing(self.db,minimum=0,sort=field+"_asc")["items"]
+            desc=bridge_listing(self.db,minimum=0,sort=field+"_desc")["items"]
+            self.assertEqual(asc,list(reversed(desc)))
+        self.db.save_batch("ethereum",11,13,[
+            {**event(11,"bridge_burn",1,A,ZERO),"finalized":0},
+            event(13,"bridge_burn",2,A,ZERO)],[block(h) for h in range(11,14)])
+        self.assertEqual(bridge_listing(self.db,minimum=0)["total"],2)
 
     def test_uint256_price_and_ledger_remain_exact(self):
         self.assertEqual(price_raw(12*10**6,30*UNIT),400000000000)

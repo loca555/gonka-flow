@@ -16,13 +16,14 @@ from .indexer import Indexer
 from .analytics import overview, hosts, rankings, bridges
 from .holders import holders_list,address_page,ETH_ADDRESS,GNK_ADDRESS
 from .mints import MintIndexer, listing as mint_listing, public_event as mint_event, TOKEN as MINT_TOKEN
-from .flows import analysis as flow_analysis
+from .flows import analysis as flow_analysis, bridge_listing
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
 
 STATIC = Path(__file__).parent / "static"
 MINT_SORT_PATTERN = "^(newest|oldest|largest|(time|recipient|amount|tx|status)_(asc|desc))$"
-TRADE_SORT_PATTERN = "^(time|actor|amount|quote|price|pool|tx)_(asc|desc)$"
+TRADE_SORT_PATTERN = "^(time|kind|actor|amount|quote|price|pool|tx)_(asc|desc)$"
+BRIDGE_SORT_PATTERN = "^(newest|oldest|largest|(time|kind|recipient|amount|tx|status)_(asc|desc))$"
 
 def create_app(settings=None):
     cfg = settings or Settings()
@@ -109,7 +110,7 @@ def create_app(settings=None):
     async def mint_flows(request:Request,hours:int=Query(0,ge=0,le=175200),
                          q:str=Query("",max_length=66,pattern="^(|0x[0-9a-fA-F]{1,64})$"),
                          limit:int=Query(25,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000),
-                         side:str=Query("sell",pattern="^(sell|buy)$"),
+                         side:str=Query("sell",pattern="^(sell|buy|all)$"),
                          sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN)):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
         key=("flows",hours,q.lower(),limit,offset,side,sort)
@@ -117,6 +118,34 @@ def create_app(settings=None):
         if key not in cache or time.time()-cache[key][0]>8:
             cache[key]=(time.time(),flow_analysis(request.app.state.db,hours,q.lower(),limit,offset,side,sort))
         return cache[key][1]
+
+    @app.get("/api/mints/bridge")
+    async def bridge_feed(request:Request,minimum:int=Query(10000,ge=0,le=10**12),
+                          hours:int=Query(0,ge=0,le=175200),
+                          q:str=Query("",max_length=66,pattern="^(|0x[0-9a-fA-F]{1,64})$"),
+                          sort:str=Query("newest",pattern=BRIDGE_SORT_PATTERN),
+                          limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000)):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        key=("bridge",minimum,hours,q.lower(),sort,limit,offset)
+        if len(cache)>1000: cache.clear()
+        if key not in cache or time.time()-cache[key][0]>3:
+            cache[key]=(time.time(),bridge_listing(request.app.state.db,minimum,hours,q.lower(),sort,limit,offset))
+        return cache[key][1]
+
+    @app.get("/api/mints/bridge/export.csv")
+    async def bridge_export(request:Request,minimum:int=Query(10000,ge=0,le=10**12),
+                            sort:str=Query("newest",pattern=BRIDGE_SORT_PATTERN)):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        data=bridge_listing(request.app.state.db,minimum=minimum,sort=sort,limit=50000)
+        if not data["ready"]: raise HTTPException(503,"Сверенный снимок моста ещё не готов")
+        if data["has_more"]: raise HTTPException(413,"Слишком много событий для одного CSV")
+        output=io.StringIO()
+        fields=["kind","time_local","address","amount","amount_raw","tx_hash","log_index","height","finalized"]
+        writer=csv.DictWriter(output,fieldnames=fields);writer.writeheader()
+        for e in data["items"]:
+            writer.writerow({k:local_time(e["ts"]) if k=="time_local" else e[k] for k in fields})
+        return Response(output.getvalue(),media_type="text/csv",
+                        headers={"Content-Disposition":'attachment; filename="wgnk-bridge.csv"'})
 
     @app.get("/api/mints/tx/{tx_hash}")
     async def mint_transaction(request:Request,tx_hash:str):

@@ -41,6 +41,41 @@ def balances(rows):
             result[e["src"]]-=quantity;result[e["dst"]]+=quantity
     return result,minted,burned
 
+def bridge_listing(db,minimum=10000,hours=0,q="",sort="newest",limit=50,offset=0):
+    """One row per explicit WGNKMinted/WGNKBurned event, never its ERC-20 duplicate."""
+    deployment=db.get("mints:deployment")
+    target=db.get("mints:status",{}).get("finalized_height")
+    snapshot=db.get("flow:snapshot")
+    result={"ready":False,"now":int(time.time()),"timezone":TIME_ZONE,"snapshot":snapshot,
+            "coverage":{"complete":False,"missing":None},"items":[],"total":0,
+            "offset":offset,"limit":limit,"has_more":False,"sort":sort,"minimum":minimum,
+            "hours":hours,"q":q,"native_side_checked":False}
+    if not deployment or not target: return result
+    start=deployment["height"];end=history_end(db,start,target)
+    result["coverage"]={"start":start,"head":target,"indexed_height":end,
+                        "complete":end==target,"missing":max(0,target-end)}
+    if not snapshot or snapshot["height"]>end: return result
+    items=[]
+    for r in db.conn.execute("""SELECT * FROM events WHERE chain='ethereum' AND finalized=1
+            AND kind IN ('bridge_mint','bridge_burn') AND height BETWEEN ? AND ?""",(start,snapshot["height"])):
+        e=dict(r);address=e["dst"] if e["kind"]=="bridge_mint" else e["src"]
+        if int(e["amount_raw"])<minimum*10**9 or (hours and e["ts"]<result["now"]-hours*3600): continue
+        if q and not any(q in v for v in (address,e["tx_hash"],e["request_key"])): continue
+        meta=json.loads(e["meta"])
+        items.append({"kind":e["kind"],"address":address,"recipient":address,"ts":e["ts"],
+            "tx_hash":e["tx_hash"],"log_index":e["idx"],"height":e["height"],"block_hash":e["block_hash"],
+            "amount_raw":e["amount_raw"],"amount":tokens(e["amount_raw"]),"finalized":True,
+            "request_id":e["request_key"] if e["kind"]=="bridge_mint" else "",
+            "epoch_id":str(meta.get("epoch","")),"native_side_checked":False})
+    order={"newest":"time_desc","oldest":"time_asc","largest":"amount_desc"}.get(sort,sort)
+    field,direction=order.rsplit("_",1)
+    keys={"time":lambda e:e["ts"],"recipient":lambda e:e["address"],"kind":lambda e:e["kind"],
+          "amount":lambda e:int(e["amount_raw"]),"tx":lambda e:e["tx_hash"],"status":lambda e:e["height"]}
+    if field not in keys or direction not in ("asc","desc"): raise ValueError("Invalid bridge sort")
+    items.sort(key=lambda e:(keys[field](e),e["height"],e["log_index"],e["tx_hash"]),reverse=direction=="desc")
+    result.update(ready=True,total=len(items),items=items[offset:offset+limit],has_more=offset+limit<len(items))
+    return result
+
 class FlowCollector:
     def __init__(self,owner):
         self.owner,self.db,self.net=owner,owner.db,owner.net
@@ -139,9 +174,9 @@ class FlowCollector:
         return 15
 
 def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
-    if side not in ("sell","buy"): raise ValueError("Invalid trade side")
+    if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
     field,direction=sort.rsplit("_",1)
-    if field not in ("time","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
+    if field not in ("time","kind","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
         raise ValueError("Invalid trade sort")
     now=int(time.time())
     deployment=db.get("mints:deployment")
@@ -166,8 +201,12 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     recipient_data={}
     for e in rows:
         if e["kind"]=="bridge_mint":
-            r=recipient_data.setdefault(e["dst"],{"address":e["dst"],"minted_raw":0,"sales_raw":0,"quote_raw":0,"sales_count":0})
+            r=recipient_data.setdefault(e["dst"],{"address":e["dst"],"minted_raw":0,"sales_raw":0,"quote_raw":0,
+                "sales_count":0,"mint_count":0,"first_mint_ts":e["ts"],"last_mint_ts":e["ts"]})
             r["minted_raw"]+=int(e["amount_raw"])
+            r["mint_count"]+=1
+            r["first_mint_ts"]=min(r["first_mint_ts"],e["ts"])
+            r["last_mint_ts"]=max(r["last_mint_ts"],e["ts"])
     for e in all_sales:
         meta=json.loads(e["meta"])
         if e["actor"] in recipient_data and meta.get("attribution")=="initiator_net":
@@ -179,7 +218,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "minted":tokens(r["minted_raw"]),"sold":tokens(r["sales_raw"]),"balance":tokens(ledger.get(r["address"],0)),
             "quote":tokens(r["quote_raw"],6),"average_price":tokens(price_raw(r["quote_raw"],r["sales_raw"]),12) if r["sales_raw"] else None})
     selected=[]
-    all_trades=[e for e in rows if e["kind"]==side and e["pool"] in pools]
+    all_trades=[e for e in rows if e["kind"] in (("sell","buy") if side=="all" else (side,)) and e["pool"] in pools]
     for e in all_trades:
         meta=json.loads(e["meta"])
         if hours and e["ts"]<now-hours*3600: continue
@@ -189,13 +228,17 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             elif q not in e["tx_hash"]: continue
         selected.append({**e,"meta":meta})
     # Sort the full filtered history before pagination; prices compare exact ratios.
-    keys={"time":lambda e:e["ts"],"actor":lambda e:e["actor"],
+    keys={"time":lambda e:e["ts"],"kind":lambda e:e["kind"],"actor":lambda e:e["actor"],
           "amount":lambda e:int(e["amount_raw"]),"quote":lambda e:int(e["quote_raw"]),
           "price":lambda e:Fraction(int(e["quote_raw"]),int(e["amount_raw"])),
           "pool":lambda e:(pools[e["pool"]]["fee"],e["pool"]),"tx":lambda e:e["tx_hash"]}
     selected.sort(key=lambda e:(keys[field](e),e["height"],e["idx"],e["tx_hash"]),reverse=direction=="desc")
     sold=sum(int(e["amount_raw"]) for e in selected)
     quote=sum(int(e["quote_raw"]) for e in selected)
+    sides={kind:{"raw":0,"quote":0,"count":0} for kind in ("sell","buy")}
+    for e in selected:
+        total=sides[e["kind"]]
+        total["raw"]+=int(e["amount_raw"]);total["quote"]+=int(e["quote_raw"]);total["count"]+=1
     pooled=sum(int(p["balance_raw"]) for p in pools.values())
     supply=int(snapshot["supply_raw"])
     liquidity_added=sum(int(e["amount_raw"]) for e in rows if e["kind"]=="liquidity_add" and e["pool"] in pools)
@@ -212,8 +255,13 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
         "pooled":tokens(pooled),"outside_pools":tokens(supply-pooled),"pooled_raw":str(pooled),
         "outside_raw":str(supply-pooled),"minted_raw":str(minted),"burned_raw":str(burned),
         "volume":tokens(sold),"volume_raw":str(sold),
-        "sold":tokens(sold if side=="sell" else 0),"sold_raw":str(sold if side=="sell" else 0),
-        "bought":tokens(sold if side=="buy" else 0),"bought_raw":str(sold if side=="buy" else 0),
+        "sold":tokens(sides["sell"]["raw"]),"sold_raw":str(sides["sell"]["raw"]),
+        "bought":tokens(sides["buy"]["raw"]),"bought_raw":str(sides["buy"]["raw"]),
+        "sale_quote":tokens(sides["sell"]["quote"],6),"buy_quote":tokens(sides["buy"]["quote"],6),
+        "sale_quote_raw":str(sides["sell"]["quote"]),"buy_quote_raw":str(sides["buy"]["quote"]),
+        "sales_count":sides["sell"]["count"],"buys_count":sides["buy"]["count"],
+        "sale_average_price":tokens(price_raw(sides["sell"]["quote"],sides["sell"]["raw"]),12) if sides["sell"]["raw"] else None,
+        "buy_average_price":tokens(price_raw(sides["buy"]["quote"],sides["buy"]["raw"]),12) if sides["buy"]["raw"] else None,
         "quote":tokens(quote,6),"quote_raw":str(quote),
         "average_price":tokens(price_raw(quote,sold),12) if sold else None,
         "transactions":len({e["tx_hash"] for e in selected}),"swaps":len(selected),

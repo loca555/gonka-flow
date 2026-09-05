@@ -210,7 +210,15 @@ class APITests(unittest.TestCase):
                 html=client.get("/").text
                 self.assertIn("mints.js",html)
                 self.assertNotIn("/static/app.js",html)
-                self.assertIn("Сторона GNK отключена",html)
+                self.assertIn("Минтеры",html)
+                self.assertIn("Лента мост",html)
+                self.assertNotIn('id="search-form"',html)
+                self.assertNotIn('class="filter-panel"',html)
+                self.assertIn('class="connection-status"',html)
+                self.assertEqual(client.get("/api/mints/flows?side=all&sort=kind_asc").status_code,200)
+                self.assertEqual(client.get("/api/mints/bridge?minimum=0").status_code,200)
+                self.assertEqual(client.get("/api/mints/bridge?sort=unsafe_desc").status_code,422)
+                self.assertEqual(client.get("/api/mints/bridge/export.csv?minimum=0").status_code,503)
 
 
 if __name__=="__main__": unittest.main()
