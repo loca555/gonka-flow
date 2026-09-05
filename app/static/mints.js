@@ -8,12 +8,12 @@ function amount(value){
  return BigInt(whole).toLocaleString("ru-RU");
 }
 const compact=value=>amount(value);
-// Display prices per 1,000 WGNK so sub-USDT prices remain useful without decimal digits.
+// USDT per one WGNK; exact integer rounding with a decimal point, no float.
 function price(value){
  if(value===null||value===undefined)return "—";
  const [whole,fraction=""]=String(value).split(".");
- const scaled=BigInt(whole)*1000n+BigInt((fraction+"000").slice(0,3));
- return scaled===0n&&/[1-9]/.test(whole+fraction)?"< 1":scaled.toLocaleString("ru-RU");
+ const raw=BigInt(whole)*1000000000000n+BigInt(fraction.padEnd(12,"0").slice(0,12));
+ return GonkaChart.formatPrice(raw);
 }
 const short=(v,n=8)=>v.slice(0,n)+"…"+v.slice(-6);
 const date=ts=>new Date(ts*1000).toLocaleDateString("ru-RU",{timeZone:"Asia/Nicosia",day:"2-digit",month:"2-digit",year:"numeric"});

@@ -82,3 +82,4 @@
  .minter-report{padding:14px}.minter-report summary{font-size:12px}.minter-report summary span{display:block;margin:5px 0 0 15px}
  #market-flows>.section-heading h2{font-size:25px}
 }
+.native-route.native-balance-card{grid-template-columns:minmax(180px,1fr) minmax(0,2fr);margin:14px 0}.native-balance-card .amount-value{display:inline-block;font-size:30px;margin:6px 8px 0 0}.native-balance-card>div:last-child{text-align:left}.native-balance-card p{margin:4px 0;font-size:12px;line-height:1.6}.native-balance-card .native-disclaimer{font-size:11px}@media(max-width:600px){.native-route.native-balance-card{grid-template-columns:1fr}}

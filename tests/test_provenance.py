@@ -14,7 +14,7 @@ from app.config import Settings, TOKEN, ESCROW
 from app.db import Database
 from app.mints import MintIndexer, initialize, save_batch
 from app.provenance import (verify_link, save_link, overview, indexed_incoming, save_page,
-                            sync_state, incoming_history, coins)
+                            sync_state, incoming_history, coins, save_balance, balance_state, balance_height)
 
 A = 'gonka1gcrt8wraadkw5nmn03ggqd7qrt4rcy02zp4a6x'
 B = 'gonka1fg0cq9hvcx0dejnp7q38zfmp00q87g2xw2xxtx'
@@ -95,6 +95,36 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(coins('1ngonka,20ibc/AA'),1)
         with self.assertRaises(ValueError):coins('1.5ngonka')
 
+    def test_current_balance_is_not_lifetime_incoming_and_preserves_exact_zero(self):
+        save_page(self.db,A,page([tx()]))
+        self.assertIsNone(incoming_history(self.db,A)['address_balance'])
+        raw=str(2**100+123456789)
+        save_balance(self.db,A,{'denom':'ngonka','amount':raw},123,1788640000)
+        data=incoming_history(self.db,A)
+        self.assertEqual(data['address_balance']['amount_raw'],raw)
+        self.assertNotEqual(data['address_balance']['amount_raw'],data['amount_raw'])
+        self.assertEqual(data['address_balance']['scope'],'bank_balance')
+        self.assertEqual(data['address_balance']['height'],123)
+        save_balance(self.db,A,{'denom':'ngonka','amount':'0'},124)
+        self.assertEqual(incoming_history(self.db,A)['address_balance']['amount'],'0')
+
+    def test_bad_or_older_balance_does_not_replace_saved_snapshot(self):
+        save_balance(self.db,A,{'denom':'ngonka','amount':'123'},10)
+        before=balance_state(self.db,A)
+        for coin,height in [({},11),({'denom':'usdt','amount':'0'},11),({'denom':'ngonka','amount':123},11),
+                ({'denom':'ngonka','amount':'-1'},11),({'denom':'ngonka','amount':'1.1'},11),
+                ({'denom':'ngonka','amount':'0'},9),({'denom':'ngonka','amount':'124'},10),
+                ({'denom':'ngonka','amount':'0'},True)]:
+            with self.assertRaises(ValueError):save_balance(self.db,A,coin,height)
+            self.assertEqual(balance_state(self.db,A),before)
+
+    def test_balance_height_requires_real_consistent_response_headers(self):
+        self.assertEqual(balance_height({'x-cosmos-block-height':'123'}),123)
+        self.assertEqual(balance_height({'grpc-metadata-x-cosmos-block-height':'123'}),123)
+        for headers in [{},{'x-cosmos-block-height':'0'},{'x-cosmos-block-height':'oops'},
+                {'x-cosmos-block-height':'123','grpc-metadata-x-cosmos-block-height':'124'}]:
+            with self.assertRaises(ValueError):balance_height(headers)
+
     def test_multiple_real_transfers_and_unknown_sender_are_preserved(self):
         item=tx();events=json.loads(item['events'])
         events+=copy.deepcopy(events);item['events']=events
@@ -155,6 +185,7 @@ class ProvenanceTests(unittest.TestCase):
         from app.seed import export_provenance
         args=fixture();save_batch(self.db,100,100,[args[0]],[]);save_link(self.db,verify_link(*args))
         save_page(self.db,A,page([tx(h) for h in range(200,100,-1)],more=True))
+        save_balance(self.db,A,{'denom':'ngonka','amount':'987654321'},123)
         # Foreign/private data in the working DB must not leak through a JSON copy.
         value=json.loads(self.db.conn.execute('SELECT value FROM gonka_incoming LIMIT 1').fetchone()[0])
         value['private_note']='DO_NOT_PUBLISH'
@@ -168,6 +199,8 @@ class ProvenanceTests(unittest.TestCase):
             self.assertEqual(overview(target)['verified'],1)
             self.assertEqual(incoming_history(target,A)['total'],100)
             self.assertEqual(sync_state(target,A)['offset'],90)
+            self.assertEqual(incoming_history(target,A)['address_balance']['amount_raw'],'987654321')
+            self.assertEqual(balance_state(target,A)['next_check'],0)
             self.assertEqual(target.conn.execute('SELECT COUNT(*) FROM gonka_address_sync').fetchone()[0],1)
             for r in target.conn.execute('SELECT value FROM gonka_incoming'):
                 self.assertNotIn('DO_NOT_PUBLISH',r[0])
@@ -176,12 +209,14 @@ class ProvenanceTests(unittest.TestCase):
     def test_persistent_database_resumes_page_after_reopen(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'cache.sqlite3';db=Database(path);initialize(db)
-            save_page(db,A,page([tx(h) for h in range(200,100,-1)],more=True));db.close()
+            save_page(db,A,page([tx(h) for h in range(200,100,-1)],more=True))
+            save_balance(db,A,{'denom':'ngonka','amount':'987654321'},123);db.close()
             db=Database(path);initialize(db)
             try:
                 self.assertEqual(sync_state(db,A)['offset'],90)
                 save_page(db,A,page([tx(h) for h in range(110,95,-1)],offset=90))
                 self.assertEqual(incoming_history(db,A)['total'],105)
+                self.assertEqual(incoming_history(db,A)['address_balance']['amount_raw'],'987654321')
             finally:db.close()
 
     def test_bundled_address_cache_is_available_before_any_network_search(self):
@@ -204,6 +239,7 @@ class ProvenanceTests(unittest.TestCase):
                     self.assertEqual(data['amount_raw'],str(sum(int(e['amount_raw']) for e in data['items'])))
                     self.assertEqual(data['history']['next_check'],0)
                 self.assertEqual(total,manifest['gonka_incoming'])
+                self.assertEqual(db.conn.execute('SELECT COUNT(*) FROM gonka_address_balances').fetchone()[0],manifest.get('gonka_balances',0))
                 self.assertEqual(db.conn.execute("SELECT COUNT(*) FROM events WHERE chain!='ethereum'").fetchone()[0],0)
                 before=db.conn.execute('SELECT COUNT(*) FROM gonka_incoming').fetchone()[0]
             # A second application start must keep its existing cache.
@@ -237,7 +273,40 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
     async def test_incoming_does_not_query_any_unlinked_address(self):
         self.owner.provenance.request=AsyncMock(side_effect=AssertionError('no network'))
         await self.owner.provenance.incoming()
+        await self.owner.provenance.balances()
         self.owner.provenance.request.assert_not_called()
+
+    async def test_targeted_balance_worker_checks_chain_and_preserves_cache_on_failure(self):
+        import time
+        args=fixture();save_batch(self.db,100,100,[args[0]],[]);save_link(self.db,verify_link(*args))
+        collector=self.owner.provenance
+        collector.request=AsyncMock(side_effect=[{'result':{'node_info':{'network':'gonka-mainnet'},'sync_info':{'catching_up':False}}},
+            {'data':{'balance':{'denom':'ngonka','amount':'10000000'}},'height':123}])
+        await collector.balances()
+        data=incoming_history(self.db,A)
+        self.assertEqual(data['address_balance']['amount'],'0.01')
+        calls=collector.request.call_args_list
+        self.assertEqual(len(calls),2)
+        self.assertEqual(calls[1].args,('/chain-api/cosmos/bank/v1beta1/balances/'+A+'/by_denom',{'denom':'ngonka'}))
+        self.assertEqual(calls[1].kwargs,{'include_height':True})
+        await collector.balances();self.assertEqual(collector.request.await_count,2)
+        state=balance_state(self.db,A);state['next_check']=0
+        self.db.conn.execute('UPDATE gonka_address_balances SET value=? WHERE address=?',(json.dumps(state),A));self.db.conn.commit()
+        collector.balance_chain_checked=int(time.time());collector.request=AsyncMock(side_effect=RuntimeError('outage'))
+        await collector.balances()
+        data=incoming_history(self.db,A)
+        self.assertEqual(data['address_balance']['amount'],'0.01')
+        self.assertIn('outage',data['balance_status']['error'])
+        self.assertEqual(data['history'],sync_state(self.db,A))
+
+    async def test_wrong_balance_network_does_not_query_wallet_or_save_zero(self):
+        args=fixture();save_batch(self.db,100,100,[args[0]],[]);save_link(self.db,verify_link(*args))
+        collector=self.owner.provenance
+        collector.request=AsyncMock(return_value={'result':{'node_info':{'network':'wrong'},'sync_info':{'catching_up':False}}})
+        await collector.balances()
+        collector.request.assert_awaited_once()
+        data=incoming_history(self.db,A)
+        self.assertIsNone(data['address_balance']);self.assertTrue(data['balance_status']['error'])
 
     async def test_native_rpc_requests_only_selected_sparse_heights_and_caches(self):
         collector=self.owner.provenance

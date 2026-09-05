@@ -22,6 +22,7 @@ HASH = re.compile(r"[0-9a-fA-F]{64}")
 SOURCE = "https://rpc.gonka.gg"
 PAGE = 100
 OVERLAP = 10
+BALANCE_INTERVAL = 60
 
 
 def initialize(db):
@@ -40,6 +41,7 @@ def initialize(db):
         PRIMARY KEY(address,tx_hash,event_index));
       CREATE INDEX IF NOT EXISTS gonka_incoming_time ON gonka_incoming(address,ts DESC);
       CREATE TABLE IF NOT EXISTS gonka_address_sync(address TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS gonka_address_balances(address TEXT PRIMARY KEY,value TEXT NOT NULL);
     """)
 
 
@@ -302,6 +304,36 @@ def overview(db,address=None,through=None):
             "mining_attribution":"not_inferred","ownership_attribution":"not_inferred"}
 
 
+def balance_state(db,address):
+    row=db.conn.execute("SELECT value FROM gonka_address_balances WHERE address=?",(address,)).fetchone()
+    return json.loads(row[0]) if row else {"snapshot":None,"last_attempt":None,"next_check":0,"error":None}
+
+
+def balance_height(headers):
+    heights=[headers.get(k) for k in ("x-cosmos-block-height","grpc-metadata-x-cosmos-block-height") if headers.get(k)]
+    if not heights or any(not re.fullmatch(r"[1-9][0-9]*",str(h)) for h in heights) or len(set(heights))!=1:
+        raise ValueError("Источник не подтвердил высоту снимка баланса Gonka")
+    return int(heights[0])
+
+
+def save_balance(db,address,coin,height,checked_at=None):
+    """Keep exact bank balance, separate from historical receipts and module funds."""
+    now=int(time.time()) if checked_at is None else checked_at
+    if (not GNK.fullmatch(address) or not isinstance(coin,dict) or coin.get("denom")!="ngonka"
+            or not isinstance(coin.get("amount"),str) or not re.fullmatch(r"0|[1-9][0-9]*",coin["amount"])
+            or type(height) is not int or height<1 or type(now) is not int or now<1):
+        raise ValueError("Некорректный снимок баланса Gonka")
+    state=balance_state(db,address);old=state["snapshot"]
+    if old and (height<old["height"] or (height==old["height"] and coin["amount"]!=old["amount_raw"])):
+        raise ValueError("Устаревший или противоречивый снимок баланса Gonka")
+    state.update(snapshot={"address":address,"denom":"ngonka","amount_raw":coin["amount"],
+        "height":height,"checked_at":now,"source":SOURCE,"scope":"bank_balance"},
+        last_attempt=now,next_check=now+BALANCE_INTERVAL,error=None)
+    with db.conn:
+        db.conn.execute("INSERT OR REPLACE INTO gonka_address_balances VALUES(?,?)",(address,json.dumps(state)))
+    db.revision+=1
+
+
 def incoming_history(db,address,sort="time_desc"):
     field,direction = sort.rsplit("_",1)
     keys = {"time":lambda e:e["ts"],"amount":lambda e:int(e["amount_raw"]),
@@ -314,9 +346,13 @@ def incoming_history(db,address,sort="time_desc"):
     rows.sort(key=lambda e:(keys[field](e),e["height"],e["tx_hash"],e["event_index"]),reverse=direction=="desc")
     state = sync_state(db,address)
     total = sum(int(e["amount_raw"]) for e in rows)
+    balance=balance_state(db,address);snapshot=balance["snapshot"]
     return {"address":address,"items":[{**e,"amount":tokens(e["amount_raw"])} for e in rows],
             "total":len(rows),"amount_raw":str(total),"amount":tokens(total),"sort":sort,
             "history":state,"source":SOURCE,"full_chain_verified":False,
+            "address_balance":{**snapshot,"amount":tokens(snapshot["amount_raw"])} if snapshot else None,
+            "balance_status":{k:v for k,v in balance.items() if k!="snapshot"},
+            "balance_poll_seconds":BALANCE_INTERVAL,"now":int(time.time()),
             "index_head":db.get("provenance:index_head"),
             "coverage_note":"Поступления из адресной истории GonkaLabs. Завершение загрузки означает конец ленты эксплорера, не независимую проверку всей сети. Автоматические выплаты в событиях блока и неиндексированные получатели могут отсутствовать."}
 
@@ -330,8 +366,9 @@ class ProvenanceCollector:
         self.blocks = {}
         self.gateway_floor = 0
         self.modules = None
+        self.balance_chain_checked = 0
 
-    async def request(self,path,params=None,payload=None):
+    async def request(self,path,params=None,payload=None,include_height=False):
         # One shared limiter for bridge lookups and address history, independent
         # of Ethereum. No arbitrary URL or wallet is accepted from browser input.
         async with self.lock:
@@ -347,7 +384,7 @@ class ProvenanceCollector:
         result = response.json()
         if isinstance(result,dict) and result.get("error"):
             raise ValueError("GonkaLabs RPC вернул ошибку")
-        return result
+        return {"data":result,"height":balance_height(response.headers)} if include_height else result
 
     async def native_blocks(self,heights):
         heights=sorted(set(h for h in heights if h not in self.blocks))
@@ -448,6 +485,30 @@ class ProvenanceCollector:
         pending = self.db.conn.execute("SELECT COUNT(*) FROM gonka_link_attempts").fetchone()[0]
         self.owner.status("provenance:status",retrying=pending)
         return .2 if rows else 20
+
+    async def balances(self):
+        # Only existing bridge senders. Opening a UI/API never adds addresses.
+        now=int(time.time())
+        candidates=[(r[0],balance_state(self.db,r[0])) for r in self.db.conn.execute("SELECT DISTINCT gnk_address FROM gonka_mint_links")]
+        candidates=[(a,s) for a,s in candidates if s["next_check"]<=now]
+        if not candidates:return 3
+        address,state=min(candidates,key=lambda item:item[1].get("last_attempt") or 0)
+        try:
+            if now-self.balance_chain_checked>60:
+                status=(await self.request("/chain-rpc/status"))["result"]
+                if status["node_info"]["network"]!="gonka-mainnet" or status["sync_info"]["catching_up"]:
+                    raise ValueError("Источник баланса Gonka не синхронизирован с основной сетью")
+                self.balance_chain_checked=now
+            reply=await self.request("/chain-api/cosmos/bank/v1beta1/balances/"+address+"/by_denom",
+                                     {"denom":"ngonka"},include_height=True)
+            save_balance(self.db,address,reply["data"]["balance"],reply["height"])
+        except asyncio.CancelledError:raise
+        except Exception as error:
+            state.update(error=(type(error).__name__+": "+str(error))[:240],last_attempt=now,next_check=now+60)
+            with self.db.conn:
+                self.db.conn.execute("INSERT OR REPLACE INTO gonka_address_balances VALUES(?,?)",(address,json.dumps(state)))
+            self.db.revision+=1
+        return .2
 
     async def incoming(self):
         addresses = [r[0] for r in self.db.conn.execute("SELECT DISTINCT gnk_address FROM gonka_mint_links")]

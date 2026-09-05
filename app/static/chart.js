@@ -1,5 +1,12 @@
 /* Exact integer data; Number is used only for pixel coordinates. No remote chart library. */
 window.GonkaChart=(()=>{
+ function formatPrice(raw){
+  if(raw===null||raw===undefined)return "—";
+  const n=BigInt(raw),factor=1000000n,rounded=(n+factor/2n)/factor;
+  if(n>0n&&rounded===0n)return "< 0.000001";
+  const fraction=(rounded%factor).toString().padStart(6,"0").replace(/0+$/,"");
+  return (rounded/factor).toLocaleString("ru-RU")+(fraction?"."+fraction:"");
+ }
  const escape=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
  function exact(raw,decimals){
   const n=BigInt(raw),base=10n**BigInt(decimals);
@@ -115,11 +122,11 @@ window.GonkaChart=(()=>{
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
   const y=(raw,high)=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
   const kinds=side==="all"?["buy","sell"]:[side],names={buy:"Покупки",sell:"Продажи"};
-  let svg='<svg class="market-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Цена линией. '+(side==="all"?"Покупки и продажи WGNK раздельными частями дневных столбцов":names[side]+" WGNK столбцами по дням")+'. Цена в USDT за 1 000 WGNK. Стрелки выбирают день.">';
-  svg+='<text class="chart-unit price-axis" x="'+left+'" y="14">USDT / 1 000 WGNK</text><text class="chart-unit volume-axis" x="'+(W-right)+'" y="'+(W<500?33:14)+'" text-anchor="end">Объём · WGNK</text>';
+  let svg='<svg class="market-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Цена линией. '+(side==="all"?"Покупки и продажи WGNK раздельными частями дневных столбцов":names[side]+" WGNK столбцами по дням")+'. Цена в USDT за 1 WGNK. Стрелки выбирают день.">';
+  svg+='<text class="chart-unit price-axis" x="'+left+'" y="14">USDT / 1 WGNK</text><text class="chart-unit volume-axis" x="'+(W-right)+'" y="'+(W<500?33:14)+'" text-anchor="end">Объём · WGNK</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
-   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text class="price-axis" x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(priceHigh*BigInt(i)/4n,9))+'</text><text class="volume-axis" x="'+(W-right+9)+'" y="'+(py+4)+'">'+escape(axis(volumeHigh*BigInt(i)/4n,9))+'</text>';
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text class="price-axis" x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(formatPrice(priceHigh*BigInt(i)/4n))+'</text><text class="volume-axis" x="'+(W-right+9)+'" y="'+(py+4)+'">'+escape(axis(volumeHigh*BigInt(i)/4n,9))+'</text>';
   }
   const barWidth=Math.max(1,Math.min(24,plot/rows.length*.65));
   rows.forEach((r,i)=>{
@@ -153,7 +160,7 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
    const dot=cursor.querySelector("circle");dot.setAttribute("cx",px);dot.setAttribute("cy",r.price===null?bottom:y(r.price,priceHigh));dot.setAttribute("visibility",r.price===null?"hidden":"visible");
-   tooltip.innerHTML='<span>'+fullDate(r.date)+'</span><strong>Цена: '+(r.price===null?"нет сделок":escape(exact(r.price,9)))+'</strong><span>USDT за 1 000 WGNK · средневзвешенная</span>'+
+   tooltip.innerHTML='<span>'+fullDate(r.date)+'</span><strong>Цена: '+(r.price===null?"нет сделок":escape(formatPrice(r.price)))+'</strong><span>USDT за 1 WGNK · средневзвешенная</span>'+
     '<div class="market-tooltip-sides">'+kinds.map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(r[kind],9))+' WGNK</b><small>'+escape(exact(r[kind+"Quote"],6))+' USDT · '+(kind==="buy"?r.buys:r.sales).toLocaleString("ru-RU")+' исп.</small></div>').join("")+'</div>'+
     '<strong>Объём: '+escape(exact(r.volume,9))+' <small>WGNK</small></strong><span>Исполнений: '+r.events.toLocaleString("ru-RU")+'</span>';
    tooltip.hidden=false;
@@ -173,5 +180,5 @@ window.GonkaChart=(()=>{
    if(event.key==="Home")show(0);if(event.key==="End")show(rows.length-1);if(event.key==="Escape")hide();
   });
  }
- return {render,renderMarket,exact};
+ return {render,renderMarket,exact,formatPrice};
 })();

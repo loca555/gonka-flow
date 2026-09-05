@@ -200,7 +200,8 @@ class MintIndexer:
                     asyncio.create_task(self.loop("mints:history",self.history,2),name="wgnk_mints_history"),
                     asyncio.create_task(self.loop("flow:status",self.flows.run,15),name="wgnk_market_flow"),
                     asyncio.create_task(self.loop("provenance:status",self.provenance.links,20),name="gonka_bridge_links"),
-                    asyncio.create_task(self.loop("provenance:incoming",self.provenance.incoming,5),name="gonka_targeted_incoming")]
+                    asyncio.create_task(self.loop("provenance:incoming",self.provenance.incoming,5),name="gonka_targeted_incoming"),
+                    asyncio.create_task(self.loop("provenance:balances",self.provenance.balances,3),name="gonka_targeted_balances")]
 
     async def stop(self):
         for task in self.tasks: task.cancel()

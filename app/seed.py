@@ -16,7 +16,7 @@ from pathlib import Path
 from .db import Database
 from .mints import initialize, progress
 from .flows import analysis, balances, event_rows
-from .provenance import save_link, GNK, HASH
+from .provenance import save_link, save_balance, GNK, HASH
 from .codec import kh
 
 META_FIELDS = {"contract", "topic", "epoch", "sender", "recipient", "initiator",
@@ -46,6 +46,16 @@ def export_provenance(reader,db):
             raise ValueError('Seed bridge link does not match its final Ethereum mint')
         save_link(db,link);addresses.add(link['gnk_address'])
     for address in sorted(addresses):
+        if 'gonka_address_balances' in tables:
+            row=reader.execute('SELECT value FROM gonka_address_balances WHERE address=?',(address,)).fetchone()
+            snapshot=json.loads(row[0]).get('snapshot') if row else None
+            if snapshot:
+                if snapshot['address']!=address or snapshot['scope']!='bank_balance' or snapshot['source']!='https://rpc.gonka.gg':
+                    raise ValueError('Invalid public GNK balance snapshot')
+                save_balance(db,address,{'denom':snapshot['denom'],'amount':snapshot['amount_raw']},snapshot['height'],snapshot['checked_at'])
+                state=json.loads(db.conn.execute('SELECT value FROM gonka_address_balances WHERE address=?',(address,)).fetchone()[0])
+                state['next_check']=0
+                db.conn.execute('UPDATE gonka_address_balances SET value=? WHERE address=?',(json.dumps(state),address))
         for row in reader.execute('SELECT value FROM gonka_incoming WHERE address=?',(address,)):
             value=json.loads(row[0]);e={k:value[k] for k in INCOMING_FIELDS}
             if (e['address']!=address or e['source']!='gonkalabs_address_index'
@@ -126,6 +136,7 @@ def export_seed(source, destination):
                             "mints":db.conn.execute("SELECT COUNT(*) FROM wgnk_mints").fetchone()[0],
                             "gonka_links":db.conn.execute("SELECT COUNT(*) FROM gonka_mint_links").fetchone()[0],
                             "gonka_incoming":db.conn.execute("SELECT COUNT(*) FROM gonka_incoming").fetchone()[0],
+                            "gonka_balances":db.conn.execute("SELECT COUNT(*) FROM gonka_address_balances").fetchone()[0],
                             "gonka_scope":"Only native senders linked to the included WGNK mints; explorer coverage is not chain-complete proof"}
             finally:
                 db.close()

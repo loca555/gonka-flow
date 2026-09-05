@@ -11,6 +11,7 @@ window.GonkaProvenance=(()=>{
   dialog.insertBefore(trading,el('address-status'));trading.append(el('address-status'),el('address-data'));
   trading.insertAdjacentHTML('beforebegin','<div class="address-tabs" role="tablist" aria-label="Данные адреса"><button id="address-tab-trades" role="tab" aria-selected="true" aria-controls="address-trading-panel" data-address-tab="trades">Торговля WGNK</button><button id="address-tab-gonka" role="tab" aria-selected="false" aria-controls="address-gonka-panel" data-address-tab="gonka" tabindex="-1">Gonka · источник GNK</button></div>');
   trading.insertAdjacentHTML('afterend','<section id="address-gonka-panel" role="tabpanel" aria-labelledby="address-tab-gonka" hidden><p id="native-status" class="search-result" role="status" aria-live="polite"></p><div id="native-content" hidden><div id="native-sources" class="native-sources" aria-label="Отправители Gonka"></div><div id="native-route" class="native-route"></div><p class="native-disclaimer">Связь подтверждает перевод через мост, а не общую принадлежность адресов и не добычу GNK отправителем.</p><div class="native-heading"><div class="native-switch" role="group" aria-label="История Gonka"><button data-native-view="incoming" aria-pressed="true">Входящие GNK</button><button data-native-view="bridge" aria-pressed="false">Переводы в мост</button></div><a id="native-explorer" target="_blank" rel="noopener noreferrer">Адрес в эксплорере ↗</a></div><section id="native-incoming-view"><p id="native-history-status" class="search-result" role="status" aria-live="polite"></p><div id="native-history-summary" class="native-history-summary"></div><div class="table-container native-table" tabindex="0" aria-label="Входящие переводы Gonka, прокручиваемый список"><table id="native-incoming-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="sender" data-default="asc">Откуда</th><th data-sort="kind" data-default="asc">Тип поступления</th><th data-sort="amount" class="numeric">Сумма GNK</th><th data-sort="tx" data-default="asc">Транзакция / событие</th></tr></thead><tbody id="native-incoming-rows"></tbody></table></div><p id="native-coverage-note" class="native-disclaimer"></p></section><section id="native-bridge-view" hidden><p class="native-disclaimer">Одна строка — один проверенный перевод GNK → WGNK. Обе транзакции связаны идентификатором запроса моста.</p><div class="table-container native-table" tabindex="0" aria-label="Связанные транзакции моста"><table id="native-bridge-table"><thead><tr><th data-sort="time">Отправлено GNK</th><th data-sort="mint">Выпущено WGNK</th><th data-sort="amount" class="numeric">Сумма</th><th data-sort="native" data-default="asc">Транзакция Gonka</th><th data-sort="eth" data-default="asc">Транзакция Ethereum</th><th data-sort="request" data-default="asc">Запрос / эпоха</th></tr></thead><tbody id="native-bridge-rows"></tbody></table></div></section></div></section>');
+  el('native-route').insertAdjacentHTML('afterend','<section class="native-route native-balance-card" aria-label="Текущий баланс GNK"><div><small>ТЕКУЩИЙ БАЛАНС АДРЕСА</small><strong id="native-balance-value" class="amount-value">—</strong><span>GNK</span></div><div><p id="native-balance-status" role="status">Ожидаем снимок баланса…</p><p class="native-disclaimer">Баланс на адресе, не сумма поступлений. Средства в отдельных модулях вестинга и залога не включены.</p></div></section>');
   configureTableSort('native-incoming-table',native.sort,sort=>{native.sort=sort;if(native.history)renderHistory(native.history,true);});
   configureTableSort('native-bridge-table',native.bridgeSort,sort=>{native.bridgeSort=sort;renderBridges();});
   dialog.querySelectorAll('[data-address-tab]').forEach(button=>{
@@ -50,7 +51,19 @@ window.GonkaProvenance=(()=>{
   el('native-sources').innerHTML=data.sources.map(s=>'<button data-native-address="'+esc(s.address)+'" title="'+esc(s.address)+'" aria-pressed="'+(s.address===native.address)+'"><span class="mono">'+esc(short(s.address,12))+'</span><small>'+count(s.mints)+' выпусков · '+esc(amount(s.amount))+' GNK</small></button>').join('');
   el('native-route').innerHTML='<div><small>ОТПРАВИТЕЛЬ / GONKA</small><a class="mono" href="'+addressUrl(source.address)+'" target="_blank" rel="noopener noreferrer" title="'+esc(source.address)+'">'+esc(short(source.address,15))+' ↗</a></div><div class="native-route-amount"><strong>'+esc(amount(source.amount))+' <small>GNK → WGNK</small></strong><span>через мост · '+count(source.mints)+' выпусков</span></div><div><small>ПОЛУЧАТЕЛЬ / ETHEREUM</small><span class="mono" title="'+esc(native.eth)+'">'+esc(short(native.eth,15))+'</span></div>';
   el('native-explorer').href=addressUrl(native.address);
+  renderBalance(native.history?.address===native.address?native.history:null);
   renderBridges();renderView();
+ }
+ function renderBalance(data){
+  const balance=data?.address_balance,status=data?.balance_status;
+  const node=el('native-balance-value');
+  node.textContent=balance?amount(balance.amount):'—';
+  node.dataset.raw=balance?.amount_raw||'';
+  node.title=balance?balance.amount+' GNK':'';
+  const stale=balance&&(status?.error||data.now-balance.checked_at>180);
+  el('native-balance-status').textContent=balance?
+   (stale?'Сохранённый снимок · ':'')+'Блок #'+count(balance.height)+' · проверено '+date(balance.checked_at)+' '+clock(balance.checked_at)+(status?.error?' · обновление временно недоступно':''):
+   status?.error?'Баланс временно недоступен. Ошибка источника не означает ноль.':'Ожидаем снимок баланса…';
  }
  function renderBridges(){
   if(!native.data)return;
@@ -61,6 +74,7 @@ window.GonkaProvenance=(()=>{
   el('native-bridge-rows').innerHTML=rows.map(e=>'<tr><td>'+date(e.gnk_ts)+'<small>'+clock(e.gnk_ts)+'</small></td><td>'+date(e.eth_ts)+'<small>'+clock(e.eth_ts)+'</small></td><td class="numeric amount-value">'+esc(amount(e.amount))+'</td><td><a class="tx-link" href="'+nativeTx(e.gnk_tx_hash)+'" title="'+esc(e.gnk_tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.gnk_tx_hash))+' ↗</a><small>Блок #'+count(e.gnk_height)+'</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" title="'+esc(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Блок #'+count(e.eth_height)+'</small></td><td><span class="mono" title="'+esc(e.request_id)+'">'+esc(short(e.request_id))+'</span><small>Эпоха '+count(e.epoch_id)+' · подтверждено</small></td></tr>').join('');
  }
  function renderHistory(data,reset=false){
+  renderBalance(data);
   const table=el('native-incoming-view').querySelector('.native-table'),top=reset?0:table.scrollTop;
   const [field,direction]=native.sort.split('_'),sign=direction==='asc'?1:-1;
   const key=e=>({time:e.ts,amount:BigInt(e.amount_raw),sender:e.src,kind:e.kind,tx:e.tx_hash})[field];
@@ -86,7 +100,10 @@ window.GonkaProvenance=(()=>{
    if(!response.ok)throw new Error('HTTP '+response.status);
    const data=await response.json();if(id!==native.historyRequest||native.address!==address||native.eth!==eth||!dialog.open)return;
    renderHistory(data,!native.history);native.history=data;
-  }catch(error){if(id===native.historyRequest&&native.address===address&&native.eth===eth&&dialog.open)el('native-history-status').textContent='Не удалось прочитать историю. '+(native.history?'Сохранённые записи остаются ниже. ':'')+'Нажмите «Обновить». '+error.message;}
+  }catch(error){if(id===native.historyRequest&&native.address===address&&native.eth===eth&&dialog.open){
+   el('native-history-status').textContent='Не удалось прочитать историю. '+(native.history?'Сохранённые записи остаются ниже. ':'')+'Нажмите «Обновить». '+error.message;
+   if(native.history?.address_balance)el('native-balance-status').textContent+=' · нет свежего ответа, показан сохранённый баланс';
+  }}
   finally{clearTimeout(timer);}
  }
  async function refresh(){
