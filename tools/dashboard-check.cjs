@@ -236,7 +236,10 @@ const path=require("node:path");
   assert.equal(await page.locator("#trades-table-title").innerText(),"Торговля");
   for(const field of ["time","kind","actor","amount","quote","price","pool","tx"]){
    const data=await action(()=>page.locator('#trades-table th[data-sort="'+field+'"] button').click(),"/api/mints/flows",p=>p.get("sort").startsWith(field+"_")&&p.get("side")==="all");
-   assert.equal(data.total,reset.total);
+   // Live collection may advance the verified snapshot between sort requests.
+   if(data.snapshot.height===reset.snapshot.height)assert.equal(data.total,reset.total);
+   assert.equal(data.total,data.summary.swaps);
+   assert.equal(await page.locator("#sales-total").innerText(),await page.evaluate(value=>count(value),data.total));
   }
   assert.doesNotMatch((await page.locator("td.numeric").allTextContents()).join(" "),/\d[.,]\d/);
   const saved=await page.locator("#flow-sold").innerText();
