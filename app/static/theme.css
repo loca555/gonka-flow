@@ -1,0 +1,103 @@
+/* Shared chart tokens follow the palette without fetching or rebuilding data. */
+:root {
+  color-scheme: dark;
+  --chart-grid: #252f2a;
+  --chart-axis: #425146;
+  --weight-1: #c4ed7b; --weight-2: #a0cc76; --weight-3: #89b676;
+  --weight-4: #73a178; --weight-5: #64917b; --weight-6: #548180;
+  --weight-7: #477179; --weight-8: #3e6268; --weight-9: #425d58;
+  --weight-10: #3c5047; --weight-rest: #29362d;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6f2;
+  --surface: #ffffff;
+  --surface2: #edf1e9;
+  --line: #d8dfd5;
+  --text: #202b25;
+  --muted: #5f6e62;
+  --subtle: #687568;
+  --accent: #416d1e;
+  --buy: #187958;
+  --sell: #b94e38;
+  --eth: #616bb5;
+  --chart-grid: #e0e6dc;
+  --chart-axis: #a8b6a5;
+  --weight-1: #537d2f; --weight-2: #688d42; --weight-3: #7e9d56;
+  --weight-4: #8fab71; --weight-5: #73977a; --weight-6: #609080;
+  --weight-7: #5a8386; --weight-8: #698798; --weight-9: #849897;
+  --weight-10: #a4b2a2; --weight-rest: #dbe3d5;
+}
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  flex: none; min-width: 34px; height: 34px; padding: 0 10px;
+  color: var(--muted); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px;
+  font-size: 10px;
+}
+.theme-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.theme-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.theme-toggle .theme-sun { display: none; }
+[data-theme="light"] .theme-toggle .theme-sun { display: block; }
+[data-theme="light"] .theme-toggle .theme-moon { display: none; }
+.live-switch { flex: none; }
+.search { min-width: 0; }
+.chart-area svg text { fill: var(--subtle); }
+html { scrollbar-color: var(--line) var(--bg); }
+[data-theme="light"] .sidebar { background: #edf1e9; }
+[data-theme="light"] .brand-light,
+[data-theme="light"] .nav-item { color: var(--muted); }
+[data-theme="light"] .nav-item.active { background: #e0ebd3; color: var(--accent); }
+[data-theme="light"] .nav-item:hover { color: var(--text); }
+[data-theme="light"] .breadcrumb strong,
+[data-theme="light"] .chain-strip strong,
+[data-theme="light"] .metric-label { color: #415248; }
+[data-theme="light"] .search input::placeholder { color: var(--muted); }
+[data-theme="light"] .live-switch:not(.paused) { border-color: #bfcfb2; }
+[data-theme="light"] .pulse { box-shadow: 0 0 7px #416d1e30; }
+[data-theme="light"] .period-control .selected,
+[data-theme="light"] .segmented .selected { background: #e5efd9; }
+[data-theme="light"] .coverage-note { background: #f2f3e4; color: #5b693b; border-color: #d7ddbd; }
+[data-theme="light"] .coverage-note.complete { background: #e7f3eb; color: #2d6848; border-color: #c2dbc9; }
+[data-theme="light"] .status-dot.loading { background: #ac7623; }
+[data-theme="light"] .icon-button:hover { border-color: var(--accent); }
+[data-theme="light"] .coin { color: #fff; }
+[data-theme="light"] .route-line { border-color: #b9c6b2; }
+[data-theme="light"] th { background: #f0f3ed; }
+[data-theme="light"] td { color: #384c40; border-color: #e4e9e0; }
+[data-theme="light"] tbody tr:hover { background: #f6f8f3; }
+[data-theme="light"] .address { color: #476548; }
+[data-theme="light"] .address:hover { color: var(--accent); }
+[data-theme="light"] .badge { color: #4c6353; background: #e8eee5; }
+[data-theme="light"] .badge.buy,
+[data-theme="light"] .badge.completed { background: #e1f1e9; color: var(--buy); }
+[data-theme="light"] .badge.sell { background: #f9e8e3; color: var(--sell); }
+[data-theme="light"] .badge.bridge_lock,
+[data-theme="light"] .badge.bridge_mint,
+[data-theme="light"] .badge.bridge_burn,
+[data-theme="light"] .badge.bridge_release { background: #eceefa; color: #575f9b; }
+[data-theme="light"] .badge.reward_paid,
+[data-theme="light"] .badge.reward_vested,
+[data-theme="light"] .badge.vesting_unlock { background: #f6f0da; color: #80691d; }
+[data-theme="light"] .badge.provisional,
+[data-theme="light"] .badge.awaiting_counterpart { background: #fff1db; color: #8f5e12; }
+[data-theme="light"] .confirmed { color: #4d6d5a; }
+[data-theme="light"] .unconfirmed { color: #896822; }
+[data-theme="light"] .filter-pills .selected { border-color: #abc293; background: #e5efd9; }
+[data-theme="light"] .button-secondary { border-color: #c4d2be; background: #f0f5eb; color: #47603b; }
+[data-theme="light"] .button-secondary:hover { border-color: var(--accent); }
+[data-theme="light"] .notice { background: #edf3e5; border-color: #cbd9bf; }
+[data-theme="light"] .notice strong { color: #426131; }
+[data-theme="light"] .bridge-card a,
+[data-theme="light"] .method-bottom a { color: #456737; }
+[data-theme="light"] .share-bar { background: #e0e8d9; }
+[data-theme="light"] dialog { background: var(--surface); box-shadow: -25px 0 90px #29392925; }
+[data-theme="light"] dialog::backdrop { background: #23312655; }
+[data-theme="light"] pre { background: #f3f6ef; color: #48604c; }
+[data-theme="light"] .error-banner { background: #fff0e9; color: #953e28; border-color: #ebc1b4; }
+[data-theme="light"] .toast { background: #e6f0dc; color: #385728; border-color: #aec797; box-shadow: 0 7px 30px #29392918; }
+@media (max-width: 1180px) {
+  .theme-toggle .theme-caption { display: none; }
+  .theme-toggle { padding: 0; }
+}
+@media (max-width: 520px) { .topbar { gap: 9px; } }

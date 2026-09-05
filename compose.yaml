@@ -1,0 +1,37 @@
+services:
+  gonka-flow:
+    build: .
+    ports:
+      - "127.0.0.1:8790:8000"
+    environment:
+      INDEXER_ENABLED: ${INDEXER_ENABLED:-true}
+      APP_MODE: ${APP_MODE:-mints}
+      LOOKBACK_HOURS: ${LOOKBACK_HOURS:-24}
+      GONKA_START_HEIGHT: ${GONKA_START_HEIGHT:-0}
+      ETH_START_HEIGHT: ${ETH_START_HEIGHT:-0}
+      HISTORY_FROM: ${HISTORY_FROM:-}
+      POLL_SECONDS: ${POLL_SECONDS:-6}
+      NATIVE_BATCH: ${NATIVE_BATCH:-6}
+      GONKA_RPC_URLS: ${GONKA_RPC_URLS:-https://rpc.gonka.gg}
+      GONKA_ARCHIVE_RPC_URLS: ${GONKA_ARCHIVE_RPC_URLS:-https://node1.gonka.ai:8443/chain-rpc,https://node2.gonka.ai:8443/chain-rpc,https://node3.gonka.ai/chain-rpc}
+      NATIVE_HISTORY_BATCH: ${NATIVE_HISTORY_BATCH:-5}
+      ETH_RPC_URLS: ${ETH_RPC_URLS:-https://ethereum-rpc.publicnode.com,https://rpc.mevblocker.io}
+      ETH_ARCHIVE_RPC_URLS: ${ETH_ARCHIVE_RPC_URLS:-https://rpc.mevblocker.io}
+      ETH_RPC_INTERVAL: ${ETH_RPC_INTERVAL:-1}
+      ETH_HISTORY_BATCH: ${ETH_HISTORY_BATCH:-1000}
+      GONKA_URLS: ${GONKA_URLS:-https://node1.gonka.ai:8443,https://node3.gonka.ai,https://node2.gonka.ai:8443}
+    volumes:
+      - gonka-data:/data
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  gonka-data:

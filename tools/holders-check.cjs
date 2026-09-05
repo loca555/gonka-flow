@@ -1,0 +1,52 @@
+/* Verify the app in an isolated headless Chrome profile. */
+const { chromium } = require("playwright");
+const assert = require("node:assert/strict");
+const path = require("node:path");
+(async () => {
+  const browser = await chromium.launch({ headless: true, channel: "chrome" });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1040 }, colorScheme: "light" });
+    const errors = []; page.on("pageerror",e => errors.push(e.message));
+    const base = process.env.TEST_URL || "http://127.0.0.1:8790";
+    await page.goto(base + "/#holders");
+    await page.locator("#holders-body a.address").first().waitFor({ timeout: 30000 });
+    assert.equal(await page.locator("#holder-minimum").inputValue(),"10000");
+    await page.screenshot({ path:path.resolve("test-results/holders-light.png"),fullPage:true });
+    await page.locator("#holders-body a.address").first().click();
+    await page.waitForURL("**/#address/gonka*");
+    await page.locator("#profile-body tr").first().waitFor();
+    assert.equal(await page.locator("#view-address").isVisible(),true);
+    await page.reload();
+    await page.locator("#profile-address").filter({hasText:"gonka1"}).waitFor();
+    await page.locator("#profile-period").selectOption("24");
+    const profileResponse = page.waitForResponse(r=>r.url().includes("/api/addresses/")&&r.url().includes("kind=trades"));
+    await page.getByRole("button",{name:"Сделки",exact:true}).click();
+    assert.equal((await profileResponse).status(),200);
+    await page.getByRole("link",{name:"← К держателям",exact:true}).click();
+    const wgnkResponse=page.waitForResponse(r=>r.url().includes("/api/holders?asset=WGNK"));
+    await page.getByRole("button",{name:"WGNK",exact:true}).click();
+    const data=await (await wgnkResponse).json();
+    assert.equal(data.minimum,10000);
+    const sales=await page.request.get(base+"/api/rankings?mode=sell");
+    const seller=(await sales.json()).items[0];
+    assert(seller?.address);
+    await page.goto(base+"/#address/"+seller.address);
+    await page.locator("#profile-body .badge.sell").first().waitFor({timeout:30000});
+    assert.equal(await page.locator("#profile-period").inputValue(),"0");
+    await page.screenshot({ path:path.resolve("test-results/address-light.png"),fullPage:true });
+    await page.getByRole("button",{name:"Светлая тема",exact:true}).click();
+    await page.screenshot({ path:path.resolve("test-results/address-dark.png"),fullPage:false });
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:path.resolve("test-results/address-mobile.png"),fullPage:true});
+    const width=await page.evaluate(()=>({body:document.body.scrollWidth,viewport:innerWidth}));
+    assert(width.body<=width.viewport+1,JSON.stringify(width));
+    await page.getByRole("link",{name:"← К держателям",exact:true}).click();
+    await page.locator("#holder-minimum").fill("0");
+    const filter=page.waitForResponse(r=>r.url().includes("/api/holders?")&&r.url().includes("minimum=0"));
+    await page.locator("#holder-minimum").press("Tab");
+    assert.equal((await filter).status(),200);
+    await page.screenshot({path:path.resolve("test-results/holders-mobile.png"),fullPage:true});
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({ok:true,errors,defaultMinimum:10000,addressPages:true,viewport:width}));
+  } finally { await browser.close(); }
+})().catch(e=>{console.error(e);process.exitCode=1;});

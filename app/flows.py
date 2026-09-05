@@ -1,0 +1,226 @@
+"""Finalized WGNK market activity. No GNK calls, wallet census or price-service requests."""
+import asyncio
+import json
+import re
+import time
+from collections import defaultdict
+from fractions import Fraction
+from .codec import parse_eth_log, TRANSFER, SWAP, MINT, BURN, LP_MINT, LP_BURN
+from .config import TOKEN, USDT, ZERO, SEED_POOLS
+from .db import tokens
+from .timezones import TIME_ZONE, local_day, local_time
+
+def price_raw(quote, quantity, quote_decimals=6):
+    """USDT/WGNK at 12 decimal places, explicitly rounded down."""
+    return int(quote)*10**21//(int(quantity)*10**quote_decimals) if int(quantity)>0 else 0
+
+def history_end(db,start,head):
+    end=start-1
+    for row in db.conn.execute("SELECT lo,hi FROM ranges WHERE chain='ethereum' ORDER BY lo"):
+        if row["hi"]<start: continue
+        if row["lo"]>end+1: break
+        end=min(head,max(end,row["hi"]))
+        if end>=head: break
+    return end
+
+def event_rows(db,start,head):
+    return [dict(r) for r in db.conn.execute(
+        "SELECT * FROM events WHERE chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ? ORDER BY height,idx,id",
+        (start,head))]
+
+def balances(rows):
+    result=defaultdict(int);minted=burned=0
+    for e in rows:
+        quantity=int(e["amount_raw"])
+        if quantity<0: raise ValueError("Negative WGNK event amount")
+        if e["kind"]=="bridge_mint":
+            result[e["dst"]]+=quantity;minted+=quantity
+        elif e["kind"]=="bridge_burn":
+            result[e["src"]]-=quantity;burned+=quantity
+        elif e["kind"]=="transfer":
+            result[e["src"]]-=quantity;result[e["dst"]]+=quantity
+    return result,minted,burned
+
+class FlowCollector:
+    def __init__(self,owner):
+        self.owner,self.db,self.net=owner,owner.db,owner.net
+        self.pools={}
+
+    async def batch(self,lo,hi,archive=False):
+        topics=[TRANSFER,SWAP,MINT,BURN,LP_MINT,LP_BURN]
+        logs=await self.net.eth_logs({"fromBlock":hex(lo),"toBlock":hex(hi),
+            "address":[TOKEN]+list(self.pools),"topics":[topics]},archive=archive)
+        allowed={TOKEN,*self.pools}
+        for item in logs:
+            if (item.get("removed") or item["address"].lower() not in allowed
+                    or not item.get("topics") or item["topics"][0].lower() not in topics
+                    or not lo<=int(item["blockNumber"],16)<=hi):
+                raise ValueError("Unexpected WGNK market log")
+        heights=sorted({lo,hi}|{int(item["blockNumber"],16) for item in logs})
+        blocks=[]
+        for pos in range(0,len(heights),2):
+            blocks.extend(await asyncio.gather(*(self.owner.block(h,archive=archive) for h in heights[pos:pos+2])))
+        by_height={b["height"]:b for b in blocks}
+        receipts={}
+        for tx in sorted({r["transactionHash"].lower() for r in logs
+                          if r["address"].lower() in self.pools and r["topics"][0].lower()==SWAP}):
+            receipt=await self.net.eth("eth_getTransactionReceipt",[tx],archive=archive)
+            if receipt["transactionHash"].lower()!=tx or int(receipt["status"],16)!=1:
+                raise ValueError("Unsuccessful or conflicting swap receipt")
+            expected={int(r["logIndex"],16):r for r in logs if r["transactionHash"].lower()==tx
+                      and r["address"].lower() in self.pools and r["topics"][0].lower()==SWAP}
+            found={int(r["logIndex"],16):r for r in receipt["logs"]
+                   if r["address"].lower() in self.pools and r.get("topics") and r["topics"][0].lower()==SWAP}
+            if set(expected)!=set(found): raise ValueError("Missing pool swap in RPC response")
+            for index,item in expected.items():
+                if any(item[key]!=found[index][key] for key in ("address","data","topics","blockHash","transactionHash")):
+                    raise ValueError("Swap receipt does not match log")
+            receipts[tx]=receipt
+        events=[]
+        for item in logs:
+            block=by_height[int(item["blockNumber"],16)]
+            if item["blockHash"].lower()!=block["hash"]: raise ValueError("WGNK market block conflict")
+            receipt=receipts.get(item["transactionHash"].lower())
+            if receipt and (receipt["blockHash"].lower()!=block["hash"] or int(receipt["blockNumber"],16)!=block["height"]):
+                raise ValueError("WGNK swap receipt block conflict")
+            event=parse_eth_log(item,block,self.pools,receipt,True)
+            if event: events.append(event)
+        by_id={e["id"]:e for e in events}
+        if len(by_id)!=len(events): raise ValueError("Duplicate market events")
+        # Never erase already confirmed movements if a provider silently omits a log.
+        fields=("height","block_hash","ts","tx_hash","idx","kind","src","dst","actor","amount_raw","quote_raw","quote_asset","pool")
+        for old in self.db.conn.execute("SELECT * FROM events WHERE chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ?",(lo,hi)):
+            incoming=by_id.get(old["id"])
+            if not incoming or any(str(old[k])!=str(incoming[k]) for k in fields):
+                raise ValueError("Finalized market event conflict")
+        self.db.save_batch("ethereum",lo,hi,events,blocks)
+
+    async def snapshot(self,start,head):
+        header=await self.owner.block(head)
+        rows=event_rows(self.db,start,head)
+        ledger,minted,burned=balances(rows)
+        if any(v<0 for v in ledger.values()): raise ValueError("Incomplete WGNK balance ledger")
+        supply=int(await self.net.call(TOKEN,"totalSupply()",tag=hex(head)),16)
+        if minted-burned!=supply or sum(ledger.values())!=supply:
+            raise ValueError("WGNK supply does not reconcile with indexed mint/burn history")
+        pools=[]
+        for address,metadata in self.pools.items():
+            raw=int(await self.net.call(TOKEN,"balanceOf(address)",address[2:].zfill(64),tag=hex(head)),16)
+            if ledger.get(address,0)!=raw: raise ValueError("Pool balance does not reconcile with WGNK transfers")
+            pools.append({**metadata,"balance_raw":str(raw),"balance":tokens(raw)})
+        result={"height":head,"hash":header["hash"],"ts":header["ts"],"checked_at":int(time.time()),
+                "minted_raw":str(minted),"burned_raw":str(burned),"supply_raw":str(supply),
+                "pools":pools,"ledger_verified":True}
+        self.db.put("flow:snapshot",result)
+
+    async def run(self):
+        await self.owner.ready.wait()
+        if not self.pools:
+            verified={}
+            for address in SEED_POOLS:
+                metadata=await self.net.pool(address)
+                if metadata["quote"]!=USDT or metadata["quote_decimals"]!=6:
+                    raise ValueError("Expected WGNK/USDT seed pool")
+                verified[address]=metadata
+            self.pools=verified
+            self.db.put("flow:pools",verified)
+        start=self.db.get("mints:deployment")["height"]
+        head=self.db.get("mints:status",{}).get("finalized_height")
+        if head is None: return 5
+        end=history_end(self.db,start,head)
+        if end<head:
+            lo=end+1;hi=min(head,lo+self.owner.cfg.eth_history_batch-1)
+            await self.batch(lo,hi,archive=head-lo>500)
+            self.owner.status("flow:status",indexed_height=hi)
+            if hi<head: return .5
+        snapshot=self.db.get("flow:snapshot",{})
+        if snapshot.get("height")!=head or time.time()-snapshot.get("checked_at",0)>300:
+            await self.snapshot(start,head)
+        return 15
+
+def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
+    if side not in ("sell","buy"): raise ValueError("Invalid trade side")
+    field,direction=sort.rsplit("_",1)
+    if field not in ("time","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
+        raise ValueError("Invalid trade sort")
+    now=int(time.time())
+    deployment=db.get("mints:deployment")
+    status=db.get("flow:status",{})
+    target=db.get("mints:status",{}).get("finalized_height")
+    snapshot=db.get("flow:snapshot")
+    result={"now":now,"timezone":TIME_ZONE,"status":status,"snapshot":snapshot,"ready":False,
+            "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
+            "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
+            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],
+            "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
+    if not deployment or not target: return result
+    start=deployment["height"];end=history_end(db,start,target)
+    result["coverage"]={"start":start,"head":target,"indexed_height":end,
+        "complete":end==target,"missing":max(0,target-end)}
+    if not snapshot or snapshot["height"]>end: return result
+    cut=snapshot["height"]
+    rows=event_rows(db,start,cut)
+    ledger,minted,burned=balances(rows)
+    pools={p["address"]:p for p in snapshot["pools"]}
+    all_sales=[e for e in rows if e["kind"]=="sell" and e["pool"] in pools]
+    recipient_data={}
+    for e in rows:
+        if e["kind"]=="bridge_mint":
+            r=recipient_data.setdefault(e["dst"],{"address":e["dst"],"minted_raw":0,"sales_raw":0,"quote_raw":0,"sales_count":0})
+            r["minted_raw"]+=int(e["amount_raw"])
+    for e in all_sales:
+        meta=json.loads(e["meta"])
+        if e["actor"] in recipient_data and meta.get("attribution")=="initiator_net":
+            r=recipient_data[e["actor"]]
+            r["sales_raw"]+=int(e["amount_raw"]);r["quote_raw"]+=int(e["quote_raw"]);r["sales_count"]+=1
+    minters=[]
+    for r in sorted(recipient_data.values(),key=lambda r:(r["sales_raw"],r["minted_raw"]),reverse=True):
+        minters.append({**r,"minted_raw":str(r["minted_raw"]),"sales_raw":str(r["sales_raw"]),"quote_raw":str(r["quote_raw"]),
+            "minted":tokens(r["minted_raw"]),"sold":tokens(r["sales_raw"]),"balance":tokens(ledger.get(r["address"],0)),
+            "quote":tokens(r["quote_raw"],6),"average_price":tokens(price_raw(r["quote_raw"],r["sales_raw"]),12) if r["sales_raw"] else None})
+    selected=[]
+    all_trades=[e for e in rows if e["kind"]==side and e["pool"] in pools]
+    for e in all_trades:
+        meta=json.loads(e["meta"])
+        if hours and e["ts"]<now-hours*3600: continue
+        if q:
+            if re.fullmatch("0x[0-9a-f]{40}",q):
+                if e["actor"]!=q or meta.get("attribution")!="initiator_net": continue
+            elif q not in e["tx_hash"]: continue
+        selected.append({**e,"meta":meta})
+    # Sort the full filtered history before pagination; prices compare exact ratios.
+    keys={"time":lambda e:e["ts"],"actor":lambda e:e["actor"],
+          "amount":lambda e:int(e["amount_raw"]),"quote":lambda e:int(e["quote_raw"]),
+          "price":lambda e:Fraction(int(e["quote_raw"]),int(e["amount_raw"])),
+          "pool":lambda e:(pools[e["pool"]]["fee"],e["pool"]),"tx":lambda e:e["tx_hash"]}
+    selected.sort(key=lambda e:(keys[field](e),e["height"],e["idx"],e["tx_hash"]),reverse=direction=="desc")
+    sold=sum(int(e["amount_raw"]) for e in selected)
+    quote=sum(int(e["quote_raw"]) for e in selected)
+    pooled=sum(int(p["balance_raw"]) for p in pools.values())
+    supply=int(snapshot["supply_raw"])
+    liquidity_added=sum(int(e["amount_raw"]) for e in rows if e["kind"]=="liquidity_add" and e["pool"] in pools)
+    daily=defaultdict(lambda:{"raw":0,"quote":0,"events":0})
+    for e in selected:
+        day=daily[local_day(e["ts"])]
+        day["raw"]+=int(e["amount_raw"]);day["quote"]+=int(e["quote_raw"]);day["events"]+=1
+    for e in selected:
+        e["amount"]=tokens(e["amount_raw"]);e["quote"]=tokens(e["quote_raw"],6)
+        e["price"]=tokens(price_raw(e["quote_raw"],e["amount_raw"]),12)
+        e["time_local"]=local_time(e["ts"])
+        e["attribution"]=e["meta"].get("attribution","pool_only")
+    result.update(ready=True,summary={"minted":tokens(minted),"burned":tokens(burned),"supply":tokens(supply),
+        "pooled":tokens(pooled),"outside_pools":tokens(supply-pooled),"pooled_raw":str(pooled),
+        "outside_raw":str(supply-pooled),"minted_raw":str(minted),"burned_raw":str(burned),
+        "volume":tokens(sold),"volume_raw":str(sold),
+        "sold":tokens(sold if side=="sell" else 0),"sold_raw":str(sold if side=="sell" else 0),
+        "bought":tokens(sold if side=="buy" else 0),"bought_raw":str(sold if side=="buy" else 0),
+        "quote":tokens(quote,6),"quote_raw":str(quote),
+        "average_price":tokens(price_raw(quote,sold),12) if sold else None,
+        "transactions":len({e["tx_hash"] for e in selected}),"swaps":len(selected),
+        "liquidity_added":tokens(liquidity_added),"all_sales":len(all_sales)},
+        pools=list(pools.values()),trades=selected[offset:offset+limit],
+        sales=selected[offset:offset+limit] if side=="sell" else [],total=len(selected),
+        has_more=offset+limit<len(selected),minters=minters,
+        daily=[{"date":day,"raw":str(d["raw"]),"events":d["events"],
+                "price_raw":str(price_raw(d["quote"],d["raw"]))} for day,d in sorted(daily.items())])
+    return result

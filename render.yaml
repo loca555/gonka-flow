@@ -1,0 +1,32 @@
+# Free preview: no disk, database service, paid instance or paid cron.
+# Runtime SQLite is disposable; restart restores the bundled Ethereum archive.
+services:
+  - type: web
+    name: gonka-flow
+    runtime: docker
+    plan: free
+    region: frankfurt
+    numInstances: 1
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: APP_MODE
+        value: mints
+      - key: INDEXER_ENABLED
+        value: "true"
+      - key: LOAD_SEED_ARCHIVE
+        value: "true"
+      - key: DATA_DIR
+        value: /data
+      - key: HOST
+        value: 0.0.0.0
+      - key: POLL_SECONDS
+        value: "15"
+      - key: ETH_RPC_URLS
+        value: https://ethereum-rpc.publicnode.com,https://rpc.mevblocker.io
+      - key: ETH_ARCHIVE_RPC_URLS
+        value: https://ethereum-rpc.publicnode.com,https://rpc.mevblocker.io
+      - key: ETH_RPC_INTERVAL
+        value: "1.5"
+      - key: ETH_HISTORY_BATCH
+        value: "1000"
