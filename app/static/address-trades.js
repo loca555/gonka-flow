@@ -3,6 +3,9 @@ window.WgnkAddress=(()=>{
  const wallet={address:"",sort:"time_desc",request:0,data:null,loading:false,opener:null};
  document.body.insertAdjacentHTML("beforeend",'<dialog id="address-dialog" aria-labelledby="address-title"><div class="dialog-heading"><div><span class="eyebrow">WGNK / ВСЯ ИСТОРИЯ</span><h2 id="address-title">Покупки и продажи адреса</h2></div><button id="address-close" aria-label="Закрыть сделки адреса" autofocus>✕</button></div><div class="address-identity"><a id="address-link" class="mono" target="_blank" rel="noopener noreferrer"></a><button id="address-copy">Копировать</button></div><p id="address-status" class="search-result" role="status" aria-live="polite"></p><div id="address-data" hidden><section id="address-metrics" class="metrics address-metrics" aria-label="Баланс и итоги торговли адреса"></section><p class="flow-explanation">Только подтверждённый приток/отток WGNK у инициатора в двух пулах Uniswap V3. Покупки и продажи — валовой оборот, не прибыль. Переводы, чеканка и ликвидность не являются сделками. CEX, OTC и другие DEX не покрыты. Цены — USDT за 1 000 WGNK.</p><div class="table-container address-table" tabindex="0" aria-label="Все сделки адреса, прокручиваемый список"><table id="address-trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 000 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="address-rows"></tbody></table></div><p id="address-trade-count" class="address-trade-count"></p></div><div class="address-footer"><span>Вся история одним списком · прокрутка внутри таблицы</span><button id="address-refresh">Обновить сделки</button></div></dialog>');
  const dialog=el("address-dialog");
+ window.GonkaProvenance.mount(dialog);
+ el("address-title").textContent="История адреса";
+ el("address-refresh").textContent="Обновить";
  configureTableSort("address-trades-table",wallet.sort,sort=>{wallet.sort=sort;refresh(true);});
  el("address-close").addEventListener("click",()=>dialog.close());
  dialog.addEventListener("close",()=>{
@@ -10,7 +13,7 @@ window.WgnkAddress=(()=>{
   const opener=wallet.opener?.isConnected?wallet.opener:document.querySelector('#minter-rows [data-flow-address="'+wallet.address+'"]');
   opener?.focus({preventScroll:true});
  });
- el("address-refresh").addEventListener("click",()=>refresh());
+ el("address-refresh").addEventListener("click",()=>window.GonkaProvenance.isActive()?window.GonkaProvenance.refresh():refresh());
  el("address-copy").addEventListener("click",async()=>{
   try{await navigator.clipboard.writeText(wallet.address);el("address-copy").textContent="Скопировано";}
   catch{el("address-status").textContent="Копирование недоступно. Выделите адрес вручную.";}
@@ -50,13 +53,14 @@ window.WgnkAddress=(()=>{
    if(id===wallet.request){wallet.loading=false;dialog.setAttribute("aria-busy","false");}
   }
  }
- function open(address,opener){
+ function open(address,opener,gonkaAddress=""){
   if(!/^0x[0-9a-f]{40}$/.test(address))return;
   wallet.abort?.abort();
   Object.assign(wallet,{address,opener,sort:"time_desc",data:null});
   el("address-data").hidden=true;el("address-copy").textContent="Копировать";
   el("address-link").textContent=address+" ↗";el("address-link").href="https://etherscan.io/address/"+address;
   if(!dialog.open)dialog.showModal();
+  window.GonkaProvenance.open(address,gonkaAddress);
   dialog.scrollTop=0;
   refresh();
  }

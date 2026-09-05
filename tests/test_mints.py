@@ -173,7 +173,7 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.idx.ready.is_set())
         self.idx.net.native.assert_not_called();self.idx.net.api.assert_not_called()
 
-    async def test_only_ethereum_mint_and_market_workers_are_started(self):
+    async def test_targeted_native_workers_do_not_start_full_chain_indexer(self):
         started=[]
         async def loop(key,fn,interval):
             started.append(key)
@@ -181,8 +181,8 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         self.idx.loop=loop
         self.idx.start()
         await asyncio.sleep(0)
-        self.assertEqual(sorted(started),["flow:status","mints:history","mints:status"])
-        self.assertEqual({t.get_name() for t in self.idx.tasks},{"wgnk_mints_live","wgnk_mints_history","wgnk_market_flow"})
+        self.assertEqual(sorted(started),["flow:status","mints:history","mints:status","provenance:incoming","provenance:status"])
+        self.assertEqual({t.get_name() for t in self.idx.tasks},{"wgnk_mints_live","wgnk_mints_history","wgnk_market_flow","gonka_bridge_links","gonka_targeted_incoming"})
         await self.idx.stop()
 
 
@@ -195,7 +195,7 @@ class APITests(unittest.TestCase):
                 save_batch(db,10,10,[mint(),mint(idx=2,qty=10**9)],[block()])
                 data=client.get("/api/mints").json()
                 self.assertEqual(data["total"],1)
-                self.assertEqual(data["disabled"],["gonka","holder_census","gnk_bridge_verification","external_prices","mining"])
+                self.assertEqual(data["disabled"],["gonka_full_scan","holder_census","external_prices","mining"])
                 self.assertEqual(client.get("/api/mints?minimum=0").json()["total"],2)
                 self.assertEqual(client.get("/api/mints/tx/"+mint()["tx_hash"]).json()["items"][1]["amount"],"1")
                 csv=client.get("/api/mints/export.csv?minimum=0")

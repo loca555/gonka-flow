@@ -1,6 +1,6 @@
-"""Public Ethereum-only startup archive for disposable/free hosting.
+"""Public WGNK archive and targeted Gonka provenance for disposable/free hosting.
 
-Never copies labels, GNK data, RPC configuration, credentials or private research.
+Never copies labels, full-chain GNK data, RPC configuration, credentials or private research.
 Existing runtime databases are never replaced.
 """
 import gzip
@@ -16,10 +16,50 @@ from pathlib import Path
 from .db import Database
 from .mints import initialize, progress
 from .flows import analysis, balances, event_rows
+from .provenance import save_link, GNK, HASH
+from .codec import kh
 
 META_FIELDS = {"contract", "topic", "epoch", "sender", "recipient", "initiator",
                "initiator_net_raw", "attribution", "quote_decimals"}
 DEFAULT_ARCHIVE = Path(__file__).parent / "seed-data" / "wgnk.sqlite3.gz"
+
+LINK_FIELDS = set("tx_hash log_index eth_address eth_height eth_ts request_id epoch_id amount_raw gnk_address gnk_tx_hash gnk_height gnk_ts gnk_block_hash event_index native_request_id verified_at verification".split())
+INCOMING_FIELDS = set("address tx_hash event_index height ts src amount_raw kind message_index source_label tx_type self_transfer source".split())
+SYNC_FIELDS = set("offset anchor head phase exhausted pages next_check checked_at new_head last_pass_at".split())
+
+
+def export_provenance(reader,db):
+    """Copy only allowlisted public records for native senders of included mints."""
+    tables={r[0] for r in reader.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'gonka_mint_links' not in tables:return
+    addresses=set()
+    for row in reader.execute('SELECT value FROM gonka_mint_links'):
+        value=json.loads(row[0]);link={k:value[k] for k in LINK_FIELDS}
+        mint=db.conn.execute('SELECT * FROM wgnk_mints WHERE tx_hash=? AND log_index=?',
+                             (link['tx_hash'],link['log_index'])).fetchone()
+        if not mint:continue
+        if (any(link[a]!=mint[b] for a,b in [('eth_address','recipient'),('eth_height','height'),
+                ('eth_ts','ts'),('request_id','request_id'),('amount_raw','amount_raw'),('epoch_id','epoch_id')])
+                or not GNK.fullmatch(link['gnk_address']) or not HASH.fullmatch(link['gnk_tx_hash'])
+                or kh(link['native_request_id'])!=link['request_id']
+                or link['verification']!='native_block_results_and_bls_request'):
+            raise ValueError('Seed bridge link does not match its final Ethereum mint')
+        save_link(db,link);addresses.add(link['gnk_address'])
+    for address in sorted(addresses):
+        for row in reader.execute('SELECT value FROM gonka_incoming WHERE address=?',(address,)):
+            value=json.loads(row[0]);e={k:value[k] for k in INCOMING_FIELDS}
+            if (e['address']!=address or e['source']!='gonkalabs_address_index'
+                    or not HASH.fullmatch(e['tx_hash']) or str(int(e['amount_raw']))!=e['amount_raw']
+                    or int(e['amount_raw'])<=0 or (e['src'] and not GNK.fullmatch(e['src']))):
+                raise ValueError('Malformed targeted incoming transfer in seed')
+            db.conn.execute('INSERT INTO gonka_incoming VALUES(?,?,?,?,?,?,?,?,?)',(
+                address,e['tx_hash'],e['event_index'],e['height'],e['ts'],e['src'],e['amount_raw'],e['kind'],json.dumps(e)))
+        row=reader.execute('SELECT value FROM gonka_address_sync WHERE address=?',(address,)).fetchone()
+        if row:
+            value=json.loads(row[0]);state={k:v for k,v in value.items() if k in SYNC_FIELDS}
+            state.update(error=None,next_check=0)
+            db.conn.execute('INSERT INTO gonka_address_sync VALUES(?,?)',(address,json.dumps(state)))
+    db.conn.commit()
 
 
 def export_seed(source, destination):
@@ -66,6 +106,7 @@ def export_seed(source, destination):
                 db.put("mints:bootstrapped", {"source":"bundled_ethereum_archive"})
                 db.put("flow:snapshot", snapshot)
                 db.put("flow:status", {"indexed_height":end})
+                export_provenance(reader,db)
                 data = analysis(db)
                 if not data["ready"] or not data["coverage"]["complete"] or not progress(db)["complete"]:
                     raise ValueError("Seed history has gaps")
@@ -82,7 +123,10 @@ def export_seed(source, destination):
                     raise ValueError("Seed mint and market archives disagree")
                 manifest = {"format":1, "network":"ethereum", "height":end, "ts":snapshot["ts"],
                             "events":db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
-                            "mints":db.conn.execute("SELECT COUNT(*) FROM wgnk_mints").fetchone()[0]}
+                            "mints":db.conn.execute("SELECT COUNT(*) FROM wgnk_mints").fetchone()[0],
+                            "gonka_links":db.conn.execute("SELECT COUNT(*) FROM gonka_mint_links").fetchone()[0],
+                            "gonka_incoming":db.conn.execute("SELECT COUNT(*) FROM gonka_incoming").fetchone()[0],
+                            "gonka_scope":"Only native senders linked to the included WGNK mints; explorer coverage is not chain-complete proof"}
             finally:
                 db.close()
             archive = destination / "wgnk.sqlite3.gz"

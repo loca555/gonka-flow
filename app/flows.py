@@ -216,8 +216,14 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             r=recipient_data[e["actor"]]
             r["sales_raw"]+=int(e["amount_raw"]);r["quote_raw"]+=int(e["quote_raw"]);r["sales_count"]+=1
     minters=[]
+    from .provenance import links_for
+    native_links=defaultdict(list)
+    for link in links_for(db,through=cut):
+        native_links[link["eth_address"]].append(link)
     for r in sorted(recipient_data.values(),key=lambda r:(r["sales_raw"],r["minted_raw"]),reverse=True):
         minters.append({**r,"minted_raw":str(r["minted_raw"]),"sales_raw":str(r["sales_raw"]),"quote_raw":str(r["quote_raw"]),
+            "gnk_addresses":sorted({e["gnk_address"] for e in native_links[r["address"]]}),
+            "gnk_verified_mints":len(native_links[r["address"]]),
             "minted":tokens(r["minted_raw"]),"sold":tokens(r["sales_raw"]),"balance":tokens(ledger.get(r["address"],0)),
             "quote":tokens(r["quote_raw"],6),"average_price":tokens(price_raw(r["quote_raw"],r["sales_raw"]),12) if r["sales_raw"] else None})
     selected=[]

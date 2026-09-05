@@ -1,5 +1,5 @@
 # Free preview: no disk, database service, paid instance or paid cron.
-# Runtime SQLite is disposable; restart restores the bundled Ethereum archive.
+# Runtime SQLite is disposable; restart restores WGNK plus targeted public Gonka history.
 services:
   - type: web
     name: gonka-flow

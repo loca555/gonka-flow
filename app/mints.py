@@ -1,4 +1,4 @@
-"""Ethereum-only WGNK mint monitor. No Gonka, DEX, balance census, burns or external prices."""
+"""WGNK monitor with targeted native bridge/address enrichment; no full Gonka scan."""
 import asyncio
 import json
 import logging
@@ -29,6 +29,8 @@ def initialize(db):
         CREATE INDEX IF NOT EXISTS wgnk_mints_time ON wgnk_mints(ts DESC,height DESC,log_index DESC);
         CREATE INDEX IF NOT EXISTS wgnk_mints_recipient ON wgnk_mints(recipient,ts DESC);
     """)
+    from .provenance import initialize as initialize_provenance
+    initialize_provenance(db)
 
 
 def validate_mint(e):
@@ -169,6 +171,8 @@ class MintIndexer:
         self.cache={}
         from .flows import FlowCollector
         self.flows=FlowCollector(self)
+        from .provenance import ProvenanceCollector
+        self.provenance=ProvenanceCollector(self)
 
     def status(self,key,**values):
         self.db.put(key,{**self.db.get(key,{}),**values})
@@ -194,7 +198,9 @@ class MintIndexer:
     def start(self):
         self.tasks=[asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),
                     asyncio.create_task(self.loop("mints:history",self.history,2),name="wgnk_mints_history"),
-                    asyncio.create_task(self.loop("flow:status",self.flows.run,15),name="wgnk_market_flow")]
+                    asyncio.create_task(self.loop("flow:status",self.flows.run,15),name="wgnk_market_flow"),
+                    asyncio.create_task(self.loop("provenance:status",self.provenance.links,20),name="gonka_bridge_links"),
+                    asyncio.create_task(self.loop("provenance:incoming",self.provenance.incoming,5),name="gonka_targeted_incoming")]
 
     async def stop(self):
         for task in self.tasks: task.cancel()
@@ -358,4 +364,4 @@ def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",lim
             "items":items[offset:offset+limit],"total":len(items),"offset":offset,"limit":limit,"has_more":offset+limit<len(items),
             "minimum":minimum,"hours":hours,"q":q,"sort":sort,"finality":finality,"recipients":leaders,
             "daily":[{"date":d,"amount_raw":str(raw),"amount":tokens(raw),"events":daily_counts[d]} for d,raw in sorted(daily.items())],
-            "imported":db.get("mints:bootstrapped"),"disabled":["gonka","holder_census","gnk_bridge_verification","external_prices","mining"]}
+            "imported":db.get("mints:bootstrapped"),"disabled":["gonka_full_scan","holder_census","external_prices","mining"]}

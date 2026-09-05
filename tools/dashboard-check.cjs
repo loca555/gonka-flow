@@ -20,7 +20,7 @@ const path=require("node:path");
   const mints=await get("/api/mints?minimum=0&limit=1"),bridge=await get("/api/mints/bridge?minimum=0&limit=200");
   const all=await get("/api/mints/flows?side=all&limit=200");
   assert.equal(bridge.ready,true);assert.equal(all.ready,true);
-  assert.deepEqual([...mints.workers].sort(),["wgnk_market_flow","wgnk_mints_history","wgnk_mints_live"]);
+  assert.deepEqual([...mints.workers].sort(),["gonka_bridge_links","gonka_targeted_incoming","wgnk_market_flow","wgnk_mints_history","wgnk_mints_live"]);
   assert.equal(all.timezone,"Asia/Nicosia");
   assert.equal(BigInt(all.summary.pooled_raw)+BigInt(all.summary.outside_raw)+BigInt(all.summary.burned_raw),BigInt(all.summary.minted_raw));
   assert.equal(BigInt(all.summary.sold_raw)+BigInt(all.summary.bought_raw),BigInt(all.summary.volume_raw));
@@ -81,7 +81,7 @@ const path=require("node:path");
   assert.equal(await page.evaluate(()=>clock(Date.parse("2026-01-01T21:30:00Z")/1000)),"23:30:00");
   assert.equal(await page.evaluate(()=>date(Date.parse("2026-07-01T21:30:00Z")/1000)),"02.07.2026");
   assert.equal(await page.locator("#minter-rows tr").count(),all.minters.length);
-  for(const field of ["address","dates","minted","balance","sold","price","count"]){
+  for(const field of ["address","native","dates","minted","balance","sold","price","count"]){
    const th=page.locator('#minter-table th[data-sort="'+field+'"]');
    await th.locator("button").click();const first=await th.getAttribute("aria-sort");
    await th.locator("button").click();assert.notEqual(await th.getAttribute("aria-sort"),first);
@@ -90,7 +90,7 @@ const path=require("node:path");
   const dates=await page.locator("#minter-rows .mint-dates").evaluateAll(cells=>cells.map(c=>Number(c.dataset.lastMint)));
   const asc=await page.locator('#minter-table th[data-sort="dates"]').getAttribute("aria-sort")==="ascending";
   for(let i=1;i<dates.length;i++)assert(asc?dates[i-1]<=dates[i]:dates[i-1]>=dates[i]);
-  const chosen=all.minters[0],button=page.locator('#minter-rows [data-flow-address="'+chosen.address+'"]');
+  const chosen=all.minters[0],button=page.locator('#minter-rows [data-flow-address="'+chosen.address+'"]:not([data-gnk-address])');
   assert(chosen.first_mint_ts<=chosen.last_mint_ts&&chosen.mint_count>0);
   const mintDates=await button.locator("xpath=ancestor::tr").locator(".mint-dates").innerText();
   assert(mintDates.includes(await page.evaluate(ts=>date(ts),chosen.first_mint_ts)));
@@ -268,7 +268,7 @@ const path=require("node:path");
   assert(await page.evaluate(()=>document.body.scrollWidth<=innerWidth));
   await switchView("minters");
   await page.screenshot({path:path.join(out,"minters-updated-mobile.png")});
-  await action(()=>page.locator('#minter-rows [data-flow-address="'+chosen.address+'"]').click(),addressRoute,()=>true,"address");
+  await action(()=>page.locator('#minter-rows [data-flow-address="'+chosen.address+'"]:not([data-gnk-address])').click(),addressRoute,()=>true,"address");
   assert(await page.locator("#address-dialog").evaluate(d=>d.scrollWidth<=d.clientWidth));
   assert(await page.locator("#address-dialog").evaluate(d=>d.getBoundingClientRect().height<=innerHeight));
   await page.screenshot({path:path.join(out,"address-trades-mobile.png")});
@@ -288,6 +288,6 @@ const path=require("node:path");
   for(const route of ["/api/holders","/api/overview","/api/hosts"])assert.equal((await context.request.get(base+route)).status(),410);
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({ok:true,mints:mints.total,bridgeEvents:bridge.total,minters:all.minters.length,
-   sales:all.summary.sales_count,buys:all.summary.buys_count,addressExecutions:trades.total,sortableColumns:28,errors}));
+   sales:all.summary.sales_count,buys:all.summary.buys_count,addressExecutions:trades.total,sortableColumns:29,errors}));
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -19,6 +19,7 @@ from .mints import MintIndexer, listing as mint_listing, public_event as mint_ev
 from .flows import analysis as flow_analysis, bridge_listing
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
+from .provenance import overview as provenance_overview, incoming_history, GNK, links_for
 
 STATIC = Path(__file__).parent / "static"
 MINT_SORT_PATTERN = "^(newest|oldest|largest|(time|recipient|amount|tx|status)_(asc|desc))$"
@@ -158,6 +159,21 @@ def create_app(settings=None):
         return Response(output.getvalue(),media_type="text/csv",
                         headers={"Content-Disposition":'attachment; filename="wgnk-bridge.csv"'})
 
+    @app.get("/api/mints/provenance")
+    async def mint_provenance(request:Request,address:str=Query("",pattern="^(|0x[0-9a-fA-F]{40})$")):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        return provenance_overview(request.app.state.db,address.lower() or None)
+
+    @app.get("/api/mints/gonka/{address}")
+    async def gonka_incoming(request:Request,address:str,
+                            sort:str=Query("time_desc",pattern="^(time|amount|sender|kind|tx)_(asc|desc)$")):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if not GNK.fullmatch(address): raise HTTPException(400,"Нужен полный адрес Gonka")
+        db=request.app.state.db
+        if not db.conn.execute("SELECT 1 FROM gonka_mint_links WHERE gnk_address=? LIMIT 1",(address,)).fetchone():
+            raise HTTPException(404,"Адрес ещё не связан с подтверждённой чеканкой WGNK")
+        return incoming_history(db,address,sort)
+
     @app.get("/api/mints/tx/{tx_hash}")
     async def mint_transaction(request:Request,tx_hash:str):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор чеканки отключён")
@@ -166,7 +182,7 @@ def create_app(settings=None):
                                                (tx_hash.lower(),)).fetchall()
         if not rows: raise HTTPException(404,"Чеканка в этой транзакции не найдена в индексе")
         return {"contract":MINT_TOKEN,"tx_hash":tx_hash.lower(),"items":[mint_event(r) for r in rows],
-                "native_side_checked":False}
+                "native_links":[e for e in links_for(request.app.state.db) if e["tx_hash"]==tx_hash.lower()]}
 
     @app.get("/api/mints/export.csv")
     async def export_mints(request:Request,minimum:int=Query(0,ge=0,le=10**12),

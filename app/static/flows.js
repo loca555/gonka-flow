@@ -16,7 +16,7 @@
   '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Покупки и продажи показаны вместе по умолчанию.</p></div></div>'+
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 000 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
   '<div class="pagination"><button id="sales-prev">← Назад</button><span id="sales-page"></span><button id="sales-next">Далее →</button></div>';
-  ui("minter-report-host").innerHTML='<section class="minter-report"><h2>Минтеры и их продажи <span id="minter-count"></span></h2><p class="flow-explanation">Вся история. Даты — первая и последняя чеканка адреса; сортировка дат — по последней. Продажи могут включать купленные или полученные переводом WGNK: конкретные партии токенов не отслеживаются. Нажмите на адрес, чтобы открыть его покупки и продажи.</p><p id="minter-status" class="flow-explanation"></p><div class="table-container minter-table"><table id="minter-table"><thead><tr><th data-sort="address" data-default="asc">Минтер</th><th data-sort="dates">Даты чеканки</th><th data-sort="minted" class="numeric">Получено при чеканке</th><th data-sort="balance" class="numeric">Баланс сейчас</th><th data-sort="sold" class="numeric">Продано адресом</th><th data-sort="price" class="numeric">Средняя цена за 1 000 WGNK, USDT</th><th data-sort="count">Исполнений продаж</th></tr></thead><tbody id="minter-rows"></tbody></table></div></section>';
+  ui("minter-report-host").innerHTML='<section class="minter-report"><h2>Минтеры и их продажи <span id="minter-count"></span></h2><p class="flow-explanation">Вся история. Даты — первая и последняя чеканка адреса; сортировка дат — по последней. Продажи могут включать купленные или полученные переводом WGNK: конкретные партии токенов не отслеживаются. Адрес Gonka — проверенный отправитель в мост, не установленный владелец или майнер.</p><p id="minter-status" class="flow-explanation"></p><div class="table-container minter-table"><table id="minter-table"><thead><tr><th data-sort="address" data-default="asc">Минтер · Ethereum</th><th data-sort="native" data-default="asc">Отправитель · Gonka</th><th data-sort="dates">Даты чеканки</th><th data-sort="minted" class="numeric">Получено при чеканке</th><th data-sort="balance" class="numeric">Баланс сейчас</th><th data-sort="sold" class="numeric">Продано адресом</th><th data-sort="price" class="numeric">Средняя цена за 1 000 WGNK, USDT</th><th data-sort="count">Исполнений продаж</th></tr></thead><tbody id="minter-rows"></tbody></table></div></section>';
   function search(side=flow.side){
    const q=ui("sales-query").value.trim().toLowerCase();
    if(q&&!/^0x[0-9a-f]{1,64}$/.test(q)){
@@ -36,7 +36,7 @@
    const address=event.target.closest("[data-flow-address]");
    if(address){
     el("mint-dialog").close();
-    window.WgnkAddress.open(address.dataset.flowAddress,address);
+    window.WgnkAddress.open(address.dataset.flowAddress,address,address.dataset.gnkAddress||"");
    }
   });
  }
@@ -54,7 +54,7 @@
  function renderMinters(data){
   const [field,direction]=flow.minterSort.split("_"),sign=direction==="asc"?1:-1;
   const raw=value=>BigInt(String(value).split(".")[0]+(String(value).split(".")[1]||"").padEnd(9,"0"));
-  const key=r=>({address:r.address,dates:r.last_mint_ts,minted:BigInt(r.minted_raw),balance:raw(r.balance),sold:BigInt(r.sales_raw),count:BigInt(r.sales_count)})[field];
+  const key=r=>({address:r.address,native:(r.gnk_addresses||[]).join(','),dates:r.last_mint_ts,minted:BigInt(r.minted_raw),balance:raw(r.balance),sold:BigInt(r.sales_raw),count:BigInt(r.sales_count)})[field];
   const compare=(a,b)=>a<b?-1:a>b?1:0;
   const rows=[...data.minters].sort((a,b)=>{
    if(field==="price"){
@@ -68,8 +68,9 @@
   });
   setTableSort("minter-table",flow.minterSort);
   ui("minter-count").textContent=count(rows.length)+" адресов";
-  ui("minter-status").textContent="Снимок #"+count(data.snapshot.height)+" · "+date(data.snapshot.ts)+" "+clock(data.snapshot.ts)+(data.coverage.complete?" · история без пропусков":" · есть незагруженные блоки");
-  ui("minter-rows").innerHTML=rows.map(r=>'<tr><td>'+addr(r.address)+'</td><td class="mint-dates" data-last-mint="'+r.last_mint_ts+'"><span title="'+clock(r.first_mint_ts)+'">Первая · '+date(r.first_mint_ts)+'</span><small title="'+clock(r.last_mint_ts)+'">Последняя · '+date(r.last_mint_ts)+'</small></td><td class="numeric" data-raw="'+r.minted_raw+'">'+esc(fmt(r.minted))+'</td><td class="numeric" data-balance="'+esc(r.balance)+'">'+esc(fmt(r.balance))+'</td><td class="numeric" data-raw="'+r.sales_raw+'">'+esc(fmt(r.sold))+'</td><td class="numeric">'+esc(price(r.average_price))+'</td><td>'+count(r.sales_count)+'</td></tr>').join("");
+  const verified=rows.reduce((n,r)=>n+(r.gnk_verified_mints||0),0),totalMints=rows.reduce((n,r)=>n+r.mint_count,0);
+  ui("minter-status").textContent="Ethereum: снимок #"+count(data.snapshot.height)+" · "+date(data.snapshot.ts)+" "+clock(data.snapshot.ts)+(data.coverage.complete?" · история без пропусков":" · есть незагруженные блоки")+". Связи Gonka: "+count(verified)+" / "+count(totalMints)+" выпусков подтверждено.";
+  ui("minter-rows").innerHTML=rows.map(r=>'<tr><td>'+addr(r.address)+'</td><td class="minter-native">'+((r.gnk_addresses||[]).length?r.gnk_addresses.map(a=>'<button class="address-button" data-flow-address="'+esc(r.address)+'" data-gnk-address="'+esc(a)+'" title="'+esc(a)+'">'+esc(short(a,12))+'</button>').join(''):'<span class="pending-badge">Проверяется</span>')+'<small>'+count(r.gnk_verified_mints||0)+' / '+count(r.mint_count)+' выпусков</small></td><td class="mint-dates" data-last-mint="'+r.last_mint_ts+'"><span title="'+clock(r.first_mint_ts)+'">Первая · '+date(r.first_mint_ts)+'</span><small title="'+clock(r.last_mint_ts)+'">Последняя · '+date(r.last_mint_ts)+'</small></td><td class="numeric" data-raw="'+r.minted_raw+'">'+esc(fmt(r.minted))+'</td><td class="numeric" data-balance="'+esc(r.balance)+'">'+esc(fmt(r.balance))+'</td><td class="numeric" data-raw="'+r.sales_raw+'">'+esc(fmt(r.sold))+'</td><td class="numeric">'+esc(price(r.average_price))+'</td><td>'+count(r.sales_count)+'</td></tr>').join("");
  }
  function render(data){
   const summary=data.summary,buy=data.side==="buy",all=data.side==="all";
