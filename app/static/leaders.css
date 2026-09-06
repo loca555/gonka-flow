@@ -1,0 +1,20 @@
+.leaders-heading{margin:12px 0 20px}
+.leaders-heading h1{font-size:clamp(28px,3vw,40px);letter-spacing:-1px}
+.leaders-heading p{margin-top:8px;color:var(--muted);font-size:14px}
+#leaders-status,#leaders-excluded,.leaders-note{font-size:14px;line-height:1.65;color:var(--muted);margin:16px 0}
+.leaders-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.leader-panel{--side-color:var(--trade-buy);border-top:3px solid var(--side-color);overflow:hidden}
+.leader-panel.sell{--side-color:var(--trade-sell)}
+.leader-heading{padding:22px 20px 0;display:flex;gap:12px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}
+.leader-heading h2{font-size:20px}.leader-heading>span{color:var(--muted);font-size:14px}
+.leader-total{padding:16px 20px 20px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.leader-total strong{color:var(--side-color);font-size:32px;font-weight:550;letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.leader-total>span{color:var(--muted);font-size:14px}.leader-total small{flex-basis:100%;color:var(--muted);font-size:12px}
+.leader-table{border:0;border-top:1px solid var(--line);border-radius:0;max-height:560px;overflow:auto;scrollbar-gutter:stable}
+.leader-table table{min-width:610px}.leader-table th{position:sticky;top:0;z-index:1;text-transform:none;letter-spacing:0;font-size:12px;padding:14px 10px}
+.leader-table td{padding:14px 10px;font-size:14px}.leader-table td .address-button{font-size:14px}
+.leader-rank{color:var(--muted)}.leader-volume strong{font-weight:550;color:var(--side-color)}
+.leader-volume-bar{display:block;min-height:3px;border-radius:3px;background:var(--side-color);opacity:.55;margin:7px 0 0 auto}
+.leaders-note{border-top:1px solid var(--line);padding-top:16px}.leader-table:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+@media(max-width:1350px){.leaders-grid{grid-template-columns:1fr}.leader-table table{min-width:610px}}
+@media(max-width:760px){.leader-heading{padding:18px 16px 0}.leader-heading h2{font-size:18px}.leader-total{padding:16px}.leader-table{max-height:450px}.leaders-heading h1{font-size:28px}.leader-total strong{font-size:28px}}

@@ -17,6 +17,7 @@ from .analytics import overview, hosts, rankings, bridges
 from .holders import holders_list,address_page,ETH_ADDRESS,GNK_ADDRESS
 from .mints import MintIndexer, listing as mint_listing, public_event as mint_event, TOKEN as MINT_TOKEN
 from .flows import analysis as flow_analysis, bridge_listing
+from .leaders import trade_leaders
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
 from .provenance import overview as provenance_overview, incoming_history, GNK, links_for
@@ -118,6 +119,15 @@ def create_app(settings=None):
         if len(cache)>1000: cache.clear()
         if key not in cache or time.time()-cache[key][0]>8:
             cache[key]=(time.time(),flow_analysis(request.app.state.db,hours,q.lower(),limit,offset,side,sort))
+        return cache[key][1]
+
+    @app.get("/api/mints/leaders")
+    async def mint_leaders(request:Request):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        key=("trade_leaders",)
+        if len(cache)>1000: cache.clear()
+        if key not in cache or time.time()-cache[key][0]>8:
+            cache[key]=(time.time(),trade_leaders(request.app.state.db))
         return cache[key][1]
 
     @app.get("/api/mints/address/{address}")
