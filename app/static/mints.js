@@ -21,6 +21,24 @@ const clock=ts=>new Date(ts*1000).toLocaleTimeString("ru-RU",{timeZone:"Asia/Nic
 const txUrl=h=>"https://etherscan.io/tx/"+encodeURIComponent(h);
 const blockUrl=h=>"https://etherscan.io/block/"+encodeURIComponent(h);
 const state={sort:"time_desc",offset:0,request:0,data:null,bridge:null};
+function closeOnBackdrop(dialog){
+ let start=null;
+ const outside=event=>{
+  const box=dialog.getBoundingClientRect();
+  return event.target===dialog&&(event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom);
+ };
+ // Both ends must be on the backdrop: selecting text or using scrollbars must not dismiss.
+ dialog.addEventListener("pointerdown",event=>{
+  start=dialog.open&&event.isPrimary&&event.button===0&&outside(event)?{x:event.clientX,y:event.clientY}:null;
+ });
+ dialog.addEventListener("pointercancel",()=>{start=null;});
+ dialog.addEventListener("close",()=>{start=null;});
+ dialog.addEventListener("click",event=>{
+  const pressed=start;start=null;
+  if(!pressed||!dialog.open||event.button!==0||event.detail===0||!outside(event)||Math.hypot(event.clientX-pressed.x,event.clientY-pressed.y)>8)return;
+  event.preventDefault();event.stopPropagation();dialog.close();
+ });
+}
 function notify(message){el("toast").textContent=message;el("toast").hidden=false;clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>el("toast").hidden=true,3500);}
 function normalizeMintSort(sort){return ({newest:"time_desc",oldest:"time_asc",largest:"amount_desc"})[sort]||sort;}
 function setTableSort(id,sort){
@@ -143,6 +161,7 @@ el("prev").addEventListener("click",()=>{state.offset=Math.max(0,state.offset-50
 el("next").addEventListener("click",()=>{state.offset+=50;refresh();});
 el("refresh").addEventListener("click",()=>refresh());
 el("close-dialog").addEventListener("click",()=>el("mint-dialog").close());
+closeOnBackdrop(el("mint-dialog"));
 document.addEventListener("click",async e=>{
  const copy=e.target.closest("[data-copy]");
  if(copy){try{await navigator.clipboard.writeText(copy.dataset.copy);notify("Адрес скопирован");}catch{notify("Копирование недоступно. Адрес можно выделить в деталях.");}return;}
