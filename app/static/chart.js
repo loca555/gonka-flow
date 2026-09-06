@@ -180,5 +180,67 @@ window.GonkaChart=(()=>{
    if(event.key==="Home")show(0);if(event.key==="End")show(rows.length-1);if(event.key==="Escape")hide();
   });
  }
- return {render,renderMarket,exact,formatPrice};
+ function renderAddress(host,history){
+  if(!history){host.innerHTML='<p class="empty">Подтверждённая история баланса пока недоступна.</p>';return;}
+  if(!history.points.length){host.innerHTML='<p class="empty">У адреса пока нет движений WGNK до проверенного снимка.</p>';return;}
+  const rows=history.points.map(p=>({...p,buy:BigInt(p.bought_raw),sell:BigInt(p.sold_raw),balance:BigInt(p.balance_raw)}));
+  const W=Math.max(280,host.clientWidth),small=W<500,H=small?300:310;
+  const left=small?54:76,right=small?58:80,top=48,bottom=H-38,plot=W-left-right;
+  const volumeHigh=ceiling(rows.reduce((max,r)=>r.buy>max?(r.buy>r.sell?r.buy:r.sell):r.sell>max?r.sell:max,4000000000n));
+  const balanceHigh=ceiling(rows.reduce((max,r)=>r.balance>max?r.balance:max,4000000000n));
+  const slot=plot/rows.length,x=i=>left+(i+.5)*slot;
+  const y=(raw,high)=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
+  const names={buy:"Покупки",sell:"Продажи"};
+  let svg='<svg class="address-chart" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="Покупки и продажи WGNK по дням — зелёные и красные столбцы, шкала слева. Баланс WGNK — синяя линия, шкала справа. Стрелки выбирают день.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="15">Объём / день</text><text class="chart-unit" x="'+left+'" y="33">WGNK</text><text class="chart-unit balance-axis" x="'+(W-right)+'" y="15" text-anchor="end">Баланс</text><text class="chart-unit balance-axis" x="'+(W-right)+'" y="33" text-anchor="end">WGNK</text>';
+  for(let i=0;i<=4;i++){
+   const py=bottom-i*(bottom-top)/4;
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(volumeHigh*BigInt(i)/4n,9))+'</text><text class="balance-axis" x="'+(W-right+8)+'" y="'+(py+4)+'">'+escape(axis(balanceHigh*BigInt(i)/4n,9))+'</text>';
+  }
+  const width=Math.min(14,slot*.36),gap=Math.min(2,slot*.08);
+  rows.forEach((row,i)=>{
+   for(const kind of ["buy","sell"]){
+    if(row[kind]<=0n)continue;
+    const px=x(i)+(kind==="buy"?-gap/2-width:gap/2),py=y(row[kind],volumeHigh);
+    svg+='<rect class="address-volume '+kind+'" data-kind="'+kind+'" data-date="'+row.date+'" data-raw="'+row[kind]+'" x="'+px+'" y="'+py+'" width="'+width+'" height="'+(bottom-py)+'" rx=".6"><title>'+fullDate(row.date)+' · '+names[kind]+': '+escape(exact(row[kind],9))+' WGNK</title></rect>';
+   }
+  });
+  svg+='<path class="address-balance-line" d="'+rows.map((r,i)=>(i?'L':'M')+x(i).toFixed(2)+','+y(r.balance,balanceHigh).toFixed(2)).join(' ')+'"/>';
+  const last=rows.length-1;
+  svg+='<circle class="address-balance-last" cx="'+x(last)+'" cy="'+y(rows[last].balance,balanceHigh)+'" r="3.5" data-balance-raw="'+rows[last].balance+'"/>';
+  const ticks=Math.min(rows.length,small?3:7);
+  for(let i=0;i<ticks;i++){
+   const index=ticks===1?0:Math.round(i*(rows.length-1)/(ticks-1));
+   svg+='<text x="'+x(index)+'" y="'+(bottom+25)+'" text-anchor="'+(ticks===1?'middle':i===0?'start':i===ticks-1?'end':'middle')+'">'+label(rows[index].date)+'</text>';
+  }
+  svg+='<g class="chart-cursor" visibility="hidden"><line class="chart-crosshair" y1="'+top+'" y2="'+bottom+'"/><circle r="4.5"/></g><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip address-chart-tooltip" role="status" hidden></div>';
+  host.innerHTML=svg;
+  const root=host.querySelector('svg'),cursor=host.querySelector('.chart-cursor'),tooltip=host.querySelector('.chart-tooltip');
+  let selected=last;
+  function show(index){
+   selected=Math.max(0,Math.min(last,index));
+   const row=rows[selected],px=x(selected),onSnapshot=selected===last;
+   cursor.setAttribute('visibility','visible');
+   const line=cursor.querySelector('line');line.setAttribute('x1',px);line.setAttribute('x2',px);
+   const dot=cursor.querySelector('circle');dot.setAttribute('cx',px);dot.setAttribute('cy',y(row.balance,balanceHigh));
+   const time=new Date(history.ts*1000).toLocaleTimeString('ru-RU',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
+   tooltip.innerHTML='<span>'+fullDate(row.date)+(onSnapshot?' · до '+escape(time):'')+'</span><strong class="balance-value">'+escape(exact(row.balance,9))+' <small>WGNK</small></strong><span>Баланс '+(onSnapshot?'на снимке':'на конец дня')+'</span><div class="address-tooltip-sides">'+['buy','sell'].map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(row[kind],9))+' WGNK</b><small>'+(kind==='buy'?row.buys_count:row.sales_count).toLocaleString('ru-RU')+' исп.</small></div>').join('')+'</div>';
+   tooltip.dataset.date=row.date;tooltip.dataset.balanceRaw=row.balance.toString();tooltip.hidden=false;
+   tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';
+   tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+'px';
+  }
+  const hide=()=>{cursor.setAttribute('visibility','hidden');tooltip.hidden=true;};
+  const pointer=event=>{
+   const box=root.getBoundingClientRect(),px=(event.clientX-box.left)*W/box.width;
+   show(Math.floor((px-left)/slot));
+  };
+  root.addEventListener('pointermove',pointer);root.addEventListener('pointerdown',pointer);
+  root.addEventListener('pointerleave',hide);root.addEventListener('focus',()=>show(selected));root.addEventListener('blur',hide);
+  root.addEventListener('keydown',event=>{
+   if(['ArrowLeft','ArrowRight','Home','End','Escape'].includes(event.key))event.preventDefault();
+   if(event.key==='ArrowLeft')show(selected-1);if(event.key==='ArrowRight')show(selected+1);
+   if(event.key==='Home')show(0);if(event.key==='End')show(last);if(event.key==='Escape')hide();
+  });
+ }
+ return {render,renderMarket,renderAddress,exact,formatPrice};
 })();

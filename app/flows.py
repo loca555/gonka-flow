@@ -9,6 +9,7 @@ from .codec import parse_eth_log, TRANSFER, SWAP, MINT, BURN, LP_MINT, LP_BURN
 from .config import TOKEN, USDT, ZERO, SEED_POOLS
 from .db import tokens
 from .timezones import TIME_ZONE, local_day, local_time
+from .address_history import address_history
 
 def price_raw(quote, quantity, quote_decimals=6):
     """USDT/WGNK at 12 decimal places, explicitly rounded down."""
@@ -186,7 +187,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     result={"now":now,"timezone":TIME_ZONE,"status":status,"snapshot":snapshot,"ready":False,
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
-            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],"address_balance":None,
+            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],"address_balance":None,"address_history":None,
             "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
     if not deployment or not target: return result
     start=deployment["height"];end=history_end(db,start,target)
@@ -199,6 +200,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     if re.fullmatch("0x[0-9a-f]{40}",q) and snapshot.get("ledger_verified") and ledger.get(q,0)>=0:
         result["address_balance"]={"address":q,"amount":tokens(ledger.get(q,0)),
             "amount_raw":str(ledger.get(q,0)),"height":cut,"ts":snapshot["ts"],"source":"verified_transfer_ledger"}
+        result["address_history"]=address_history(rows,q,snapshot,ledger.get(q,0))
     pools={p["address"]:p for p in snapshot["pools"]}
     all_sales=[e for e in rows if e["kind"]=="sell" and e["pool"] in pools]
     recipient_data={}

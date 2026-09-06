@@ -4,11 +4,12 @@ import io
 import json
 import re
 import time
+from hashlib import sha256
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from .config import Settings, TOKEN
 from .db import Database, tokens
@@ -28,9 +29,18 @@ MINT_SORT_PATTERN = "^(newest|oldest|largest|(time|recipient|amount|tx|status)_(
 TRADE_SORT_PATTERN = "^(time|kind|actor|amount|quote|price|pool|tx)_(asc|desc)$"
 BRIDGE_SORT_PATTERN = "^(newest|oldest|largest|(time|kind|recipient|amount|tx|status)_(asc|desc))$"
 
+def versioned_page(filename):
+    """A new asset URL for changed code, including browsers with an older cached JS file."""
+    html = (STATIC / filename).read_text(encoding="utf-8")
+    def version(match):
+        digest = sha256((STATIC / match[2]).read_bytes()).hexdigest()[:16]
+        return f'{match[1]}/static/{match[2]}?v={digest}"'
+    return re.sub(r'((?:src|href)=")/static/([a-zA-Z0-9._/-]+\.(?:js|css))"', version, html)
+
 def create_app(settings=None):
     cfg = settings or Settings()
     cache, hits = {}, defaultdict(deque)
+    index_html = versioned_page("mints.html" if cfg.mode == "mints" else "index.html")
 
     @asynccontextmanager
     async def lifespan(app):
@@ -77,12 +87,13 @@ def create_app(settings=None):
             "connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'")
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/static/") and Path(request.url.path).suffix in (".js", ".css", ".html"):
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.get("/")
     async def index():
-        return FileResponse(STATIC / ("mints.html" if cfg.mode == "mints" else "index.html"),
-                            headers={"Cache-Control":"no-cache"})
+        return HTMLResponse(index_html, headers={"Cache-Control":"no-cache"})
 
     @app.get("/healthz")
     async def health():
