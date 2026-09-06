@@ -1,0 +1,70 @@
+/* Read-only QA in an isolated Chrome context, never a user profile. */
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+const fs=require('node:fs/promises');
+const path=require('node:path');
+(async()=>{
+ const base=process.env.TEST_URL||'http://127.0.0.1:8790',out=path.resolve('test-results');
+ await fs.mkdir(out,{recursive:true});
+ const browser=await chromium.launch({headless:true,channel:'chrome'});
+ try{
+  const context=await browser.newContext({viewport:{width:1440,height:1100},colorScheme:'light',reducedMotion:'reduce'});
+  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const get=async route=>{const r=await context.request.get(base+route);assert.equal(r.status(),200,route);return r.json();};
+  const all=await get('/api/mints/provenance'),bridge=await get('/api/mints/bridge?minimum=0&limit=50');
+  const minters=new Set(all.links.map(e=>e.eth_address));
+  const candidate=bridge.items.find(e=>e.kind==='bridge_burn'&&!minters.has(e.address)&&all.burns.links.some(l=>l.tx_hash===e.tx_hash));
+  assert(candidate,'Need a verified burn-only address in first bridge page');
+  const eth=candidate.address,route='/api/mints/provenance?address='+eth,data=await get(route);
+  assert.equal(data.total,0);assert(data.burns.verified>0);assert(data.sources.some(s=>s.burns>0));
+  await page.goto(base+'/#bridge');
+  const buttons=page.locator('#mint-rows [data-flow-address="'+eth+'"]');await buttons.first().waitFor();
+  await buttons.first().click();await page.locator('#address-tab-gonka').click();
+  await page.waitForFunction(()=>document.getElementById('native-content').hidden===false&&document.getElementById('native-history-summary').textContent.includes('Загружено'));
+  assert.doesNotMatch(await page.locator('#native-status').innerText(),/0 из 0/);
+  assert.equal(await page.locator('#native-burn-archive').getAttribute('open'),'');
+  assert.equal(await page.locator('#native-burn-rows tr').count(),data.burns.total);
+  assert.match(await page.locator('#native-status').innerText(),/сжиганий/);
+  assert.match(await page.locator('#native-route').innerText(),/WGNK → GNK/);
+  const native=data.sources[0].address,incoming=await get('/api/mints/gonka/'+native);
+  assert.equal(incoming.address,native);assert.equal(incoming.full_chain_verified,false);
+  assert(incoming.address_balance,'Targeted native balance should have loaded');
+  assert.equal(await page.locator('#native-balance-value').getAttribute('data-raw'),incoming.address_balance.amount_raw);
+  for(const field of ['time','amount','recipient','status','tx']){
+   const th=page.locator('#native-burn-table th[data-sort="'+field+'"]');
+   await th.locator('button').click();const first=await th.getAttribute('aria-sort');
+   await th.locator('button').click();assert.notEqual(await th.getAttribute('aria-sort'),first);
+  }
+  assert.equal(await page.locator('#native-burn-rows [data-native-address]').first().getAttribute('data-native-address'),native);
+  await page.locator('#native-burn-rows [data-native-address]').first().click();
+  await page.waitForFunction(()=>!document.getElementById('native-history-status').textContent.startsWith('Читаем'));
+  const saved=await page.locator('#native-burn-rows').innerText();
+  await page.route('**/api/mints/provenance?address='+eth,r=>r.fulfill({status:503,body:'test source outage'}));
+  await page.locator('#address-refresh').click();
+  await page.waitForFunction(()=>document.getElementById('native-status').textContent.startsWith('Связи временно'));
+  assert.equal(await page.locator('#native-burn-rows').innerText(),saved);
+  await page.unroute('**/api/mints/provenance?address='+eth);
+  const pending={...data,sources:[],burns:{...data.burns,verified:0,pending:data.burns.total,links:[],items:data.burns.items.map(e=>({...e,status:'unverified',gnk_address:null,link:null,error:'Зачисление ещё не подтверждено'}))}};
+  await page.route('**/api/mints/provenance?address='+eth,r=>r.fulfill({json:pending}));
+  await page.locator('#address-refresh').click();
+  await page.waitForFunction(()=>document.getElementById('native-content').hidden);
+  assert.equal(await page.locator('#native-burn-archive').isVisible(),true);
+  assert.match(await page.locator('#native-burn-rows').innerText(),/Ещё не установлен/);
+  assert.equal(await page.locator('#native-burn-rows .final-badge').count(),0);
+  await page.unroute('**/api/mints/provenance?address='+eth);
+  await page.locator('#address-refresh').click();
+  await page.waitForFunction(()=>!document.getElementById('native-content').hidden);
+  await page.locator('#address-dialog').evaluate(d=>d.scrollTop=0);
+  await page.screenshot({path:path.join(out,'burns-light.png')});
+  await page.locator('#address-close').click();await page.locator('#theme-toggle').click();
+  await buttons.first().click();await page.locator('#address-tab-gonka').click();
+  await page.waitForFunction(()=>!document.getElementById('native-content').hidden);
+  await page.screenshot({path:path.join(out,'burns-dark.png')});
+  await page.setViewportSize({width:390,height:844});
+  assert(await page.locator('#address-dialog').evaluate(d=>d.scrollWidth<=d.clientWidth));
+  assert(await page.locator('#address-dialog').evaluate(d=>d.getBoundingClientRect().height<=innerHeight));
+  await page.screenshot({path:path.join(out,'burns-mobile.png')});
+  assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({ok:true,eth,native,burns:data.burns.total,verified:data.burns.verified,incoming:incoming.total,balance:incoming.address_balance.amount_raw,errors}));
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

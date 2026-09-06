@@ -181,8 +181,8 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         self.idx.loop=loop
         self.idx.start()
         await asyncio.sleep(0)
-        self.assertEqual(sorted(started),["flow:status","mints:history","mints:status","provenance:balances","provenance:incoming","provenance:status"])
-        self.assertEqual({t.get_name() for t in self.idx.tasks},{"wgnk_mints_live","wgnk_mints_history","wgnk_market_flow","gonka_bridge_links","gonka_targeted_incoming","gonka_targeted_balances"})
+        self.assertEqual(sorted(started),["flow:status","mints:history","mints:status","provenance:balances","provenance:burns","provenance:incoming","provenance:status"])
+        self.assertEqual({t.get_name() for t in self.idx.tasks},{"wgnk_mints_live","wgnk_mints_history","wgnk_market_flow","gonka_bridge_links","gonka_burn_links","gonka_targeted_incoming","gonka_targeted_balances"})
         await self.idx.stop()
 
 

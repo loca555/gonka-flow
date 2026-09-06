@@ -133,7 +133,7 @@ function details(tx,index){
  const e=state.bridge?.items.find(e=>e.tx_hash===tx&&e.log_index===index);if(!e)return;
  const burn=e.kind==="bridge_burn";
  el("mint-detail").innerHTML='<div class="detail-amount">'+esc(amount(e.amount))+' <small>WGNK</small></div><p class="detail-notice">'+
-  (burn?"Сжигание WGNK. Не является продажей. Завершение обратного перевода в GNK не проверено.":"Чеканка WGNK. Не является покупкой. Сопоставление с Gonka — в истории адреса.")+
+  (burn?"Сжигание WGNK. Не является продажей. Получатель и статус зачисления GNK — в истории адреса, на вкладке Gonka.":"Чеканка WGNK. Не является покупкой. Сопоставление с Gonka — в истории адреса.")+
   '<br>✓ Финальное событие · '+date(e.ts)+" "+clock(e.ts)+'</p><dl><dt>'+(burn?"Адрес сжигания":"Минтер")+'</dt><dd class="mono">'+esc(e.address)+'</dd><dt>Транзакция / индекс события</dt><dd class="mono">'+esc(e.tx_hash)+' / '+e.log_index+'</dd><dt>Блок Ethereum</dt><dd>#'+count(e.height)+'</dd><dt>Хеш блока</dt><dd class="mono">'+esc(e.block_hash)+'</dd>'+
   (e.request_id?'<dt>Request ID</dt><dd class="mono">'+esc(e.request_id)+'</dd>':"")+
   '<dt>Точное количество в минимальных единицах</dt><dd class="mono">'+esc(e.amount_raw)+'</dd></dl><div class="dialog-actions"><a href="'+txUrl(tx)+'" target="_blank" rel="noopener noreferrer">Транзакция в Etherscan ↗</a><button data-copy="'+esc(e.address)+'">Копировать адрес</button><button data-flow-address="'+esc(e.address)+'">История адреса · WGNK / GNK</button></div>';

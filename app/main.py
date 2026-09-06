@@ -21,6 +21,7 @@ from .leaders import trade_leaders
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
 from .provenance import overview as provenance_overview, incoming_history, GNK, links_for
+from .redemptions import native_addresses
 
 STATIC = Path(__file__).parent / "static"
 MINT_SORT_PATTERN = "^(newest|oldest|largest|(time|recipient|amount|tx|status)_(asc|desc))$"
@@ -180,8 +181,8 @@ def create_app(settings=None):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
         if not GNK.fullmatch(address): raise HTTPException(400,"Нужен полный адрес Gonka")
         db=request.app.state.db
-        if not db.conn.execute("SELECT 1 FROM gonka_mint_links WHERE gnk_address=? LIMIT 1",(address,)).fetchone():
-            raise HTTPException(404,"Адрес ещё не связан с подтверждённой чеканкой WGNK")
+        if address not in native_addresses(db):
+            raise HTTPException(404,"Адрес ещё не связан с подтверждённым переводом через мост WGNK")
         return incoming_history(db,address,sort)
 
     @app.get("/api/mints/tx/{tx_hash}")

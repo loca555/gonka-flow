@@ -18,18 +18,20 @@ from .mints import initialize, progress
 from .flows import analysis, balances, event_rows
 from .provenance import save_link, save_balance, GNK, HASH
 from .codec import kh
+from .redemptions import save_burn_link
 
 META_FIELDS = {"contract", "topic", "epoch", "sender", "recipient", "initiator",
-               "initiator_net_raw", "attribution", "quote_decimals"}
+               "initiator_net_raw", "attribution", "quote_decimals", "transaction_index"}
 DEFAULT_ARCHIVE = Path(__file__).parent / "seed-data" / "wgnk.sqlite3.gz"
 
 LINK_FIELDS = set("tx_hash log_index eth_address eth_height eth_ts request_id epoch_id amount_raw gnk_address gnk_tx_hash gnk_height gnk_ts gnk_block_hash event_index native_request_id verified_at verification".split())
+BURN_LINK_FIELDS = set('event_id tx_hash log_index eth_address eth_height eth_ts eth_block_hash receipt_index amount_raw gnk_address request_id epoch_id status verification evidence_url verified_at gnk_tx_hash gnk_ts'.split())
 INCOMING_FIELDS = set("address tx_hash event_index height ts src amount_raw kind message_index source_label tx_type self_transfer source".split())
 SYNC_FIELDS = set("offset anchor head phase exhausted pages next_check checked_at new_head last_pass_at".split())
 
 
 def export_provenance(reader,db):
-    """Copy only allowlisted public records for native senders of included mints."""
+    """Copy allowlisted public records linked to included final mints AND burns."""
     tables={r[0] for r in reader.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if 'gonka_mint_links' not in tables:return
     addresses=set()
@@ -45,6 +47,11 @@ def export_provenance(reader,db):
                 or link['verification']!='native_block_results_and_bls_request'):
             raise ValueError('Seed bridge link does not match its final Ethereum mint')
         save_link(db,link);addresses.add(link['gnk_address'])
+    if 'gonka_burn_links' in tables:
+        for row in reader.execute('SELECT value FROM gonka_burn_links'):
+            value=json.loads(row[0]);link={k:value[k] for k in BURN_LINK_FIELDS}
+            if not db.conn.execute('SELECT 1 FROM events WHERE id=?',(link['event_id'],)).fetchone():continue
+            save_burn_link(db,link);addresses.add(link['gnk_address'])
     for address in sorted(addresses):
         if 'gonka_address_balances' in tables:
             row=reader.execute('SELECT value FROM gonka_address_balances WHERE address=?',(address,)).fetchone()
@@ -135,9 +142,10 @@ def export_seed(source, destination):
                             "events":db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
                             "mints":db.conn.execute("SELECT COUNT(*) FROM wgnk_mints").fetchone()[0],
                             "gonka_links":db.conn.execute("SELECT COUNT(*) FROM gonka_mint_links").fetchone()[0],
+                            "gonka_burn_links":db.conn.execute("SELECT COUNT(*) FROM gonka_burn_links").fetchone()[0],
                             "gonka_incoming":db.conn.execute("SELECT COUNT(*) FROM gonka_incoming").fetchone()[0],
                             "gonka_balances":db.conn.execute("SELECT COUNT(*) FROM gonka_address_balances").fetchone()[0],
-                            "gonka_scope":"Only native senders linked to the included WGNK mints; explorer coverage is not chain-complete proof"}
+                            "gonka_scope":"Only native senders and recipients linked to included WGNK mints/burns; explorer coverage is not chain-complete proof"}
             finally:
                 db.close()
             archive = destination / "wgnk.sqlite3.gz"

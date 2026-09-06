@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from .codec import attr, kh, stamp
 from .config import ESCROW, TOKEN
 from .db import tokens
+from .redemptions import initialize as initialize_burns, burn_overview, native_addresses, collect_burns
 
 GNK = re.compile(r"gonka1(?:[023456789acdefghjklmnpqrstuvwxyz]{38}|[023456789acdefghjklmnpqrstuvwxyz]{58})")
 HASH = re.compile(r"[0-9a-fA-F]{64}")
@@ -43,6 +44,7 @@ def initialize(db):
       CREATE TABLE IF NOT EXISTS gonka_address_sync(address TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS gonka_address_balances(address TEXT PRIMARY KEY,value TEXT NOT NULL);
     """)
+    initialize_burns(db)
 
 
 def coins(value):
@@ -289,17 +291,25 @@ def overview(db,address=None,through=None):
         where.append("height<=?");args.append(through)
     total = db.conn.execute("SELECT COUNT(*) FROM wgnk_mints WHERE "+" AND ".join(where),args).fetchone()[0]
     links = links_for(db,address,through)
+    burns = burn_overview(db,address,through)
     by_address = defaultdict(list)
     for link in links:
         by_address[link["gnk_address"]].append(link)
+    burn_groups = defaultdict(list)
+    for link in burns['links']:
+        burn_groups[link['gnk_address']].append(link)
     sources = []
-    for native,group in sorted(by_address.items()):
+    for native in sorted(set(by_address)|set(burn_groups)):
+        group=by_address[native];returned=burn_groups[native]
         raw = sum(int(e["amount_raw"]) for e in group)
+        burned = sum(int(e['amount_raw']) for e in returned)
+        timestamps=[e['gnk_ts'] for e in group]+[e['eth_ts'] for e in returned]
         sources.append({"address":native,"mints":len(group),"amount_raw":str(raw),"amount":tokens(raw),
-                        "first_ts":min(e["gnk_ts"] for e in group),"last_ts":max(e["gnk_ts"] for e in group),
+                        "burns":len(returned),"burned_raw":str(burned),"burned":tokens(burned),
+                        "first_ts":min(timestamps),"last_ts":max(timestamps),
                         "history":sync_state(db,native)})
     return {"total":total,"verified":len(links),"pending":total-len(links),"complete":total>0 and total==len(links),
-            "sources":sources,"links":[{**e,"amount":tokens(e["amount_raw"])} for e in links],
+            "sources":sources,"links":[{**e,"amount":tokens(e["amount_raw"])} for e in links],"burns":burns,
             "status":db.get("provenance:status",{}),"history_source":SOURCE,
             "mining_attribution":"not_inferred","ownership_attribution":"not_inferred"}
 
@@ -487,9 +497,9 @@ class ProvenanceCollector:
         return .2 if rows else 20
 
     async def balances(self):
-        # Only existing bridge senders. Opening a UI/API never adds addresses.
+        # Only linked bridge senders/recipients. Opening a UI/API never adds addresses.
         now=int(time.time())
-        candidates=[(r[0],balance_state(self.db,r[0])) for r in self.db.conn.execute("SELECT DISTINCT gnk_address FROM gonka_mint_links")]
+        candidates=[(a,balance_state(self.db,a)) for a in native_addresses(self.db)]
         candidates=[(a,s) for a,s in candidates if s["next_check"]<=now]
         if not candidates:return 3
         address,state=min(candidates,key=lambda item:item[1].get("last_attempt") or 0)
@@ -511,7 +521,7 @@ class ProvenanceCollector:
         return .2
 
     async def incoming(self):
-        addresses = [r[0] for r in self.db.conn.execute("SELECT DISTINCT gnk_address FROM gonka_mint_links")]
+        addresses = native_addresses(self.db)
         if not addresses:
             return 5
         now = int(time.time())
@@ -538,3 +548,6 @@ class ProvenanceCollector:
             with self.db.conn:
                 self.db.conn.execute("INSERT OR REPLACE INTO gonka_address_sync VALUES(?,?)",(address,json.dumps(state)))
         return .2
+
+    async def burns(self):
+        return await collect_burns(self)
