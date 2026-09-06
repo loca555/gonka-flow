@@ -66,6 +66,22 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(analysis(self.db)["minters"][0]["sold"],"30")
         self.assertEqual(analysis(self.db,limit=1,offset=1)["sales"][0]["height"],3)
 
+    def test_outside_holders_use_all_history_and_current_balance(self):
+        groups=analysis(self.db)["outside_holders"]
+        self.assertTrue(groups["ready"])
+        self.assertEqual(groups["total_raw"],str(45*UNIT))
+        self.assertEqual(groups["groups"][1]["balance_raw"],str(45*UNIT))
+        for options in ({"side":"buy","hours":1,"q":A}, {"q":"0xf","limit":1,"offset":100}):
+            self.assertEqual(analysis(self.db,**options)["outside_holders"],groups)
+        # A confirmed 10 WGNK purchase makes this a trader: 10 bought / 40 sold.
+        self.db.conn.execute("UPDATE events SET meta=? WHERE kind='buy'",(json.dumps({"attribution":"initiator_net"}),))
+        self.db.conn.commit()
+        self.assertEqual(analysis(self.db)["outside_holders"]["groups"][2]["balance_raw"],str(45*UNIT))
+        # A future purchase beyond the same snapshot cannot change that classification.
+        self.db.save_batch("ethereum",13,13,[event(13,"buy",10000,actor=A,pool=POOL,
+            meta={"attribution":"initiator_net"})],[block(13)])
+        self.assertEqual(analysis(self.db)["outside_holders"]["groups"][2]["balance_raw"],str(45*UNIT))
+
     def test_minter_dates_only_include_final_mints_through_snapshot(self):
         first=analysis(self.db)["minters"][0]
         self.assertEqual((first["first_mint_ts"],first["last_mint_ts"],first["mint_count"]),
@@ -218,6 +234,42 @@ class FlowTests(unittest.TestCase):
         ledger,minted,burned=balances(event_rows(self.db,1,12))
         self.assertEqual(sum(ledger.values()),minted-burned)
         self.assertEqual(ledger[POOL],50*UNIT)
+
+    def test_bridge_minter_totals_match_all_history_not_feed_filters(self):
+        self.db.save_batch("ethereum",11,12,[event(11,"bridge_mint",20,ZERO,A)],[block(11),block(12)])
+        expected={"minted_raw":str(120*UNIT),"sold_raw":str(40*UNIT),
+                  "minted":"120","sold":"40","sales_count":2}
+        for filters in ({},{"minimum":50},{"q":A,"limit":1,"offset":2},{"q":event(1,"bridge_mint",100,ZERO,A)["tx_hash"]}):
+            result=bridge_listing(self.db,**{"minimum":0,**filters})
+            for row in result["items"]:
+                self.assertEqual(row["minter_totals"],expected if row["kind"]=="bridge_mint" else None)
+        with patch("app.flows.time.time",return_value=block(11)["ts"]+86400):
+            recent=bridge_listing(self.db,minimum=0,hours=24)
+        self.assertEqual(len(recent["items"]),1)
+        self.assertEqual(recent["items"][0]["minter_totals"],expected)
+        self.assertEqual(expected["sold"],analysis(self.db)["minters"][0]["sold"])
+
+    def test_bridge_minter_totals_exclude_unconfirmed_untracked_and_future_sales(self):
+        self.db.conn.execute("UPDATE events SET meta=? WHERE kind='sell' AND height=7",(json.dumps({"attribution":"initiator_only"}),))
+        self.db.conn.commit()
+        self.db.save_batch("ethereum",11,14,[
+            event(11,"sell",200,actor=A,pool="0x"+"f"*40,meta={"attribution":"initiator_net"}),
+            {**event(12,"sell",300,actor=A,pool=POOL,meta={"attribution":"initiator_net"}),"finalized":0},
+            event(13,"sell",400,actor=A,pool=POOL,meta={"attribution":"initiator_net"}),
+            event(14,"bridge_mint",500,ZERO,A)],[block(h) for h in range(11,15)])
+        mint=next(e for e in bridge_listing(self.db,minimum=0)["items"] if e["kind"]=="bridge_mint")
+        self.assertEqual((mint["minter_totals"]["minted"],mint["minter_totals"]["sold"],mint["minter_totals"]["sales_count"]),("100","30",1))
+
+    def test_bridge_minter_totals_exact_zero_and_sales_above_minted(self):
+        large=2**200+1
+        self.db.conn.execute("UPDATE events SET amount_raw=? WHERE kind='sell' AND height=3",(str(large),))
+        self.db.conn.commit()
+        get=lambda:next(e for e in bridge_listing(self.db,minimum=0)["items"] if e["kind"]=="bridge_mint")["minter_totals"]
+        self.assertEqual(get()["sold_raw"],str(large+10*UNIT))
+        self.assertEqual(get()["minted_raw"],str(100*UNIT))
+        self.db.conn.execute("UPDATE events SET meta=? WHERE kind='sell'",(json.dumps({"attribution":"initiator_only"}),))
+        self.db.conn.commit()
+        self.assertEqual((get()["sold_raw"],get()["sold"],get()["sales_count"]),("0","0",0))
 
     def test_buy_filter_has_own_totals_and_requires_confirmed_inflow(self):
         result=analysis(self.db,side="buy")

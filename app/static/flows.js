@@ -4,6 +4,68 @@
  const flow={hours:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,request:0};
  const fmt=value=>value===null||value===undefined?"—":amount(value,4);
  const addr=value=>'<button class="address-button" data-flow-address="'+esc(value)+'" title="'+esc(value)+'">'+esc(short(value,10))+'</button>';
+ const holderKinds={
+  investors:{label:"Инвесторы",rule:"Покупки > 90% · продажи < 10%"},
+  sellers:{label:"Продавцы",rule:"Продажи > 90% · покупки < 10%"},
+  traders:{label:"Трейдеры",rule:"Покупки и продажи: от 10% до 90%"},
+  unclassified:{label:"Без торговой истории",rule:"Нет подтверждённых покупок и продаж"}
+ };
+ const holderView={data:null,group:null,sort:"balance_desc",opener:null};
+ const share=(raw,total)=>{
+  const n=BigInt(raw),d=BigInt(total);
+  return !d?"—":n>0n&&n*100n<d?"< 1%":(n*100n/d).toString()+"%";
+ };
+ function mountHolders(){
+  ui("distribution-legend").insertAdjacentHTML("afterend",'<section id="outside-holders" class="outside-holders" aria-labelledby="outside-holders-title"><div class="holder-heading"><h3 id="outside-holders-title">Вне пулов · распределение баланса</h3><p id="outside-holders-total"></p></div><div id="outside-holders-content" hidden><div id="holder-distribution-bar" class="holder-distribution-bar" role="img"></div><div id="holder-group-cards" class="holder-group-cards"></div><p class="holder-method">Категория по объёму WGNK за всю историю: покупки / (покупки + продажи), аналогично для продаж. Только подтверждённые сделки двух пулов; переводы и мост не являются сделками. Ровно 90/10 — трейдеры. Условные категории адресов, не установленные личности. Доля — от текущего баланса вне пулов, не от торгового оборота.</p></div></section>');
+  document.body.insertAdjacentHTML("beforeend",'<dialog id="holder-dialog" aria-labelledby="holder-dialog-title"><div class="dialog-heading"><div><span class="eyebrow">WGNK / ВНЕ ПУЛОВ</span><h2 id="holder-dialog-title"></h2></div><button id="holder-close" aria-label="Закрыть список адресов" autofocus>✕</button></div><p id="holder-dialog-summary" class="holder-dialog-summary"></p><p id="holder-dialog-rule" class="flow-explanation"></p><div class="table-container holder-address-table" tabindex="0" aria-label="Все адреса категории, прокручиваемый список"><table id="holder-table"><thead><tr><th data-sort="address" data-default="asc">Адрес Ethereum</th><th data-sort="balance" class="numeric">Баланс WGNK</th><th data-sort="share" class="numeric">Доля группы</th><th data-sort="bought" class="numeric">Куплено WGNK</th><th data-sort="sold" class="numeric">Продано WGNK</th><th data-sort="buyshare" class="numeric">Доля покупок</th></tr></thead><tbody id="holder-rows"></tbody></table></div><p id="holder-dialog-note" class="flow-explanation"></p></dialog>');
+  const dialog=ui("holder-dialog");closeOnBackdrop(dialog);
+  ui("holder-close").addEventListener("click",()=>dialog.close());
+  dialog.addEventListener("close",()=>{
+   const opener=holderView.opener?.isConnected?holderView.opener:document.querySelector('[data-holder-group="'+holderView.group?.id+'"]');
+   opener?.focus({preventScroll:true});
+  });
+  configureTableSort("holder-table",holderView.sort,sort=>{holderView.sort=sort;renderHolderRows();});
+  ui("holder-group-cards").addEventListener("click",event=>{
+   const button=event.target.closest("[data-holder-group]"),data=flow.data?.outside_holders;
+   if(!button||!data?.ready)return;
+   const group=data.groups.find(g=>g.id===button.dataset.holderGroup);if(!group)return;
+   Object.assign(holderView,{data,group,opener:button,sort:"balance_desc"});
+   ui("holder-dialog-title").textContent=holderKinds[group.id].label;
+   ui("holder-dialog-summary").textContent=fmt(group.balance)+" WGNK · "+share(group.balance_raw,data.total_raw)+" от WGNK вне пулов · адресов: "+count(group.addresses);
+   ui("holder-dialog-rule").textContent=holderKinds[group.id].rule+". Объём = куплено + продано WGNK за всю подтверждённую историю двух пулов. Нажмите на адрес, чтобы открыть график и сделки.";
+   ui("holder-dialog-note").textContent="Снимок #"+count(data.height)+" · "+date(data.ts)+" "+clock(data.ts)+". Все адреса с положительным балансом одним списком. Доля группы — часть её текущего баланса; доля покупок — часть оборота адреса. Проценты показаны без дробной части, категория рассчитывается по точным значениям.";
+   renderHolderRows();dialog.showModal();dialog.scrollTop=0;dialog.querySelector(".holder-address-table").scrollTop=0;
+  });
+ }
+ function renderHolderRows(){
+  const group=holderView.group;if(!group)return;
+  const [field,direction]=holderView.sort.split("_"),sign=direction==="asc"?1:-1;
+  const compare=(a,b)=>a<b?-1:a>b?1:0;
+  const rows=[...group.holders].sort((a,b)=>{
+   let order;
+   if(field==="buyshare"){
+    const av=BigInt(a.bought_raw)+BigInt(a.sold_raw),bv=BigInt(b.bought_raw)+BigInt(b.sold_raw);
+    if(!av||!bv){if(Boolean(av)!==Boolean(bv))return av?-1:1;order=0;}
+    else order=compare(BigInt(a.bought_raw)*bv,BigInt(b.bought_raw)*av);
+   }else{
+    const key=field==="share"?"balance":field;
+    order=key==="address"?compare(a.address,b.address):compare(BigInt(a[key+"_raw"]),BigInt(b[key+"_raw"]));
+   }
+   return sign*order||compare(a.address,b.address);
+  });
+  setTableSort("holder-table",holderView.sort);
+  ui("holder-rows").innerHTML=rows.length?rows.map(r=>'<tr data-holder-address="'+esc(r.address)+'"><td>'+addr(r.address)+'</td><td class="numeric" data-raw="'+r.balance_raw+'">'+esc(fmt(r.balance))+'</td><td class="numeric">'+esc(share(r.balance_raw,group.balance_raw))+'</td><td class="numeric">'+esc(fmt(r.bought))+'</td><td class="numeric">'+esc(fmt(r.sold))+'</td><td class="numeric">'+esc(share(r.bought_raw,(BigInt(r.bought_raw)+BigInt(r.sold_raw)).toString()))+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">В этой категории пока нет адресов с положительным балансом.</td></tr>';
+ }
+ function renderHolders(data){
+  const info=data.outside_holders;
+  ui("outside-holders-content").hidden=!info?.ready;
+  if(!info?.ready){ui("outside-holders-total").textContent="Разбивка баланса пока не подтверждена — это не нулевые значения.";return;}
+  ui("outside-holders-total").textContent="Доли от "+fmt(info.total)+" WGNK вне двух отслеживаемых пулов · адресов: "+count(info.addresses);
+  const total=BigInt(info.total_raw);
+  ui("holder-distribution-bar").setAttribute("aria-label",info.groups.map(g=>holderKinds[g.id].label+": "+share(g.balance_raw,info.total_raw)).join(", "));
+  ui("holder-distribution-bar").innerHTML=info.groups.map(g=>'<span class="holder-'+g.id+'" style="width:'+(total?Number(BigInt(g.balance_raw)*100000n/total)/1000:0)+'%" title="'+esc(holderKinds[g.id].label+": "+fmt(g.balance)+" WGNK")+'"></span>').join("");
+  ui("holder-group-cards").innerHTML=info.groups.map(g=>'<button type="button" class="holder-group holder-'+g.id+'" data-holder-group="'+g.id+'" data-balance-raw="'+g.balance_raw+'" aria-haspopup="dialog" aria-controls="holder-dialog"><span class="holder-group-name"><i></i>'+holderKinds[g.id].label+'<span aria-hidden="true">↗</span></span><strong>'+esc(fmt(g.balance))+' <small>WGNK</small></strong><span class="holder-group-share">'+esc(share(g.balance_raw,info.total_raw))+' <small>от WGNK вне пулов</small></span><small class="holder-group-rule">'+esc(holderKinds[g.id].rule)+'</small><span class="holder-group-count">Адресов: '+count(g.addresses)+' <span>Открыть список →</span></span></button>').join("");
+ }
  function mount(){
   ui("flow-content").innerHTML=
   '<article class="panel distribution-panel"><div class="panel-title"><div><h2>Где находятся выпущенные WGNK</h2><p>Вся эмиссия · независимо от фильтров чеканки и сделок</p></div><span class="eyebrow">СНИМОК</span></div><div class="distribution-total"><strong id="distribution-total">—</strong><span>WGNK выпущено с создания моста</span></div><div id="distribution-bar" class="distribution-bar" role="img" aria-label="В пулах, вне отслеживаемых пулов и сожжено"></div><div id="distribution-legend" class="distribution-legend"></div><div id="flow-pools" class="flow-pools"></div><p class="flow-explanation">Баланс пулов включает WGNK от добавления ликвидности, обменов и комиссий. Он не равен сумме депозитов LP. Сожжённые WGNK учтены только на Ethereum; завершение обратного моста здесь не проверяется.</p></article>'+
@@ -17,6 +79,7 @@
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
   '<div class="pagination"><button id="sales-prev">← Назад</button><span id="sales-page"></span><button id="sales-next">Далее →</button></div>';
   ui("minter-report-host").innerHTML='<section class="minter-report"><h2>Минтеры и их продажи <span id="minter-count"></span></h2><p class="flow-explanation">Вся история. Даты — первая и последняя чеканка адреса; сортировка дат — по последней. Продажи могут включать купленные или полученные переводом WGNK: конкретные партии токенов не отслеживаются. Адрес Gonka — проверенный отправитель в мост, не установленный владелец или майнер.</p><p id="minter-status" class="flow-explanation"></p><div class="table-container minter-table"><table id="minter-table"><thead><tr><th data-sort="address" data-default="asc">Минтер · Ethereum</th><th data-sort="native" data-default="asc">Отправитель · Gonka</th><th data-sort="dates">Даты чеканки</th><th data-sort="minted" class="numeric">Получено при чеканке</th><th data-sort="balance" class="numeric">Баланс сейчас</th><th data-sort="sold" class="numeric">Продано адресом</th><th data-sort="price" class="numeric">Средняя цена за 1 WGNK, USDT</th><th data-sort="count">Исполнений продаж</th></tr></thead><tbody id="minter-rows"></tbody></table></div></section>';
+  mountHolders();
   function search(side=flow.side){
    const q=ui("sales-query").value.trim().toLowerCase();
    if(q&&!/^0x[0-9a-f]{1,64}$/.test(q)){
@@ -103,6 +166,7 @@
    return '<span style="width:'+percent+'%;background:'+s.color+'" title="'+esc(s.label+": "+amount(s.value,9)+" WGNK")+'"></span>';
   }).join("");
   ui("distribution-legend").innerHTML=segments.map(s=>'<div><span><i style="background:'+s.color+'"></i>'+s.label+'</span><strong title="'+esc(amount(s.value,9))+' WGNK">'+esc(fmt(s.value))+' <small>WGNK</small></strong><small>'+(minted?count(Number(BigInt(s.raw)*10000n/minted)/100):"0")+'% от всех выпусков</small></div>').join("");
+  renderHolders(data);
   ui("flow-pools").innerHTML=data.pools.map(p=>'<a class="pool-state" href="https://etherscan.io/address/'+p.address+'" target="_blank" rel="noopener noreferrer"><span>Uniswap V3 · '+count(p.fee/100)+' б.п. <small>'+esc(short(p.address))+' ↗</small></span><strong>'+esc(fmt(p.balance))+' <small>WGNK</small></strong></a>').join("");
   ui("flow-sold").textContent=compact(summary.volume);ui("flow-sold").title=amount(summary.volume,9)+" WGNK";
   ui("flow-sales-count").textContent=count(summary.swaps)+" исполнений · "+count(summary.transactions)+" транзакций";

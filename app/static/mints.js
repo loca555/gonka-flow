@@ -112,6 +112,14 @@ function renderRecipients(d){
  el("recipient-list").innerHTML=d.recipients.length?d.recipients.map((r,i)=>
  '<div class="recipient"><span class="rank">'+String(i+1).padStart(2,"0")+'</span><div><button data-flow-address="'+esc(r.address)+'" title="'+esc(r.address)+'">'+esc(short(r.address,10))+'</button><small>'+count(r.events)+' выпусков</small></div><div class="numeric"><strong>'+esc(amount(r.amount))+'</strong><small>WGNK получено</small></div></div>').join(""):'<p class="empty">Минтеров пока не найдено.</p>';
 }
+function minterSalesLabel(e){
+ if(e.kind==="bridge_burn")return '<small>Адрес сжигания</small>';
+ const totals=e.minter_totals;
+ if(!totals)return '<small class="minter-sales-summary" title="Статистика продаж и чеканки адреса пока недоступна">Продажи / чеканка —</small>';
+ const label="Слил "+amount(totals.sold)+" из "+amount(totals.minted)+" WGNK";
+ const hint="За всю историю адреса до финального снимка, независимо от даты этой чеканки и фильтров ленты. Слил — подтверждённые продажи в двух отслеживаемых пулах Uniswap V3; из — всего получено при чеканке. Продажи могут включать купленные или полученные переводом WGNK и превышать чеканку. Конкретные партии токенов не отслеживаются.";
+ return '<small class="minter-sales-summary" data-sold-raw="'+esc(totals.sold_raw)+'" data-minted-raw="'+esc(totals.minted_raw)+'" tabindex="0" title="'+esc(hint)+'">'+esc(label)+'</small>';
+}
 function renderRows(d){
  el("bridge-note").textContent=!d.ready?"Сверенный снимок моста пока не готов. Это не означает отсутствие событий.":
   "Чеканка и сжигание любого размера · финальный снимок #"+count(d.snapshot.height)+
@@ -121,7 +129,7 @@ function renderRows(d){
  setTableSort("mint-table",normalizeMintSort(d.sort));
  el("mint-rows").innerHTML=d.items.length?d.items.map(e=>{
   const burn=e.kind==="bridge_burn";
-  return '<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+(burn?"sell":"buy")+'">'+(burn?"Сжигание":"Чеканка")+'</span></td><td><button class="address-button" data-flow-address="'+esc(e.address)+'" title="'+esc(e.address)+'">'+esc(short(e.address,10))+'</button><small>'+(burn?"Адрес сжигания":"Минтер")+'</small></td><td class="numeric"><span class="amount-value">'+esc(amount(e.amount))+'</span><small>WGNK</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>log #'+e.log_index+'</small></td><td><span class="final-badge">✓ Финальный</span><small>#'+count(e.height)+'</small></td><td><button class="detail-button" data-tx="'+esc(e.tx_hash)+'" data-log="'+e.log_index+'" aria-label="Детали события '+esc(short(e.tx_hash))+'">↗</button></td></tr>';
+  return '<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+(burn?"sell":"buy")+'">'+(burn?"Сжигание":"Чеканка")+'</span></td><td><button class="address-button" data-flow-address="'+esc(e.address)+'" title="'+esc(e.address)+'">'+esc(short(e.address,10))+'</button>'+minterSalesLabel(e)+'</td><td class="numeric"><span class="amount-value">'+esc(amount(e.amount))+'</span><small>WGNK</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>log #'+e.log_index+'</small></td><td><span class="final-badge">✓ Финальный</span><small>#'+count(e.height)+'</small></td><td><button class="detail-button" data-tx="'+esc(e.tx_hash)+'" data-log="'+e.log_index+'" aria-label="Детали события '+esc(short(e.tx_hash))+'">↗</button></td></tr>';
  }).join(""):'<tr><td colspan="7" class="empty">Событий моста в подтверждённой истории пока нет.</td></tr>';
  el("prev").disabled=d.offset===0;el("next").disabled=!d.has_more;
  el("page-info").textContent=d.total?count(d.offset+1)+"–"+count(Math.min(d.offset+d.limit,d.total))+" из "+count(d.total):"0 событий";

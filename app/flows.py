@@ -10,6 +10,7 @@ from .config import TOKEN, USDT, ZERO, SEED_POOLS
 from .db import tokens
 from .timezones import TIME_ZONE, local_day, local_time
 from .address_history import address_history
+from .holder_groups import outside_holders
 
 def price_raw(quote, quantity, quote_decimals=6):
     """USDT/WGNK at 12 decimal places, explicitly rounded down."""
@@ -42,6 +43,24 @@ def balances(rows):
             result[e["src"]]-=quantity;result[e["dst"]]+=quantity
     return result,minted,burned
 
+def minter_totals(rows,pools):
+    """All-history mint and confirmed sale totals at one finalized snapshot, not token lots."""
+    recipients={}
+    for e in rows:
+        if e["kind"]=="bridge_mint":
+            r=recipients.setdefault(e["dst"],{"address":e["dst"],"minted_raw":0,"sales_raw":0,"quote_raw":0,
+                "sales_count":0,"mint_count":0,"first_mint_ts":e["ts"],"last_mint_ts":e["ts"]})
+            r["minted_raw"]+=int(e["amount_raw"])
+            r["mint_count"]+=1
+            r["first_mint_ts"]=min(r["first_mint_ts"],e["ts"])
+            r["last_mint_ts"]=max(r["last_mint_ts"],e["ts"])
+    for e in rows:
+        if e["kind"]!="sell" or e["pool"] not in pools or e["actor"] not in recipients: continue
+        if json.loads(e["meta"]).get("attribution")!="initiator_net": continue
+        r=recipients[e["actor"]]
+        r["sales_raw"]+=int(e["amount_raw"]);r["quote_raw"]+=int(e["quote_raw"]);r["sales_count"]+=1
+    return recipients
+
 def bridge_listing(db,minimum=10000,hours=0,q="",sort="newest",limit=50,offset=0):
     """One row per explicit WGNKMinted/WGNKBurned event, never its ERC-20 duplicate."""
     deployment=db.get("mints:deployment")
@@ -56,18 +75,25 @@ def bridge_listing(db,minimum=10000,hours=0,q="",sort="newest",limit=50,offset=0
     result["coverage"]={"start":start,"head":target,"indexed_height":end,
                         "complete":end==target,"missing":max(0,target-end)}
     if not snapshot or snapshot["height"]>end: return result
+    rows=event_rows(db,start,snapshot["height"])
+    recipients=minter_totals(rows,{p["address"] for p in snapshot["pools"]})
     items=[]
-    for r in db.conn.execute("""SELECT * FROM events WHERE chain='ethereum' AND finalized=1
-            AND kind IN ('bridge_mint','bridge_burn') AND height BETWEEN ? AND ?""",(start,snapshot["height"])):
-        e=dict(r);address=e["dst"] if e["kind"]=="bridge_mint" else e["src"]
+    for e in rows:
+        if e["kind"] not in ("bridge_mint","bridge_burn"): continue
+        address=e["dst"] if e["kind"]=="bridge_mint" else e["src"]
         if int(e["amount_raw"])<minimum*10**9 or (hours and e["ts"]<result["now"]-hours*3600): continue
         if q and not any(q in v for v in (address,e["tx_hash"],e["request_key"])): continue
         meta=json.loads(e["meta"])
+        totals=recipients[address] if e["kind"]=="bridge_mint" else None
         items.append({"kind":e["kind"],"address":address,"recipient":address,"ts":e["ts"],
             "tx_hash":e["tx_hash"],"log_index":e["idx"],"height":e["height"],"block_hash":e["block_hash"],
             "amount_raw":e["amount_raw"],"amount":tokens(e["amount_raw"]),"finalized":True,
             "request_id":e["request_key"] if e["kind"]=="bridge_mint" else "",
-            "epoch_id":str(meta.get("epoch","")),"native_side_checked":False})
+            "epoch_id":str(meta.get("epoch","")),"native_side_checked":False,
+            "minter_totals":None if totals is None else {
+                "minted_raw":str(totals["minted_raw"]),"sold_raw":str(totals["sales_raw"]),
+                "minted":tokens(totals["minted_raw"]),"sold":tokens(totals["sales_raw"]),
+                "sales_count":totals["sales_count"]}})
     order={"newest":"time_desc","oldest":"time_asc","largest":"amount_desc"}.get(sort,sort)
     field,direction=order.rsplit("_",1)
     keys={"time":lambda e:e["ts"],"recipient":lambda e:e["address"],"kind":lambda e:e["kind"],
@@ -188,7 +214,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
             "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],"address_balance":None,"address_history":None,
-            "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
+            "outside_holders":None,"scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
     if not deployment or not target: return result
     start=deployment["height"];end=history_end(db,start,target)
     result["coverage"]={"start":start,"head":target,"indexed_height":end,
@@ -197,26 +223,14 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     cut=snapshot["height"]
     rows=event_rows(db,start,cut)
     ledger,minted,burned=balances(rows)
+    result["outside_holders"]=outside_holders(rows,ledger,snapshot)
     if re.fullmatch("0x[0-9a-f]{40}",q) and snapshot.get("ledger_verified") and ledger.get(q,0)>=0:
         result["address_balance"]={"address":q,"amount":tokens(ledger.get(q,0)),
             "amount_raw":str(ledger.get(q,0)),"height":cut,"ts":snapshot["ts"],"source":"verified_transfer_ledger"}
         result["address_history"]=address_history(rows,q,snapshot,ledger.get(q,0))
     pools={p["address"]:p for p in snapshot["pools"]}
     all_sales=[e for e in rows if e["kind"]=="sell" and e["pool"] in pools]
-    recipient_data={}
-    for e in rows:
-        if e["kind"]=="bridge_mint":
-            r=recipient_data.setdefault(e["dst"],{"address":e["dst"],"minted_raw":0,"sales_raw":0,"quote_raw":0,
-                "sales_count":0,"mint_count":0,"first_mint_ts":e["ts"],"last_mint_ts":e["ts"]})
-            r["minted_raw"]+=int(e["amount_raw"])
-            r["mint_count"]+=1
-            r["first_mint_ts"]=min(r["first_mint_ts"],e["ts"])
-            r["last_mint_ts"]=max(r["last_mint_ts"],e["ts"])
-    for e in all_sales:
-        meta=json.loads(e["meta"])
-        if e["actor"] in recipient_data and meta.get("attribution")=="initiator_net":
-            r=recipient_data[e["actor"]]
-            r["sales_raw"]+=int(e["amount_raw"]);r["quote_raw"]+=int(e["quote_raw"]);r["sales_count"]+=1
+    recipient_data=minter_totals(rows,pools)
     minters=[]
     from .provenance import links_for
     native_links=defaultdict(list)
