@@ -58,6 +58,43 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn("owner_changes",s)
         self.assertEqual(result["timezone"],TIME_ZONE)
 
+    def test_latest_trade_is_global_and_includes_buys(self):
+        self.assertEqual(analysis(self.db)["latest_trade"]["price"],"0.6")
+        trade=event(11,"buy",1000,actor="0x"+"3"*40,pool=POOL,
+                    quote_raw="127115000",quote_asset="USDT")
+        self.db.save_batch("ethereum",11,11,[trade],[block(11)])
+        expected={"price":"0.127115","ts":block(11)["ts"],"height":11,"tx_hash":trade["tx_hash"],
+                  "kind":"buy","pool":POOL,"log_index":0}
+        for options in ({},{"q":A,"side":"sell","hours":1},{"q":"0xf","offset":100,"limit":1},
+                        {"side":"buy","sort":"price_asc"},{"side":"all","sort":"time_asc"}):
+            self.assertEqual(analysis(self.db,**options)["latest_trade"],expected)
+
+    def test_latest_trade_only_uses_verified_pools_and_final_snapshot(self):
+        expected=analysis(self.db)["latest_trade"]
+        extra=[event(11,"buy",1,pool="0x"+"f"*40,quote_raw="999000000",quote_asset="USDT"),
+               {**event(12,"sell",1,pool=POOL,quote_raw="998000000",quote_asset="USDT"),"finalized":0},
+               event(13,"buy",1,pool=POOL,quote_raw="997000000",quote_asset="USDT")]
+        self.db.save_batch("ethereum",11,13,extra,[block(i) for i in range(11,14)])
+        self.assertEqual(analysis(self.db)["latest_trade"],expected)
+
+    def test_latest_trade_follows_log_order_in_same_block(self):
+        first=blank("ethereum",block(11),"0x"+"f"*64,2,"sell",UNIT,pool=POOL,
+                    quote_raw="200000",quote_asset="USDT")
+        last=blank("ethereum",block(11),"0x"+"1"*64,8,"buy",UNIT,pool=POOL,
+                   quote_raw="123456",quote_asset="USDT")
+        self.db.save_batch("ethereum",11,11,[last,first],[block(11)])
+        self.assertEqual(analysis(self.db)["latest_trade"]["price"],"0.123456")
+        self.assertEqual(analysis(self.db)["latest_trade"]["log_index"],8)
+
+    def test_latest_trade_is_null_when_no_trades_or_snapshot(self):
+        self.db.conn.execute("DELETE FROM events WHERE kind IN ('buy','sell')")
+        self.db.conn.commit()
+        result=analysis(self.db)
+        self.assertTrue(result["ready"])
+        self.assertIsNone(result["latest_trade"])
+        self.db.put("flow:snapshot",None)
+        self.assertIsNone(analysis(self.db)["latest_trade"])
+
     def test_address_sales_require_confirmed_token_outflow(self):
         self.db.conn.execute("UPDATE events SET meta=? WHERE kind='sell' AND height=7",(json.dumps({"attribution":"initiator_only"}),))
         self.db.conn.commit()

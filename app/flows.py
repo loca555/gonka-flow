@@ -215,7 +215,8 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
             "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],"address_balance":None,"address_history":None,
-            "outside_holders":None,"holder_history":None,"scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
+            "outside_holders":None,"holder_history":None,"latest_trade":None,
+            "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
     if not deployment or not target: return result
     start=deployment["height"];end=history_end(db,start,target)
     result["coverage"]={"start":start,"head":target,"indexed_height":end,
@@ -231,7 +232,14 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "amount_raw":str(ledger.get(q,0)),"height":cut,"ts":snapshot["ts"],"source":"verified_transfer_ledger"}
         result["address_history"]=address_history(rows,q,snapshot,ledger.get(q,0))
     pools={p["address"]:p for p in snapshot["pools"]}
-    all_sales=[e for e in rows if e["kind"]=="sell" and e["pool"] in pools]
+    market_trades=[e for e in rows if e["kind"] in ("sell","buy") and e["pool"] in pools]
+    # The header quote is global: latest finalized Swap, before any view filters.
+    latest=max(market_trades,key=lambda e:(e["height"],e["idx"],e["tx_hash"]),default=None)
+    if latest:
+        result["latest_trade"]={key:latest[key] for key in ("ts","height","tx_hash","kind","pool")}
+        result["latest_trade"].update(log_index=latest["idx"],
+            price=tokens(price_raw(latest["quote_raw"],latest["amount_raw"]),12))
+    all_sales=[e for e in market_trades if e["kind"]=="sell"]
     recipient_data=minter_totals(rows,pools)
     minters=[]
     from .provenance import links_for
@@ -245,7 +253,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "minted":tokens(r["minted_raw"]),"sold":tokens(r["sales_raw"]),"balance":tokens(ledger.get(r["address"],0)),
             "quote":tokens(r["quote_raw"],6),"average_price":tokens(price_raw(r["quote_raw"],r["sales_raw"]),12) if r["sales_raw"] else None})
     selected=[]
-    all_trades=[e for e in rows if e["kind"] in (("sell","buy") if side=="all" else (side,)) and e["pool"] in pools]
+    all_trades=[e for e in market_trades if side=="all" or e["kind"]==side]
     for e in all_trades:
         meta=json.loads(e["meta"])
         if hours and e["ts"]<now-hours*3600: continue

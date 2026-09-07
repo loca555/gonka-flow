@@ -95,3 +95,8 @@
 .native-burn-archive th,.native-burn-archive .address-button{font-size:.875rem}
 .native-burn-archive small,.native-burn-archive .native-disclaimer,.native-burn-archive .tx-link,.native-burn-archive .final-badge{font-size:.75rem}
 .native-burn-archive td small{display:block;max-width:260px;white-space:normal;overflow-wrap:anywhere}
+.header-price{display:flex;align-items:center;flex-shrink:0;margin-right:12px;line-height:1.3}
+.header-price>strong{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--accent)}
+.header-price[data-state="stale"]>strong{color:var(--warning)}
+@media(max-width:1180px){.masthead{height:auto;min-height:78px;flex-wrap:wrap;padding-top:14px;gap:12px 24px}.masthead nav{display:flex;order:3;flex:0 0 100%;height:42px;gap:24px;overflow-x:auto}.masthead nav a{white-space:nowrap}.header-actions{flex-shrink:0}}
+@media(max-width:600px){.header-actions{flex-basis:100%;margin-left:0}.header-price{align-items:flex-start;margin-right:auto}.header-price>strong{font-size:18px}.masthead nav{gap:20px}}

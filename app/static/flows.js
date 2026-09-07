@@ -145,7 +145,28 @@
   ui("minter-status").textContent="Ethereum: снимок #"+count(data.snapshot.height)+" · "+date(data.snapshot.ts)+" "+clock(data.snapshot.ts)+(data.coverage.complete?" · история без пропусков":" · есть незагруженные блоки")+". Связи Gonka: "+count(verified)+" / "+count(totalMints)+" выпусков подтверждено.";
   ui("minter-rows").innerHTML=rows.map(r=>'<tr><td>'+addr(r.address)+'</td><td class="minter-native">'+((r.gnk_addresses||[]).length?r.gnk_addresses.map(a=>'<button class="address-button" data-flow-address="'+esc(r.address)+'" data-gnk-address="'+esc(a)+'" title="'+esc(a)+'">'+esc(short(a,12))+'</button>').join(''):'<span class="pending-badge">Проверяется</span>')+'<small>'+count(r.gnk_verified_mints||0)+' / '+count(r.mint_count)+' выпусков</small></td><td class="mint-dates" data-last-mint="'+r.last_mint_ts+'"><span title="'+clock(r.first_mint_ts)+'">Первая · '+date(r.first_mint_ts)+'</span><small title="'+clock(r.last_mint_ts)+'">Последняя · '+date(r.last_mint_ts)+'</small></td><td class="numeric" data-raw="'+r.minted_raw+'">'+esc(fmt(r.minted))+'</td><td class="numeric" data-balance="'+esc(r.balance)+'">'+esc(fmt(r.balance))+'</td><td class="numeric" data-raw="'+r.sales_raw+'">'+esc(fmt(r.sold))+'</td><td class="numeric price-value">'+esc(price(r.average_price))+'</td><td>'+count(r.sales_count)+'</td></tr>').join("");
  }
+ function headerPrice(value){
+  const parts=/^(\d+)(?:\.(\d+))?$/.exec(String(value));
+  if(!parts)return "—";
+  const fraction=(parts[2]||"").padEnd(4,"0");
+  const rounded=BigInt(parts[1])*1000n+BigInt(fraction.slice(0,3))+(fraction[3]>="5"?1n:0n);
+  return "$"+(rounded/1000n).toLocaleString("ru-RU")+"."+(rounded%1000n).toString().padStart(3,"0");
+ }
+ function renderHeaderPrice(data,failed=false){
+  const box=ui("header-price"),value=ui("header-price-value"),trade=data?.latest_trade;
+  if(!box||!value)return;
+  value.textContent=trade?headerPrice(trade.price):"—";
+  value.setAttribute("aria-label","Цена за 1 WGNK, USDT: "+value.textContent);
+  const stale=failed||Boolean(data?.status?.error)||(data?.snapshot&&data.now-data.snapshot.checked_at>180);
+  box.dataset.state=stale?"stale":trade?"ready":data?.ready?"empty":"loading";
+  box.title=trade?"Последняя "+(trade.kind==="buy"?"покупка":"продажа")+" в проверенном снимке · "+date(trade.ts)+" "+clock(trade.ts)+
+   " · блок #"+count(trade.height)+" · Swap #"+trade.log_index+". "+price(trade.price)+" USDT за 1 WGNK, без газа; два пула WGNK / USDT.":
+   data?.ready?"В проверенном снимке пока нет сделок WGNK / USDT.":"Ожидаем проверенные торговые данные.";
+  if(stale)box.title+=trade?" Нет свежего ответа; показана последняя доступная цена.":" Нет свежего ответа.";
+  if(trade&&!data.coverage.complete)box.title+=" История ещё догружается.";
+ }
  function render(data){
+  renderHeaderPrice(data);
   const summary=data.summary,buy=data.side==="buy",all=data.side==="all";
   if(!data.ready)ui("sales-result").textContent="Сверенный снимок ещё не готов. Сделки пока не показаны.";
   const warning=!data.ready?(data.status.error?"Повторяем проверку торговых данных: "+data.status.error:"Загружаем торговые данные…"):
@@ -213,6 +234,7 @@
    const data=await response.json();if(id!==flow.request)return;
    flow.data=data;render(data);
   }catch(error){if(id===flow.request){
+   renderHeaderPrice(flow.data,true);
    ui("trade-status").textContent="Нет свежего ответа по пулам и сделкам. Последние данные сохранены. "+(error.name==="AbortError"?"Таймаут.":error.message);
    ui("trade-status").hidden=false;
    ui("sales-result").textContent="Поиск не выполнен. Ниже сохранён предыдущий результат. Повторите запрос.";
