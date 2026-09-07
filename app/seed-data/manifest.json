@@ -1,15 +1,16 @@
 {
   "format": 1,
   "network": "ethereum",
-  "height": 25913542,
-  "ts": 1788640343,
-  "events": 11198,
-  "mints": 747,
-  "gonka_links": 747,
-  "gonka_incoming": 8936,
-  "gonka_balances": 77,
-  "gonka_scope": "Only native senders linked to the included WGNK mints; explorer coverage is not chain-complete proof",
-  "sha256": "e7d197de35a941af0eac5790dfa9206d61b1cce84120868ce6f578afa5ad7e1b",
-  "unpacked_bytes": 24788992,
-  "archive_bytes": 4517124
+  "height": 25925212,
+  "ts": 1788780887,
+  "events": 11467,
+  "mints": 768,
+  "gonka_links": 768,
+  "gonka_burn_links": 400,
+  "gonka_incoming": 9224,
+  "gonka_balances": 142,
+  "gonka_scope": "Only native senders and recipients linked to included WGNK mints/burns; explorer coverage is not chain-complete proof",
+  "sha256": "4f5c5d65fde50817b12fb1aa54357447e42805b2e7d4a21f874c0d41d83b85cb",
+  "unpacked_bytes": 26398720,
+  "archive_bytes": 4840764
 }

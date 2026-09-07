@@ -28,7 +28,7 @@
   el('leaders-'+side.key+'-count').textContent=count(rows.length)+' адресов';
   el('leaders-'+side.key+'-total').textContent=amount(data.summary[side.key].volume);
   const maximum=BigInt(data[side.list][0]?.volume_raw||'0');
-  el('leaders-'+side.key+'-rows').innerHTML=rows.length?rows.map(row=>{
+  setLiveHTML(el('leaders-'+side.key+'-rows'),rows.length?rows.map(row=>{
    const width=maximum?Number(BigInt(row.volume_raw)*10000n/maximum)/100:0;
    return '<tr data-address="'+esc(row.address)+'"><td class="leader-rank">'+count(row.rank)+'</td>'+
     '<td><button class="address-button" data-flow-address="'+esc(row.address)+'" title="'+esc(row.address)+'">'+esc(short(row.address,8))+'</button></td>'+
@@ -36,7 +36,7 @@
     '<td class="numeric" title="'+esc(row.quote)+' USDT">'+esc(amount(row.quote))+'</td>'+
     '<td class="numeric price-value" title="Средневзвешенная цена за 1 WGNK">'+esc(price(row.average_price))+'</td>'+
     '<td class="numeric" title="'+count(row.transactions)+' транзакций">'+count(row.swaps)+'</td></tr>';
-  }).join(''):'<tr><td colspan="6" class="empty">Пока нет сделок с подтверждённой привязкой к адресу.</td></tr>';
+  }).join(''):'<tr><td colspan="6" class="empty">Пока нет сделок с подтверждённой привязкой к адресу.</td></tr>');
   scroll.scrollTop=top;scroll.scrollLeft=left;
  }
  function render(data){
@@ -57,19 +57,20 @@
  async function refresh(){
   if(ranking.loading)return;
   const id=++ranking.request,controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
-  ranking.loading=true;el('leaders-view').setAttribute('aria-busy','true');
-  el('leaders-status').textContent=ranking.data?'Обновляем рейтинг…':'Считаем крупнейших покупателей и продавцов…';
+  ranking.loading=true;
+  if(!ranking.data){el('leaders-view').setAttribute('aria-busy','true');el('leaders-status').textContent='Считаем крупнейших покупателей и продавцов…';}
   try{
    const response=await fetch('/api/mints/leaders',{signal:controller.signal});
    if(!response.ok)throw new Error('HTTP '+response.status);
    const data=await response.json();if(id!==ranking.request)return;
+   if(ranking.data?.ready&&!data.ready){el('leaders-status').textContent='Сервис восстанавливает снимок. Последний проверенный рейтинг сохранён; повторим автоматически.';return;}
    ranking.data=data;render(data);
   }catch(error){if(id===ranking.request)el('leaders-status').textContent='Не удалось обновить рейтинг. '+
    (ranking.data?.ready?'Предыдущие данные сохранены. ':'')+(error.name==='AbortError'?'Сервер не ответил вовремя.':error.message);}
   finally{clearTimeout(timer);if(id===ranking.request){ranking.loading=false;el('leaders-view').setAttribute('aria-busy','false');}}
  }
  window.addEventListener('gonka:view',()=>{if(!el('leaders-view').hidden)refresh();});
- el('refresh').addEventListener('click',()=>{if(!el('leaders-view').hidden)refresh();});
  setInterval(()=>{if(!document.hidden&&!el('leaders-view').hidden)refresh();},20000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!el('leaders-view').hidden)refresh();});
  if(!el('leaders-view').hidden)refresh();
 })();

@@ -46,9 +46,9 @@ window.WgnkAddress=(()=>{
    (data.coverage.complete?" · история без пропусков":" · есть незагруженные блоки")+
    (data.status.error?" · свежие данные временно недоступны":data.now-data.snapshot.checked_at>180?" · обновляем данные":"");
   const s=data.summary,balance=data.address_balance;
-  el("address-metrics").innerHTML='<article><span>Текущий баланс <small>WGNK</small></span><strong id="address-balance">'+(balance?esc(amount(balance.amount)):"—")+'</strong><p>'+(balance?'На проверенном блоке #'+count(balance.height)+'<br>С учётом всех переводов WGNK':'Баланс пока не подтверждён')+'</p></article><article><span>Куплено <small>WGNK</small></span><strong>'+esc(amount(s.bought))+'</strong><p>'+count(s.buys_count)+' исполнений · уплачено '+esc(amount(s.buy_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.buy_average_price))+' USDT</p></article><article><span>Продано <small>WGNK</small></span><strong>'+esc(amount(s.sold))+'</strong><p>'+count(s.sales_count)+' исполнений · получено '+esc(amount(s.sale_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.sale_average_price))+' USDT</p></article>';
+  setLiveHTML(el("address-metrics"),'<article><span>Текущий баланс <small>WGNK</small></span><strong id="address-balance">'+(balance?esc(amount(balance.amount)):"—")+'</strong><p>'+(balance?'На проверенном блоке #'+count(balance.height)+'<br>С учётом всех переводов WGNK':'Баланс пока не подтверждён')+'</p></article><article><span>Куплено <small>WGNK</small></span><strong>'+esc(amount(s.bought))+'</strong><p>'+count(s.buys_count)+' исполнений · уплачено '+esc(amount(s.buy_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.buy_average_price))+' USDT</p></article><article><span>Продано <small>WGNK</small></span><strong>'+esc(amount(s.sold))+'</strong><p>'+count(s.sales_count)+' исполнений · получено '+esc(amount(s.sale_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.sale_average_price))+' USDT</p></article>');
   setTableSort("address-trades-table",data.sort);
-  el("address-rows").innerHTML=data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td class="numeric">'+esc(amount(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td>Uniswap V3<small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' б.п.</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):'<tr><td colspan="7" class="empty">Подтверждённых покупок и продаж этого адреса в отслеживаемых пулах не найдено.</td></tr>';
+  setLiveHTML(el("address-rows"),data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td class="numeric">'+esc(amount(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td>Uniswap V3<small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' б.п.</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):'<tr><td colspan="7" class="empty">Подтверждённых покупок и продаж этого адреса в отслеживаемых пулах не найдено.</td></tr>');
   el("address-trade-count").textContent=data.total?"Все "+count(data.total)+" исполнений · без разбиения на страницы":"0 сделок";
   el("address-data").hidden=false;
   renderChart(data);
@@ -58,12 +58,12 @@ window.WgnkAddress=(()=>{
   if(!dialog.open)return;
   wallet.abort?.abort();const controller=wallet.abort=new AbortController(),id=++wallet.request;
   const timer=setTimeout(()=>controller.abort(),30000);wallet.loading=true;
-  el("address-status").textContent="Загружаем покупки и продажи за всю историю…";
-  dialog.setAttribute("aria-busy","true");
+  if(!wallet.data){el("address-status").textContent="Загружаем покупки и продажи за всю историю…";dialog.setAttribute("aria-busy","true");}
   try{
    const response=await fetch("/api/mints/address/"+wallet.address+"?"+new URLSearchParams({sort:wallet.sort}),{signal:controller.signal});
    if(!response.ok)throw new Error("HTTP "+response.status);
    const data=await response.json();if(id!==wallet.request||!dialog.open)return;
+   if(wallet.data?.ready&&!data.ready){el("address-status").textContent="Сервис восстанавливает снимок. Последние проверенные данные адреса сохранены; повторим автоматически.";return;}
    if(data.ready&&(data.has_more||data.trades.length!==data.total))throw new Error("История загружена не полностью.");
    render(data,resetScroll||!wallet.data);wallet.data=data;
   }catch(error){if(id===wallet.request&&dialog.open)el("address-status").textContent="Не удалось обновить сделки. "+(wallet.data?"Ниже сохранён предыдущий результат. ":"")+"Нажмите «Обновить сделки». "+(error.name==="AbortError"?"Таймаут.":error.message);}
@@ -85,5 +85,6 @@ window.WgnkAddress=(()=>{
   refresh();
  }
  setInterval(()=>{if(dialog.open&&!document.hidden&&!wallet.loading)refresh();},30000);
+ document.addEventListener("visibilitychange",()=>{if(dialog.open&&!document.hidden&&!wallet.loading)refresh();});
  return {open};
 })();

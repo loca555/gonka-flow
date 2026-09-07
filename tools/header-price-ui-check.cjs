@@ -30,6 +30,7 @@ function displayed(value){
   }
   await verifyPrice(displayed(data.latest_trade.price));
   assert.equal(await page.locator('#header-price>span').count(),0,'no visible unit label');
+  assert.equal(await page.locator('#refresh').count(),0,'global refresh button is removed');
   assert.equal(await page.locator('#header-price').innerText(),displayed(data.latest_trade.price));
   assert.match(await page.locator('#header-price-value').getAttribute('aria-label'),/Цена за 1 WGNK, USDT/);
   assert.equal(data.trades[0].price,data.latest_trade.price,'header matches newest all-side execution');
@@ -41,11 +42,11 @@ function displayed(value){
    await page.setViewportSize({width,height:950});
    const layout=await page.evaluate(()=>{
     const box=id=>{const r=document.getElementById(id).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};};
-    return {width:innerWidth,body:document.body.scrollWidth,price:box('header-price'),theme:box('theme-toggle'),refresh:box('refresh')};
+    return {width:innerWidth,body:document.body.scrollWidth,price:box('header-price'),theme:box('theme-toggle')};
    });
    assert(layout.body<=width+1,JSON.stringify(layout));
    assert(layout.price.right<=layout.theme.left,JSON.stringify(layout));
-   assert(layout.refresh.right<=width,JSON.stringify(layout));
+   assert(layout.theme.right<=width,JSON.stringify(layout));
    assert(layout.price.top<layout.theme.bottom&&layout.theme.top<layout.price.bottom,JSON.stringify(layout));
    widths.push(width);
   }
@@ -62,23 +63,26 @@ function displayed(value){
   await action(()=>page.locator('#trades-table th[data-sort="time"] button').click());
   assert.equal(data.sort,'time_asc');
   const lastPrice=displayed(data.latest_trade.price);
+  const background=()=>page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
   await page.route('**/api/mints/flows?**',route=>route.fulfill({status:503,body:'unavailable'}));
-  await page.locator('#refresh').click();
+  await background();
   await page.waitForFunction(()=>document.getElementById('header-price').dataset.state==='stale');
   await verifyPrice(lastPrice);
   assert.match(await page.locator('#header-price').getAttribute('title'),/Нет свежего ответа/);
   await page.unroute('**/api/mints/flows?**');
-  await action(()=>page.locator('#refresh').click());
+  await action(background);
   await page.route('**/api/mints/flows?**',route=>route.fulfill({json:{...data,ready:false,latest_trade:null}}));
-  await page.locator('#refresh').click();await verifyPrice('—');
+  await background();
+  await page.waitForFunction(()=>document.getElementById('header-price').dataset.state==='stale');
+  await verifyPrice(lastPrice);
   await page.unroute('**/api/mints/flows?**');
-  await action(()=>page.locator('#refresh').click());
+  await action(background);
   for(const [raw,expected] of [['0.127115','$0.127'],['0.1275','$0.128'],['0.1','$0.100'],['0.999999999999','$1.000'],['0','$0.000']]){
    await page.route('**/api/mints/flows?**',route=>route.fulfill({json:{...data,latest_trade:{...data.latest_trade,price:raw}}}));
-   await page.locator('#refresh').click();await verifyPrice(expected);
+   await background();await verifyPrice(expected);
    await page.unroute('**/api/mints/flows?**');
   }
-  await action(()=>page.locator('#refresh').click());
+  await action(background);
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({ok:true,widths,price:displayed(data.latest_trade.price),
    latestTrade:data.latest_trade,filtersAndSort:true,failureAndRecovery:true,errors,screenshots:out},null,2));

@@ -223,7 +223,7 @@ window.GonkaChart=(()=>{
    cursor.setAttribute('visibility','visible');
    const line=cursor.querySelector('line');line.setAttribute('x1',px);line.setAttribute('x2',px);
    const dot=cursor.querySelector('circle');dot.setAttribute('cx',px);dot.setAttribute('cy',y(row.balance,balanceHigh));
-   const time=new Date(history.ts*1000).toLocaleTimeString('ru-RU',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
+   const time=new Date(Number(host.dataset.snapshotTs||history.ts)*1000).toLocaleTimeString('ru-RU',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
    tooltip.innerHTML='<span>'+fullDate(row.date)+(onSnapshot?' · до '+escape(time):'')+'</span><strong class="balance-value">'+escape(exact(row.balance,9))+' <small>WGNK</small></strong><span>Баланс '+(onSnapshot?'на снимке':'на конец дня')+'</span><div class="address-tooltip-sides">'+['buy','sell'].map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(row[kind],9))+' WGNK</b><small>'+(kind==='buy'?row.buys_count:row.sales_count).toLocaleString('ru-RU')+' исп.</small></div>').join('')+'</div>';
    tooltip.dataset.date=row.date;tooltip.dataset.balanceRaw=row.balance.toString();tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';

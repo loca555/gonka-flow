@@ -55,7 +55,7 @@
    return sign*order||compare(a.address,b.address);
   });
   setTableSort("holder-table",holderView.sort);
-  ui("holder-rows").innerHTML=rows.length?rows.map(r=>'<tr data-holder-address="'+esc(r.address)+'"><td>'+addr(r.address)+'</td><td class="numeric" data-raw="'+r.balance_raw+'">'+esc(fmt(r.balance))+'</td><td class="numeric">'+esc(share(r.balance_raw,group.balance_raw))+'</td><td class="numeric">'+esc(fmt(r.bought))+'</td><td class="numeric">'+esc(fmt(r.sold))+'</td><td class="numeric">'+esc(share(r.bought_raw,(BigInt(r.bought_raw)+BigInt(r.sold_raw)).toString()))+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">В этой категории пока нет адресов с положительным балансом.</td></tr>';
+  setLiveHTML(ui("holder-rows"),rows.length?rows.map(r=>'<tr data-holder-address="'+esc(r.address)+'"><td>'+addr(r.address)+'</td><td class="numeric" data-raw="'+r.balance_raw+'">'+esc(fmt(r.balance))+'</td><td class="numeric">'+esc(share(r.balance_raw,group.balance_raw))+'</td><td class="numeric">'+esc(fmt(r.bought))+'</td><td class="numeric">'+esc(fmt(r.sold))+'</td><td class="numeric">'+esc(share(r.bought_raw,(BigInt(r.bought_raw)+BigInt(r.sold_raw)).toString()))+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">В этой категории пока нет адресов с положительным балансом.</td></tr>');
  }
  function renderHolders(data){
   const info=data.outside_holders;
@@ -64,8 +64,8 @@
   ui("outside-holders-total").textContent="Доли от "+fmt(info.total)+" WGNK вне двух отслеживаемых пулов · адресов: "+count(info.addresses);
   const total=BigInt(info.total_raw);
   ui("holder-distribution-bar").setAttribute("aria-label",info.groups.map(g=>holderKinds[g.id].label+": "+share(g.balance_raw,info.total_raw)).join(", "));
-  ui("holder-distribution-bar").innerHTML=info.groups.map(g=>'<span class="holder-'+g.id+'" style="width:'+(total?Number(BigInt(g.balance_raw)*100000n/total)/1000:0)+'%" title="'+esc(holderKinds[g.id].label+": "+fmt(g.balance)+" WGNK")+'"></span>').join("");
-  ui("holder-group-cards").innerHTML=info.groups.map(g=>'<button type="button" class="holder-group holder-'+g.id+'" data-holder-group="'+g.id+'" data-balance-raw="'+g.balance_raw+'" aria-haspopup="dialog" aria-controls="holder-dialog"><span class="holder-group-name"><i></i>'+holderKinds[g.id].label+'<span aria-hidden="true">↗</span></span><strong>'+esc(fmt(g.balance))+' <small>WGNK</small></strong><span class="holder-group-share">'+esc(share(g.balance_raw,info.total_raw))+' <small>от WGNK вне пулов</small></span><small class="holder-group-rule">'+esc(holderKinds[g.id].rule)+'</small><span class="holder-group-count">Адресов: '+count(g.addresses)+' <span>Открыть список →</span></span></button>').join("");
+  setLiveHTML(ui("holder-distribution-bar"),info.groups.map(g=>'<span class="holder-'+g.id+'" style="width:'+(total?Number(BigInt(g.balance_raw)*100000n/total)/1000:0)+'%" title="'+esc(holderKinds[g.id].label+": "+fmt(g.balance)+" WGNK")+'"></span>').join(""));
+  setLiveHTML(ui("holder-group-cards"),info.groups.map(g=>'<button type="button" class="holder-group holder-'+g.id+'" data-holder-group="'+g.id+'" data-balance-raw="'+g.balance_raw+'" aria-haspopup="dialog" aria-controls="holder-dialog"><span class="holder-group-name"><i></i>'+holderKinds[g.id].label+'<span aria-hidden="true">↗</span></span><strong>'+esc(fmt(g.balance))+' <small>WGNK</small></strong><span class="holder-group-share">'+esc(share(g.balance_raw,info.total_raw))+' <small>от WGNK вне пулов</small></span><small class="holder-group-rule">'+esc(holderKinds[g.id].rule)+'</small><span class="holder-group-count">Адресов: '+count(g.addresses)+' <span>Открыть список →</span></span></button>').join(""));
  }
  function mount(){
   ui("flow-content").innerHTML=
@@ -107,7 +107,9 @@
  function renderChart(data){
   if(ui("trading-view").hidden)return;
   const history=data.holder_history;
-  GonkaChart.renderGroups(ui("holder-history-chart"),history,holderKinds);
+  const groups=ui("holder-history-chart");
+  if(history?.ts)groups.dataset.snapshotTs=String(history.ts);
+  renderLiveChart(groups,history?{ready:history.ready,points:history.points}:null,()=>GonkaChart.renderGroups(groups,history,holderKinds));
   if(history?.ready){
    ui("holder-history-period").textContent="С создания моста · "+date(history.start_ts)+" — "+date(history.ts)+" · по дням";
    ui("holder-history-snapshot").textContent="Последняя точка · #"+count(history.height)+" · "+date(history.ts)+" "+clock(history.ts);
@@ -117,7 +119,8 @@
   }
   ui("sales-chart-title").textContent="Цена и объём "+(data.side==="all"?"торгов":data.side==="buy"?"покупок":"продаж");
   document.querySelectorAll("[data-chart-side]").forEach(key=>{key.hidden=data.side!=="all"&&key.dataset.chartSide!==data.side;});
-  GonkaChart.renderMarket(ui("sales-chart"),data.daily,{side:data.side});
+  const market=ui("sales-chart");
+  renderLiveChart(market,[data.daily,data.side],()=>GonkaChart.renderMarket(market,data.daily,{side:data.side}));
   ui("sales-chart-note").textContent="Средневзвешенная цена: USDT за 1 WGNK · "+(data.side==="all"?"столбцы: покупки + продажи WGNK":"объём: WGNK");
  }
  function renderBreakdown(id,visible,rows){
@@ -143,7 +146,7 @@
   ui("minter-count").textContent=count(rows.length)+" адресов";
   const verified=rows.reduce((n,r)=>n+(r.gnk_verified_mints||0),0),totalMints=rows.reduce((n,r)=>n+r.mint_count,0);
   ui("minter-status").textContent="Ethereum: снимок #"+count(data.snapshot.height)+" · "+date(data.snapshot.ts)+" "+clock(data.snapshot.ts)+(data.coverage.complete?" · история без пропусков":" · есть незагруженные блоки")+". Связи Gonka: "+count(verified)+" / "+count(totalMints)+" выпусков подтверждено.";
-  ui("minter-rows").innerHTML=rows.map(r=>'<tr><td>'+addr(r.address)+'</td><td class="minter-native">'+((r.gnk_addresses||[]).length?r.gnk_addresses.map(a=>'<button class="address-button" data-flow-address="'+esc(r.address)+'" data-gnk-address="'+esc(a)+'" title="'+esc(a)+'">'+esc(short(a,12))+'</button>').join(''):'<span class="pending-badge">Проверяется</span>')+'<small>'+count(r.gnk_verified_mints||0)+' / '+count(r.mint_count)+' выпусков</small></td><td class="mint-dates" data-last-mint="'+r.last_mint_ts+'"><span title="'+clock(r.first_mint_ts)+'">Первая · '+date(r.first_mint_ts)+'</span><small title="'+clock(r.last_mint_ts)+'">Последняя · '+date(r.last_mint_ts)+'</small></td><td class="numeric" data-raw="'+r.minted_raw+'">'+esc(fmt(r.minted))+'</td><td class="numeric" data-balance="'+esc(r.balance)+'">'+esc(fmt(r.balance))+'</td><td class="numeric" data-raw="'+r.sales_raw+'">'+esc(fmt(r.sold))+'</td><td class="numeric price-value">'+esc(price(r.average_price))+'</td><td>'+count(r.sales_count)+'</td></tr>').join("");
+  setLiveHTML(ui("minter-rows"),rows.map(r=>'<tr><td>'+addr(r.address)+'</td><td class="minter-native">'+((r.gnk_addresses||[]).length?r.gnk_addresses.map(a=>'<button class="address-button" data-flow-address="'+esc(r.address)+'" data-gnk-address="'+esc(a)+'" title="'+esc(a)+'">'+esc(short(a,12))+'</button>').join(''):'<span class="pending-badge">Проверяется</span>')+'<small>'+count(r.gnk_verified_mints||0)+' / '+count(r.mint_count)+' выпусков</small></td><td class="mint-dates" data-last-mint="'+r.last_mint_ts+'"><span title="'+clock(r.first_mint_ts)+'">Первая · '+date(r.first_mint_ts)+'</span><small title="'+clock(r.last_mint_ts)+'">Последняя · '+date(r.last_mint_ts)+'</small></td><td class="numeric" data-raw="'+r.minted_raw+'">'+esc(fmt(r.minted))+'</td><td class="numeric" data-balance="'+esc(r.balance)+'">'+esc(fmt(r.balance))+'</td><td class="numeric" data-raw="'+r.sales_raw+'">'+esc(fmt(r.sold))+'</td><td class="numeric price-value">'+esc(price(r.average_price))+'</td><td>'+count(r.sales_count)+'</td></tr>').join(""));
  }
  function headerPrice(value){
   const parts=/^(\d+)(?:\.(\d+))?$/.exec(String(value));
@@ -196,9 +199,9 @@
    const percent=minted?Number(BigInt(s.raw)*100000n/minted)/1000:0;
    return '<span style="width:'+percent+'%;background:'+s.color+'" title="'+esc(s.label+": "+amount(s.value,9)+" WGNK")+'"></span>';
   }).join("");
-  ui("distribution-legend").innerHTML=segments.map(s=>'<div><span><i style="background:'+s.color+'"></i>'+s.label+'</span><strong title="'+esc(amount(s.value,9))+' WGNK">'+esc(fmt(s.value))+' <small>WGNK</small></strong><small>'+(minted?count(Number(BigInt(s.raw)*10000n/minted)/100):"0")+'% от всех выпусков</small></div>').join("");
+  setLiveHTML(ui("distribution-legend"),segments.map(s=>'<div><span><i style="background:'+s.color+'"></i>'+s.label+'</span><strong title="'+esc(amount(s.value,9))+' WGNK">'+esc(fmt(s.value))+' <small>WGNK</small></strong><small>'+(minted?count(Number(BigInt(s.raw)*10000n/minted)/100):"0")+'% от всех выпусков</small></div>').join(""));
   renderHolders(data);
-  ui("flow-pools").innerHTML=data.pools.map(p=>'<a class="pool-state" href="https://etherscan.io/address/'+p.address+'" target="_blank" rel="noopener noreferrer"><span>Uniswap V3 · '+count(p.fee/100)+' б.п. <small>'+esc(short(p.address))+' ↗</small></span><strong>'+esc(fmt(p.balance))+' <small>WGNK</small></strong></a>').join("");
+  setLiveHTML(ui("flow-pools"),data.pools.map(p=>'<a class="pool-state" href="https://etherscan.io/address/'+p.address+'" target="_blank" rel="noopener noreferrer"><span>Uniswap V3 · '+count(p.fee/100)+' б.п. <small>'+esc(short(p.address))+' ↗</small></span><strong>'+esc(fmt(p.balance))+' <small>WGNK</small></strong></a>').join(""));
   ui("flow-sold").textContent=compact(summary.volume);ui("flow-sold").title=amount(summary.volume,9)+" WGNK";
   ui("flow-sales-count").textContent=count(summary.swaps)+" исполнений · "+count(summary.transactions)+" транзакций";
   ui("flow-proceeds").textContent=compact(summary.quote);ui("flow-proceeds").title=amount(summary.quote,6)+" USDT";
@@ -213,37 +216,43 @@
    {side:"buy",value:price(summary.buy_average_price),unit:"USDT"},
    {side:"sell",value:price(summary.sale_average_price),unit:"USDT"}]);
   ui("sales-total").textContent=count(data.total);
-  ui("sales-rows").innerHTML=data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td>'+
+  setLiveHTML(ui("sales-rows"),data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td>'+
    (e.attribution==="initiator_net"?addr(e.actor):'<span class="mono" title="'+esc(e.actor)+'">'+esc(e.actor?short(e.actor,10):"Не установлен")+'</span>')+
    '<small>'+(e.attribution==="initiator_net"?(e.kind==="buy"?"Приток WGNK подтверждён":"Отток WGNK подтверждён"):"Участник не установлен")+'</small></td><td class="numeric">'+esc(fmt(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td><small>Uniswap V3</small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' б.п.</td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):
-   '<tr><td colspan="8" class="empty">Сделок по этим фильтрам в отслеживаемых пулах не найдено.</td></tr>';
+   '<tr><td colspan="8" class="empty">Сделок по этим фильтрам в отслеживаемых пулах не найдено.</td></tr>');
   ui("sales-prev").disabled=data.offset===0;ui("sales-next").disabled=!data.has_more;
   ui("sales-page").textContent=data.total?count(data.offset+1)+"–"+count(Math.min(data.total,data.offset+data.limit))+" из "+count(data.total):"0 сделок";
   renderMinters(data);
   renderChart(data);
  }
- async function refresh(reset=false){
+ async function refresh(reset=false,background=false){
+  if(background&&flow.loading)return;
   if(reset)flow.offset=0;
   flow.abort?.abort();const controller=flow.abort=new AbortController(),id=++flow.request;
   const timer=setTimeout(()=>controller.abort(),30000);flow.loading=true;
-  ui("sales-search").setAttribute("aria-busy","true");
-  ui("sales-result").textContent="Ищем "+(flow.side==="all"?"сделки":flow.side==="buy"?"покупки":"продажи")+"…";
+  if(!background){
+   ui("sales-search").setAttribute("aria-busy","true");
+   ui("sales-result").textContent="Ищем "+(flow.side==="all"?"сделки":flow.side==="buy"?"покупки":"продажи")+"…";
+  }
   try{
    const response=await fetch("/api/mints/flows?"+new URLSearchParams({hours:flow.hours,q:flow.q,offset:flow.offset,limit:25,side:flow.side,sort:flow.sort}),{signal:controller.signal});
    if(!response.ok)throw new Error("HTTP "+response.status);
    const data=await response.json();if(id!==flow.request)return;
+   if(background&&flow.data?.ready&&!data.ready){
+    renderHeaderPrice(flow.data,true);ui("trade-status").textContent="Сервис восстанавливает торговый снимок. Последние проверенные данные сохранены; повторим автоматически.";ui("trade-status").hidden=false;return;
+   }
    flow.data=data;render(data);
   }catch(error){if(id===flow.request){
    renderHeaderPrice(flow.data,true);
    ui("trade-status").textContent="Нет свежего ответа по пулам и сделкам. Последние данные сохранены. "+(error.name==="AbortError"?"Таймаут.":error.message);
    ui("trade-status").hidden=false;
-   ui("sales-result").textContent="Поиск не выполнен. Ниже сохранён предыдущий результат. Повторите запрос.";
+   if(!background)ui("sales-result").textContent="Поиск не выполнен. Ниже сохранён предыдущий результат. Повторите запрос.";
   }}
   finally{clearTimeout(timer);if(id===flow.request){flow.loading=false;ui("sales-search").setAttribute("aria-busy","false");}}
  }
  mount();refresh();
- ui("refresh").addEventListener("click",()=>refresh());
  window.addEventListener("resize",()=>{if(flow.data?.ready)renderChart(flow.data);});
  window.addEventListener("gonka:view",()=>{if(flow.data?.ready)renderChart(flow.data);});
- setInterval(()=>{if(!document.hidden&&!flow.loading)refresh();},20000);
+ setInterval(()=>{if(!document.hidden&&!flow.loading)refresh(false,true);},20000);
+ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh(false,true);});
 })();

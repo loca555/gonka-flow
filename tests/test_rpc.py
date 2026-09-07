@@ -89,6 +89,26 @@ class NetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(replies[0].retry_after,119)
         self.assertGreater(self.net.eth_cooldown["https://archive.test"],time.monotonic()+118)
 
+    async def test_archive_uses_reserve_after_timeout_and_access_error(self):
+        endpoints=["https://timeout.test","https://restricted.test","https://reserve.test"]
+        self.net.settings.ethereum_archive=endpoints
+        self.net.verified_eth.update(endpoints)
+        calls=[]
+        def handle(request):
+            calls.append(request.url.host)
+            if request.url.host=="timeout.test":
+                raise httpx.ReadTimeout("temporary timeout",request=request)
+            if request.url.host=="restricted.test":
+                return httpx.Response(403,json={"error":{"message":"personal token required"}})
+            return httpx.Response(200,json={"result":[{"logIndex":"0x1"}]})
+        self.transport(handle)
+        self.assertEqual(await self.net.eth("eth_getLogs",[],archive=True),[{"logIndex":"0x1"}])
+        self.assertEqual(calls,["timeout.test","restricted.test","reserve.test"])
+        self.assertEqual(self.net.current["ethereum_archive"],"reserve.test")
+        calls.clear()
+        self.assertEqual(await self.net.eth("eth_getLogs",[],archive=True),[{"logIndex":"0x1"}])
+        self.assertEqual(calls,["reserve.test"])
+
     async def test_archive_access_denial_does_not_disable_same_endpoint_live(self):
         url="https://name:SECRET@live.test/private-SECRET?key=SECRET"
         self.net.settings.ethereum=[url]

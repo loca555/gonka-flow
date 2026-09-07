@@ -113,7 +113,7 @@ window.GonkaProvenance=(()=>{
   native.historyAbort?.abort();const controller=native.historyAbort=new AbortController(),id=++native.historyRequest;
   const timer=setTimeout(()=>controller.abort(),30000);
   if(!native.history){el('native-incoming-rows').innerHTML='<tr><td colspan="5" class="empty">Читаем сохранённую историю…</td></tr>';el('native-history-summary').innerHTML='';el('native-coverage-note').textContent='';}
-  el('native-history-status').textContent='Читаем входящие переводы из базы…';
+  if(!native.history)el('native-history-status').textContent='Читаем входящие переводы из базы…';
   try{
    const response=await fetch('/api/mints/gonka/'+encodeURIComponent(address),{signal:controller.signal});
    if(!response.ok)throw new Error('HTTP '+response.status);
@@ -145,5 +145,6 @@ window.GonkaProvenance=(()=>{
   el('native-content').hidden=true;el('native-burn-archive').hidden=true;el('native-status').textContent='';selectTab(native.tab);
  }
  setInterval(()=>{if(dialog?.open&&!document.hidden&&native.tab==='gonka'&&!native.loading)refresh();},30000);
+ document.addEventListener('visibilitychange',()=>{if(dialog?.open&&!document.hidden&&native.tab==='gonka'&&!native.loading)refresh();});
  return {mount,open,refresh,isActive:()=>native.tab==='gonka'};
 })();

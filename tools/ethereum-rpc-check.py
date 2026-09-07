@@ -32,7 +32,8 @@ async def probe(base):
             "address":[TOKEN]+SEED_POOLS,"topics":[[TRANSFER,SWAP,MINT,BURN,LP_MINT,LP_BURN]]}])
         identity=sorted([(l["blockHash"],l["transactionHash"],l["logIndex"],l["address"],l["data"],l["topics"]) for l in logs])
         await asyncio.sleep(1.1)
-        supply,_=await call("eth_call",[{"to":TOKEN,"data":kh("totalSupply()")[:10]},hex(25260902)])
+        tag="finalized" if "--recent-state" in sys.argv else hex(25260902)
+        supply,_=await call("eth_call",[{"to":TOKEN,"data":kh("totalSupply()")[:10]},tag])
         receipt_ok=None
         if logs:
             await asyncio.sleep(1.1)
@@ -41,11 +42,12 @@ async def probe(base):
             if not receipt_ok: raise ValueError("receipt block mismatch")
         print(json.dumps({"rpc":base,"ok":True,"block_seconds":seconds,"logs_seconds":log_seconds,
             "logs":len(logs),"log_digest":hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest(),
-            "june_supply":str(int(supply,16)),"receipt_ok":receipt_ok}),flush=True)
+            "state_block":tag,"supply":str(int(supply,16)),"receipt_ok":receipt_ok}),flush=True)
     except Exception as e:
         print(json.dumps({"rpc":base,"ok":False,"error":type(e).__name__+": "+str(e)}),flush=True)
     finally: await net.close()
 
 async def main():
-    await asyncio.gather(*(probe(url) for url in (sys.argv[1:] or ["https://eth.merkle.io","https://eth.llamarpc.com"])))
+    urls=[arg for arg in sys.argv[1:] if arg!="--recent-state"]
+    await asyncio.gather(*(probe(url) for url in (urls or ["https://eth.merkle.io","https://eth.llamarpc.com"])))
 asyncio.run(main())

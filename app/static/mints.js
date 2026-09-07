@@ -21,6 +21,19 @@ const clock=ts=>new Date(ts*1000).toLocaleTimeString("ru-RU",{timeZone:"Asia/Nic
 const txUrl=h=>"https://etherscan.io/tx/"+encodeURIComponent(h);
 const blockUrl=h=>"https://etherscan.io/block/"+encodeURIComponent(h);
 const state={sort:"time_desc",offset:0,request:0,data:null,bridge:null};
+const liveMarkup=new WeakMap(),liveCharts=new WeakMap();
+function setLiveHTML(host,html){
+ const previous=liveMarkup.get(host);
+ if(previous?.html===html&&previous.first===host.firstChild)return;
+ const scroll=host.closest(".table-container"),top=scroll?.scrollTop,left=scroll?.scrollLeft;
+ host.innerHTML=html;liveMarkup.set(host,{html,first:host.firstChild});
+ if(scroll){scroll.scrollTop=top;scroll.scrollLeft=left;}
+}
+function renderLiveChart(host,data,draw){
+ const key=JSON.stringify([Math.round(host.getBoundingClientRect().width),data]);
+ if(liveCharts.get(host)===key&&host.childNodes.length)return;
+ draw();liveCharts.set(host,key);
+}
 function closeOnBackdrop(dialog){
  let start=null;
  const outside=event=>{
@@ -104,13 +117,14 @@ function renderMetrics(d){
 }
 function renderChart(d){
  if(el("mints-view").hidden)return;
- GonkaChart.render(el("mint-chart"),{points:d.daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
-  complete:d.coverage.complete,type:state.chartType||"line",title:"Чеканка WGNK по дням",countLabel:"Выпусков"});
+ const chart=el("mint-chart"),options={points:d.daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
+  complete:d.coverage.complete,type:state.chartType||"line",title:"Чеканка WGNK по дням",countLabel:"Выпусков"};
+ renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
  el("chart-window").textContent=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным";
 }
 function renderRecipients(d){
- el("recipient-list").innerHTML=d.recipients.length?d.recipients.map((r,i)=>
- '<div class="recipient"><span class="rank">'+String(i+1).padStart(2,"0")+'</span><div><button data-flow-address="'+esc(r.address)+'" title="'+esc(r.address)+'">'+esc(short(r.address,10))+'</button><small>'+count(r.events)+' выпусков</small></div><div class="numeric"><strong>'+esc(amount(r.amount))+'</strong><small>WGNK получено</small></div></div>').join(""):'<p class="empty">Минтеров пока не найдено.</p>';
+ setLiveHTML(el("recipient-list"),d.recipients.length?d.recipients.map((r,i)=>
+ '<div class="recipient"><span class="rank">'+String(i+1).padStart(2,"0")+'</span><div><button data-flow-address="'+esc(r.address)+'" title="'+esc(r.address)+'">'+esc(short(r.address,10))+'</button><small>'+count(r.events)+' выпусков</small></div><div class="numeric"><strong>'+esc(amount(r.amount))+'</strong><small>WGNK получено</small></div></div>').join(""):'<p class="empty">Минтеров пока не найдено.</p>');
 }
 function minterSalesLabel(e){
  if(e.kind==="bridge_burn")return '<small>Адрес сжигания</small>';
@@ -127,10 +141,10 @@ function renderRows(d){
  if(!d.ready){el("prev").disabled=true;el("next").disabled=true;return;}
  el("row-count").textContent=count(d.total);
  setTableSort("mint-table",normalizeMintSort(d.sort));
- el("mint-rows").innerHTML=d.items.length?d.items.map(e=>{
+ setLiveHTML(el("mint-rows"),d.items.length?d.items.map(e=>{
   const burn=e.kind==="bridge_burn";
   return '<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+(burn?"sell":"buy")+'">'+(burn?"Сжигание":"Чеканка")+'</span></td><td><button class="address-button" data-flow-address="'+esc(e.address)+'" title="'+esc(e.address)+'">'+esc(short(e.address,10))+'</button>'+minterSalesLabel(e)+'</td><td class="numeric"><span class="amount-value">'+esc(amount(e.amount))+'</span><small>WGNK</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>log #'+e.log_index+'</small></td><td><span class="final-badge">✓ Финальный</span><small>#'+count(e.height)+'</small></td><td><button class="detail-button" data-tx="'+esc(e.tx_hash)+'" data-log="'+e.log_index+'" aria-label="Детали события '+esc(short(e.tx_hash))+'">↗</button></td></tr>';
- }).join(""):'<tr><td colspan="7" class="empty">Событий моста в подтверждённой истории пока нет.</td></tr>';
+ }).join(""):'<tr><td colspan="7" class="empty">Событий моста в подтверждённой истории пока нет.</td></tr>');
  el("prev").disabled=d.offset===0;el("next").disabled=!d.has_more;
  el("page-info").textContent=d.total?count(d.offset+1)+"–"+count(Math.min(d.offset+d.limit,d.total))+" из "+count(d.total):"0 событий";
  el("csv-filtered").href="/api/mints/bridge/export.csv?"+new URLSearchParams({minimum:0,sort:state.sort});
@@ -139,7 +153,6 @@ async function refresh(reset=false){
  if(reset)state.offset=0;
  state.abort?.abort();const controller=state.abort=new AbortController();state.fetching=true;
  const id=++state.request,timeout=setTimeout(()=>controller.abort(),30000);
- el("refresh").disabled=true;
  try{
   const get=async url=>{const r=await fetch(url,{signal:controller.signal});if(!r.ok)throw new Error("Нет свежего ответа (HTTP "+r.status+").");return r.json();};
   const [d,bridge]=await Promise.all([
@@ -147,13 +160,14 @@ async function refresh(reset=false){
    get("/api/mints/bridge?"+new URLSearchParams({minimum:0,sort:state.sort,offset:state.offset,limit:50}))
   ]);
   if(id!==state.request)return;
+  if(state.bridge?.ready&&!bridge.ready){el("error-banner").textContent="Сервис восстанавливает снимок. Последние проверенные данные сохранены; повторим автоматически.";el("error-banner").hidden=false;return;}
   state.data=d;state.bridge=bridge;el("error-banner").hidden=true;
   renderCoverage(d);renderMetrics(d);renderChart(d);renderRecipients(d);renderRows(bridge);
  }catch(e){if(id===state.request){
   el("error-banner").textContent=(e.name==="AbortError"?"Сервер не ответил вовремя.":e.message)+" Предыдущие данные сохранены.";
   el("error-banner").hidden=false;el("live-caption").textContent="Нет свежего ответа сервера";el("status-dot").className="status-dot error";
  }}
- finally{clearTimeout(timeout);if(id===state.request){el("refresh").disabled=false;state.fetching=false;}}
+ finally{clearTimeout(timeout);if(id===state.request)state.fetching=false;}
 }
 function details(tx,index){
  const e=state.bridge?.items.find(e=>e.tx_hash===tx&&e.log_index===index);if(!e)return;
@@ -167,7 +181,6 @@ function details(tx,index){
 }
 el("prev").addEventListener("click",()=>{state.offset=Math.max(0,state.offset-50);refresh();});
 el("next").addEventListener("click",()=>{state.offset+=50;refresh();});
-el("refresh").addEventListener("click",()=>refresh());
 el("close-dialog").addEventListener("click",()=>el("mint-dialog").close());
 closeOnBackdrop(el("mint-dialog"));
 document.addEventListener("click",async e=>{
@@ -187,3 +200,4 @@ window.addEventListener("hashchange",showView);
 showView();refresh();
 window.addEventListener("resize",()=>{if(state.data)renderChart(state.data);});
 setInterval(()=>{if(!document.hidden&&!state.fetching)refresh();},15000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&!state.fetching)refresh();});
