@@ -242,5 +242,52 @@ window.GonkaChart=(()=>{
    if(event.key==='Home')show(0);if(event.key==='End')show(last);if(event.key==='Escape')hide();
   });
  }
- return {render,renderMarket,renderAddress,exact,formatPrice};
+ function renderGroups(host,history,kinds){
+  if(!history?.ready||!history.points?.length){host.innerHTML='<p class="empty">История категорий пока не подтверждена. Это не нулевые балансы.</p>';return;}
+  const keys=Object.keys(kinds),rows=history.points.map(p=>({...p,values:Object.fromEntries(keys.map(k=>[k,BigInt(p[k+'_raw'])]))}));
+  const W=Math.max(280,host.clientWidth),small=W<500,H=small?320:350,left=small?52:76,right=18,top=30,bottom=H-40,plot=W-left-right;
+  const high=ceiling(rows.reduce((max,r)=>keys.reduce((m,k)=>r.values[k]>m?r.values[k]:m,max),4000000000n));
+  const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1),y=raw=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
+  let svg='<svg class="holder-history-chart" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="Баланс четырёх категорий WGNK с момента создания моста. Категории на соответствующую дату. Стрелки выбирают день."><text class="chart-unit" x="'+left+'" y="15">Баланс · WGNK</text>';
+  for(let i=0;i<=4;i++){
+   const raw=high*BigInt(i)/4n,py=y(raw);
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(raw,9))+'</text>';
+  }
+  const last=rows.length-1;
+  keys.forEach(key=>{
+   svg+='<path class="holder-history-line holder-'+key+'" data-holder-kind="'+key+'" d="'+rows.map((r,i)=>(i?'L':'M')+x(i).toFixed(2)+','+y(r.values[key]).toFixed(2)).join(' ')+'"><title>'+escape(kinds[key].label)+'</title></path><circle class="holder-history-last holder-'+key+'" data-holder-kind="'+key+'" data-balance-raw="'+rows[last].values[key]+'" cx="'+x(last)+'" cy="'+y(rows[last].values[key])+'" r="3"/>';
+  });
+  const ticks=Math.min(rows.length,small?3:7);
+  for(let i=0;i<ticks;i++){
+   const index=ticks===1?0:Math.round(i*last/(ticks-1));
+   svg+='<text x="'+x(index)+'" y="'+(bottom+25)+'" text-anchor="'+(ticks===1?'middle':i===0?'start':i===ticks-1?'end':'middle')+'">'+label(rows[index].date)+'</text>';
+  }
+  svg+='<g class="chart-cursor" visibility="hidden"><line class="chart-crosshair" y1="'+top+'" y2="'+bottom+'"/>'+keys.map(key=>'<circle class="holder-history-dot holder-'+key+'" data-holder-kind="'+key+'" r="4"/>').join('')+'</g><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip holder-history-tooltip" role="status" hidden></div>';
+  host.innerHTML=svg;
+  const root=host.querySelector('svg'),cursor=host.querySelector('.chart-cursor'),tooltip=host.querySelector('.chart-tooltip');
+  let selected=last;
+  const show=index=>{
+   selected=Math.max(0,Math.min(last,index));const row=rows[selected],px=x(selected),total=BigInt(row.total_raw);
+   cursor.setAttribute('visibility','visible');const line=cursor.querySelector('line');line.setAttribute('x1',px);line.setAttribute('x2',px);
+   keys.forEach(key=>{const dot=cursor.querySelector('[data-holder-kind="'+key+'"]');dot.setAttribute('cx',px);dot.setAttribute('cy',y(row.values[key]));});
+   const time=new Date(history.ts*1000).toLocaleTimeString('ru-RU',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
+   tooltip.innerHTML='<span class="holder-history-date">'+fullDate(row.date)+(selected===last?' · до '+escape(time):' · конец дня')+'</span><div class="holder-history-values">'+keys.map(key=>{
+    const raw=row.values[key],percent=total?(raw>0n&&raw*100n<total?'< 1':(raw*100n/total).toString())+'%':'—';
+    return '<div class="holder-'+key+'" data-holder-kind="'+key+'" data-balance-raw="'+raw+'"><span><i></i>'+escape(kinds[key].label)+'</span><b>'+escape(exact(raw,9))+'</b><small>'+escape(percent)+' · адресов: '+row.addresses[key].toLocaleString('ru-RU')+'</small></div>';
+   }).join('')+'</div><div class="holder-history-total">Всего вне пулов <b>'+escape(exact(total,9))+' WGNK</b></div>';
+   tooltip.dataset.date=row.date;tooltip.dataset.totalRaw=row.total_raw;tooltip.hidden=false;
+   tooltip.style.left=Math.max(2,Math.min(W-tooltip.offsetWidth-2,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';
+   tooltip.style.top=Math.max(2,Math.min(top+8,H-tooltip.offsetHeight-5))+'px';
+  };
+  const hide=()=>{cursor.setAttribute('visibility','hidden');tooltip.hidden=true;};
+  const pointer=event=>{const box=root.getBoundingClientRect(),px=(event.clientX-box.left)*W/box.width;show(rows.length===1?0:Math.round((px-left)/plot*last));};
+  root.addEventListener('pointermove',pointer);root.addEventListener('pointerdown',pointer);root.addEventListener('pointerleave',hide);
+  root.addEventListener('focus',()=>show(selected));root.addEventListener('blur',hide);
+  root.addEventListener('keydown',event=>{
+   if(['ArrowLeft','ArrowRight','Home','End','Escape'].includes(event.key))event.preventDefault();
+   if(event.key==='ArrowLeft')show(selected-1);if(event.key==='ArrowRight')show(selected+1);
+   if(event.key==='Home')show(0);if(event.key==='End')show(last);if(event.key==='Escape')hide();
+  });
+ }
+ return {render,renderMarket,renderAddress,renderGroups,exact,formatPrice};
 })();

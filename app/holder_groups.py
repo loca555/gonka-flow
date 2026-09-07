@@ -5,6 +5,20 @@ from collections import defaultdict
 from .config import ZERO
 from .db import tokens
 
+GROUPS = ("investors", "sellers", "traders", "unclassified")
+
+
+def category(bought, sold):
+    """Shared exact rule for the current snapshot and each historical day."""
+    total = bought + sold
+    if not total:
+        return "unclassified"
+    if bought * 10 > total * 9:
+        return "investors"
+    if sold * 10 > total * 9:
+        return "sellers"
+    return "traders"
+
 
 def outside_holders(rows, ledger, snapshot):
     """Pure ledger calculation: no additional RPC, identity inference or token-lot tracing."""
@@ -38,21 +52,13 @@ def outside_holders(rows, ledger, snapshot):
             return result
         volumes[address][event["kind"]] += quantity
     groups = {key: {"id": key, "balance_raw": 0, "addresses": 0, "holders": []}
-              for key in ("investors", "sellers", "traders", "unclassified")}
+              for key in GROUPS}
     for address, balance in ledger.items():
         if balance <= 0 or address in pools or address == ZERO:
             continue
         volume = volumes.get(address, {"buy": 0, "sell": 0})
-        total = volume["buy"] + volume["sell"]
         # Exact cross multiplication: 90/10 is a trader, not an investor or seller.
-        if total == 0:
-            key = "unclassified"
-        elif volume["buy"] * 10 > total * 9:
-            key = "investors"
-        elif volume["sell"] * 10 > total * 9:
-            key = "sellers"
-        else:
-            key = "traders"
+        key = category(volume["buy"], volume["sell"])
         groups[key]["balance_raw"] += balance
         groups[key]["addresses"] += 1
         groups[key]["holders"].append({"address": address, "balance_raw": str(balance), "balance": tokens(balance),

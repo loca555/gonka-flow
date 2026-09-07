@@ -11,6 +11,7 @@ from .db import tokens
 from .timezones import TIME_ZONE, local_day, local_time
 from .address_history import address_history
 from .holder_groups import outside_holders
+from .holder_history import holder_history
 
 def price_raw(quote, quantity, quote_decimals=6):
     """USDT/WGNK at 12 decimal places, explicitly rounded down."""
@@ -214,7 +215,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
             "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],"address_balance":None,"address_history":None,
-            "outside_holders":None,"scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
+            "outside_holders":None,"holder_history":None,"scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
     if not deployment or not target: return result
     start=deployment["height"];end=history_end(db,start,target)
     result["coverage"]={"start":start,"head":target,"indexed_height":end,
@@ -224,6 +225,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     rows=event_rows(db,start,cut)
     ledger,minted,burned=balances(rows)
     result["outside_holders"]=outside_holders(rows,ledger,snapshot)
+    result["holder_history"]=holder_history(rows,ledger,snapshot,deployment,result["outside_holders"])
     if re.fullmatch("0x[0-9a-f]{40}",q) and snapshot.get("ledger_verified") and ledger.get(q,0)>=0:
         result["address_balance"]={"address":q,"amount":tokens(ledger.get(q,0)),
             "amount_raw":str(ledger.get(q,0)),"height":cut,"ts":snapshot["ts"],"source":"verified_transfer_ledger"}

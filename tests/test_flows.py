@@ -66,6 +66,16 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(analysis(self.db)["minters"][0]["sold"],"30")
         self.assertEqual(analysis(self.db,limit=1,offset=1)["sales"][0]["height"],3)
 
+    def test_holder_history_is_independent_of_trade_filters_and_checks_coverage(self):
+        reference=analysis(self.db)["holder_history"]
+        self.assertTrue(reference["ready"])
+        for options in ({"q":A,"side":"buy","hours":1},{"q":"0xf","side":"all","offset":100,"limit":1},
+                        {"sort":"price_asc","side":"sell"}):
+            self.assertEqual(analysis(self.db,**options)["holder_history"],reference)
+        self.db.conn.execute("DELETE FROM ranges WHERE chain='ethereum'")
+        self.db._range("ethereum",1,5);self.db._range("ethereum",7,12);self.db.conn.commit()
+        self.assertIsNone(analysis(self.db)["holder_history"])
+
     def test_outside_holders_use_all_history_and_current_balance(self):
         groups=analysis(self.db)["outside_holders"]
         self.assertTrue(groups["ready"])
