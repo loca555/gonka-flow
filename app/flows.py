@@ -243,10 +243,21 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
     pools={p["address"]:p for p in snapshot["pools"]}
     if not pools:return result
     placeholders=",".join("?" for _ in pools)
-    rows=[dict(row) for row in db.conn.execute(
-        "SELECT * FROM events WHERE chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ? "
-        "AND kind IN ('buy','sell') AND pool IN ("+placeholders+")",
-        (start,through,*pools))]
+    where="chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ? AND kind IN ('buy','sell') AND pool IN ("+placeholders+")"
+    params=[start,through,*pools]
+    # The default feed can page in SQLite without decoding every historical Swap.
+    if not q and sort in ("time_asc","time_desc") and side in ("all","buy","sell"):
+        if side!="all":where+=" AND kind=?";params.append(side)
+        if hours:where+=" AND ts>=?";params.append(as_of-hours*3600)
+        total=db.conn.execute("SELECT COUNT(*) FROM events INDEXED BY events_trade_page WHERE "+where,params).fetchone()[0]
+        direction="DESC" if sort=="time_desc" else "ASC"
+        order=",".join(field+" "+direction for field in ("ts","height","idx","tx_hash"))
+        rows=[dict(row) for row in db.conn.execute(
+            "SELECT * FROM events INDEXED BY events_trade_page WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?",(*params,limit,offset))]
+        for row in rows:row["meta"]=json.loads(row["meta"])
+        result.update(ready=True,total=total,has_more=offset+limit<total,trades=[public_trade(row) for row in rows])
+        return result
+    rows=[dict(row) for row in db.conn.execute("SELECT * FROM events WHERE "+where,params)]
     selected=selected_trades(rows,pools,hours,q,side,sort,as_of)
     result.update(ready=True,total=len(selected),has_more=offset+limit<len(selected),
                   trades=[public_trade(event) for event in selected[offset:offset+limit]])

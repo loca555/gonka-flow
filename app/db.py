@@ -22,6 +22,8 @@ CREATE INDEX IF NOT EXISTS events_dst ON events(dst, ts DESC);
 CREATE INDEX IF NOT EXISTS events_actor ON events(actor, ts DESC);
 CREATE INDEX IF NOT EXISTS events_request ON events(request_key);
 CREATE INDEX IF NOT EXISTS events_height ON events(chain, height);
+CREATE INDEX IF NOT EXISTS events_trade_page ON events(ts DESC,height DESC,idx DESC,tx_hash DESC,pool,kind)
+ WHERE chain='ethereum' AND finalized=1 AND kind IN ('buy','sell');
 CREATE TABLE IF NOT EXISTS ranges(
  chain TEXT NOT NULL, lo INTEGER NOT NULL, hi INTEGER NOT NULL,
  PRIMARY KEY(chain, lo)
