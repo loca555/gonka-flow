@@ -17,7 +17,7 @@ from .indexer import Indexer
 from .analytics import overview, hosts, rankings, bridges
 from .holders import holders_list,address_page,ETH_ADDRESS,GNK_ADDRESS
 from .mints import MintIndexer, listing as mint_listing, public_event as mint_event, TOKEN as MINT_TOKEN
-from .flows import analysis as flow_analysis, bridge_listing
+from .flows import analysis as flow_analysis, bridge_listing, trade_page
 from .leaders import trade_leaders
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
@@ -131,7 +131,18 @@ def create_app(settings=None):
         if len(cache)>1000: cache.clear()
         if key not in cache or time.time()-cache[key][0]>8:
             cache[key]=(time.time(),flow_analysis(request.app.state.db,hours,q.lower(),limit,offset,side,sort))
-        return cache[key][1]
+        return JSONResponse(cache[key][1])
+
+    @app.get("/api/mints/trades")
+    async def mint_trade_page(request:Request,through:int=Query(...,ge=1),as_of:int=Query(...,ge=0),
+                              hours:int=Query(0,ge=0,le=175200),
+                              q:str=Query("",max_length=66,pattern="^(|0x[0-9a-fA-F]{1,64})$"),
+                              limit:int=Query(25,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000),
+                              side:str=Query("sell",pattern="^(sell|buy|all)$"),
+                              sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN)):
+        if cfg.mode!="mints":raise HTTPException(404,"Монитор WGNK отключён")
+        return JSONResponse(trade_page(request.app.state.db,through=through,as_of=as_of,hours=hours,
+                                       q=q.lower(),limit=limit,offset=offset,side=side,sort=sort))
 
     @app.get("/api/mints/leaders")
     async def mint_leaders(request:Request):

@@ -228,6 +228,86 @@ class FlowTests(unittest.TestCase):
         self.db.put("flow:snapshot",None)
         self.assertIsNone(analysis(self.db,q=A)["address_balance"])
 
+    def test_trade_page_matches_full_analysis_filters_and_exact_sorting(self):
+        from app.flows import trade_page
+        options=[{"side":side,"sort":field+"_"+direction}
+                 for side in ("all","buy","sell")
+                 for field in ("time","kind","actor","amount","quote","price","pool","tx")
+                 for direction in ("asc","desc")]
+        options.extend({"side":"all","q":q,"hours":hours} for q in ("",A,"0x"+"f"*40,self.events[2]["tx_hash"])
+                       for hours in (0,1))
+        for filters in options:
+            with self.subTest(filters=filters):
+                full=analysis(self.db,limit=1,offset=1,**filters)
+                page=trade_page(self.db,through=full["snapshot"]["height"],as_of=full["now"],
+                                limit=1,offset=1,**filters)
+                self.assertTrue(page["ready"])
+                for field in ("total","trades","offset","limit","has_more"):
+                    self.assertEqual(page[field],full[field])
+
+    def test_trade_page_keeps_snapshot_and_period_when_indexer_advances(self):
+        from app.flows import trade_page
+        as_of=block(12)["ts"]+60
+        with patch("app.flows.time.time",return_value=as_of):
+            full=analysis(self.db,side="all",hours=1,limit=1,offset=1)
+        self.db.save_batch("ethereum",13,13,[event(13,"buy",1,POOL,A,actor=A,pool=POOL,
+                           quote_raw="1000000",meta={"attribution":"initiator_net"})],[block(13)])
+        snapshot=self.db.get("flow:snapshot")
+        self.db.put("flow:snapshot",{**snapshot,"height":13,"ts":block(13)["ts"]})
+        self.db.put("mints:status",{"finalized_height":13})
+        with patch("app.flows.time.time",return_value=as_of+7200):
+            page=trade_page(self.db,through=12,as_of=as_of,side="all",hours=1,limit=1,offset=1)
+        self.assertTrue(page["ready"])
+        self.assertEqual(page["snapshot_height"],12)
+        self.assertEqual(page["total"],full["total"])
+        self.assertEqual(page["trades"],full["trades"])
+
+    def test_trade_page_does_not_replay_dashboard_and_works_during_rpc_failure(self):
+        from app.flows import trade_page
+        self.db.put("flow:status",{"error":"Ethereum archive: ConnectTimeout"})
+        expected=analysis(self.db,side="all")
+        with patch("app.flows.balances",side_effect=AssertionError("balance replay")), \
+             patch("app.flows.holder_history",side_effect=AssertionError("holder history replay")), \
+             patch("app.flows.minter_totals",side_effect=AssertionError("minter replay")):
+            page=trade_page(self.db,through=12,as_of=expected["now"],side="all")
+        self.assertTrue(page["ready"])
+        self.assertEqual(page["trades"],expected["trades"])
+        self.assertFalse({"summary","outside_holders","holder_history","minters","daily"} & page.keys())
+
+    def test_trade_page_refuses_unverified_or_unavailable_snapshots(self):
+        from app.flows import trade_page
+        now=analysis(self.db)["now"]
+        for through,as_of in ((0,now),(13,now),(12,now+3600)):
+            with self.subTest(through=through,as_of=as_of):
+                page=trade_page(self.db,through=through,as_of=as_of)
+                self.assertFalse(page["ready"]);self.assertEqual(page["trades"],[])
+        self.db.conn.execute("DELETE FROM ranges WHERE chain='ethereum'")
+        page=trade_page(self.db,through=12,as_of=now)
+        self.assertFalse(page["ready"])
+
+    def test_trade_page_endpoint_validates_snapshot_filters_and_returns_only_rows(self):
+        from fastapi.testclient import TestClient
+        from app.config import Settings
+        from app.main import create_app
+        cfg=Settings(mode="mints",data_dir=Path(self.temp.name)/"page-api",indexer_enabled=False,history_from="")
+        with TestClient(create_app(cfg)) as client:
+            db=client.app.state.db
+            db.put("mints:deployment",block(1));db.put("mints:status",{"finalized_height":12})
+            db.save_batch("ethereum",1,12,self.events,[block(h) for h in range(1,13)])
+            db.put("flow:snapshot",self.db.get("flow:snapshot"))
+            full=client.get("/api/mints/flows?side=all&limit=1&offset=1").json()
+            params={"through":12,"as_of":full["now"],"side":"all","offset":1,"limit":1}
+            response=client.get("/api/mints/trades",params=params)
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.headers["cache-control"],"no-store")
+            self.assertEqual(response.json()["trades"],full["trades"])
+            self.assertNotIn("summary",response.json())
+            for invalid in ({"through":0},{"limit":201},{"offset":-1},{"sort":"bad"},{"q":"not-an-address"}):
+                self.assertEqual(client.get("/api/mints/trades",params={**params,**invalid}).status_code,422)
+            self.assertEqual(client.get("/api/mints/trades").status_code,422)
+            empty=client.get("/api/mints/trades",params={**params,"q":"0x"+"f"*40}).json()
+            self.assertTrue(empty["ready"]);self.assertEqual((empty["total"],empty["trades"]),(0,[]))
+
     def test_address_endpoint_returns_all_trades_beyond_normal_page_limit(self):
         from fastapi.testclient import TestClient
         from app.config import Settings

@@ -15,6 +15,8 @@ const base=process.env.PAGINATION_TEST_BASE||'http://127.0.0.1:8790';
   for(const offset of [0,25,50]){
    const data=await get('/api/mints/flows?side=all&limit=25&offset='+offset);
    assert.equal(data.offset,offset);assert.equal(data.limit,25);assert.equal(data.trades.length,25);
+   const light=await get('/api/mints/trades?side=all&limit=25&offset='+offset+'&through='+fixture.snapshot.height+'&as_of='+fixture.now);
+   assert.equal(light.ready,true);assert.deepEqual(light.trades,data.trades);assert.equal(light.summary,undefined);
   }
   const page=await context.newPage(),errors=[],offsets=[];
   let mode='normal',release,held,heldDone;
@@ -27,12 +29,17 @@ const base=process.env.PAGINATION_TEST_BASE||'http://127.0.0.1:8790';
    held=new Promise(resolve=>release={ready:resolve});
    heldDone=new Promise(resolve=>release.done=resolve);
   }
-  await page.route(base+'/api/mints/flows?*',async route=>{
+  await page.route(/\/api\/mints\/(?:flows|trades)\?/,async route=>{
    assert.equal(route.request().method(),'GET');
    const url=new URL(route.request().url()),offset=Number(url.searchParams.get('offset')),limit=Number(url.searchParams.get('limit'));
    offsets.push(offset);
    const behavior=mode;mode='normal';
-   const data={...structuredClone(fixture),total:60,offset,limit,
+   const pageOnly=url.pathname.endsWith('/trades');
+   if(pageOnly){
+    assert.equal(Number(url.searchParams.get('through')),fixture.snapshot.height);
+    assert.equal(Number(url.searchParams.get('as_of')),fixture.now);
+   }
+   const data={...(pageOnly?{ready:true,snapshot_height:fixture.snapshot.height,as_of:fixture.now}:structuredClone(fixture)),total:60,offset,limit,
     trades:fixture.trades.slice(offset,offset+limit),sales:[],has_more:offset+limit<60};
    if(behavior==='fail')return route.fulfill({status:503,json:{detail:'Test temporary failure'}});
    if(behavior==='recovering')data.ready=false;
@@ -58,9 +65,13 @@ const base=process.env.PAGINATION_TEST_BASE||'http://127.0.0.1:8790';
    assert.equal(await page.locator('#sales-next').isEnabled(),offset+25<60);
   }
   async function click(id,offset){
+   const before=offsets.length;
    await page.locator('#'+id).click();await idle();
-   assert.equal(offsets.at(-1),offset,'navigation must request the adjacent displayed page');
+   if(offsets.length!==before)assert.equal(offsets.at(-1),offset,'navigation must request the adjacent displayed page');
    await checkPage(offset);
+  }
+  async function uncacheNext(){
+   await page.locator('#sales-reset').click();await checkPage(0);await click('sales-next',25);
   }
   await page.locator('#flow-content').waitFor({state:'visible'});
   await checkPage(0);
@@ -70,7 +81,12 @@ const base=process.env.PAGINATION_TEST_BASE||'http://127.0.0.1:8790';
   await page.locator('#sales-next').click();await idle();
   assert.equal(await range(),'26–50 из 60');assert.equal(await first(),previous);
   await click('sales-next',50);
+  const requestsBeforeBack=offsets.length;
+  await page.evaluate(()=>window.paginationChart=document.querySelector('#sales-chart svg'));
   await click('sales-prev',25);
+  assert.equal(offsets.length,requestsBeforeBack,'previously opened page must be instant without a request');
+  assert.equal(await page.evaluate(()=>window.paginationChart===document.querySelector('#sales-chart svg')),true);
+  await uncacheNext();
   // While a response is pending, show a local status and ignore repeated clicks.
   hold();await page.locator('#sales-next').click();await held;
   assert.equal(await page.locator('#sales-prev').isEnabled(),false);
@@ -85,6 +101,7 @@ const base=process.env.PAGINATION_TEST_BASE||'http://127.0.0.1:8790';
   await page.screenshot({path:path.join('test-results','trading-pagination-loading.png')});
   release.finish();await heldDone;await checkPage(50);
   await click('sales-prev',25);
+  await uncacheNext();
   // Recovery responses retain the visible page and expose a retry message beside the controls.
   mode='recovering';await page.locator('#sales-next').click();await idle();
   await checkPage(25);
@@ -92,11 +109,13 @@ const base=process.env.PAGINATION_TEST_BASE||'http://127.0.0.1:8790';
   assert.match(await page.locator('#sales-page-status').innerText(),/недоступна/);
   await click('sales-next',50);
   await click('sales-prev',25);
+  await uncacheNext();
   // Background refresh must not block navigation or overwrite a newer page.
   hold();await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await held;
   assert.equal(await page.locator('#sales-next').isEnabled(),true);
   await click('sales-next',50);release.finish();await heldDone;await checkPage(50);
   await click('sales-prev',25);
+  await uncacheNext();
   // Reset filters while a page is loading: a late response cannot undo the reset.
   hold();await page.locator('#sales-next').click();await held;
   await page.locator('#sales-reset').click();await checkPage(0);
@@ -108,7 +127,7 @@ const base=process.env.PAGINATION_TEST_BASE||'http://127.0.0.1:8790';
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({ok:true,browser:process.env.TEST_BROWSER_PATH?'Brave':'Chrome',
-   checks:['public-api-pages','next-next-back','retry-same-page-after-503','pending-click-guard',
+   checks:['public-api-pages','lightweight-api','cached-back-without-network','no-chart-redraw','next-next-back','retry-same-page-after-503','pending-click-guard',
     'local-loading-status','first-last-page-boundaries','snapshot-recovery','background-refresh-race',
     'reset-during-navigation','mobile-pagination'],requests:offsets.length}));
  }finally{await browser.close();}

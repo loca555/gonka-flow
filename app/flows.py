@@ -201,6 +201,57 @@ class FlowCollector:
             await self.snapshot(start,head)
         return 15
 
+def selected_trades(market_trades,pools,hours,q,side,sort,now):
+    if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
+    field,direction=sort.rsplit("_",1)
+    if field not in ("time","kind","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
+        raise ValueError("Invalid trade sort")
+    selected=[]
+    all_trades=[e for e in market_trades if side=="all" or e["kind"]==side]
+    for e in all_trades:
+        meta=json.loads(e["meta"])
+        if hours and e["ts"]<now-hours*3600: continue
+        if q:
+            if re.fullmatch("0x[0-9a-f]{40}",q):
+                if e["actor"]!=q or meta.get("attribution")!="initiator_net": continue
+            elif q not in e["tx_hash"]: continue
+        selected.append({**e,"meta":meta})
+    # Sort the full filtered history before pagination; prices compare exact ratios.
+    keys={"time":lambda e:e["ts"],"kind":lambda e:e["kind"],"actor":lambda e:e["actor"],
+          "amount":lambda e:int(e["amount_raw"]),"quote":lambda e:int(e["quote_raw"]),
+          "price":lambda e:Fraction(int(e["quote_raw"]),int(e["amount_raw"])),
+          "pool":lambda e:(pools[e["pool"]]["fee"],e["pool"]),"tx":lambda e:e["tx_hash"]}
+    selected.sort(key=lambda e:(keys[field](e),e["height"],e["idx"],e["tx_hash"]),reverse=direction=="desc")
+    return selected
+
+def public_trade(event):
+    return {**event,"amount":tokens(event["amount_raw"]),"quote":tokens(event["quote_raw"],6),
+            "price":tokens(price_raw(event["quote_raw"],event["amount_raw"]),12),
+            "time_local":local_time(event["ts"]),"attribution":event["meta"].get("attribution","pool_only")}
+
+def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
+    """Page a pinned verified snapshot without replaying balances, charts or minters."""
+    result={"ready":False,"snapshot_height":through,"as_of":as_of,"hours":hours,"q":q,
+            "side":side,"sort":sort,"offset":offset,"limit":limit,"total":0,"has_more":False,"trades":[]}
+    deployment=db.get("mints:deployment")
+    target=db.get("mints:status",{}).get("finalized_height")
+    snapshot=db.get("flow:snapshot")
+    if not deployment or not target or not snapshot:return result
+    start=deployment["height"]
+    if not start<=through<=snapshot["height"]<=history_end(db,start,target) or not 0<=as_of<=int(time.time()):
+        return result
+    pools={p["address"]:p for p in snapshot["pools"]}
+    if not pools:return result
+    placeholders=",".join("?" for _ in pools)
+    rows=[dict(row) for row in db.conn.execute(
+        "SELECT * FROM events WHERE chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ? "
+        "AND kind IN ('buy','sell') AND pool IN ("+placeholders+")",
+        (start,through,*pools))]
+    selected=selected_trades(rows,pools,hours,q,side,sort,as_of)
+    result.update(ready=True,total=len(selected),has_more=offset+limit<len(selected),
+                  trades=[public_trade(event) for event in selected[offset:offset+limit]])
+    return result
+
 def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
     field,direction=sort.rsplit("_",1)
@@ -252,22 +303,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "gnk_verified_mints":len(native_links[r["address"]]),
             "minted":tokens(r["minted_raw"]),"sold":tokens(r["sales_raw"]),"balance":tokens(ledger.get(r["address"],0)),
             "quote":tokens(r["quote_raw"],6),"average_price":tokens(price_raw(r["quote_raw"],r["sales_raw"]),12) if r["sales_raw"] else None})
-    selected=[]
-    all_trades=[e for e in market_trades if side=="all" or e["kind"]==side]
-    for e in all_trades:
-        meta=json.loads(e["meta"])
-        if hours and e["ts"]<now-hours*3600: continue
-        if q:
-            if re.fullmatch("0x[0-9a-f]{40}",q):
-                if e["actor"]!=q or meta.get("attribution")!="initiator_net": continue
-            elif q not in e["tx_hash"]: continue
-        selected.append({**e,"meta":meta})
-    # Sort the full filtered history before pagination; prices compare exact ratios.
-    keys={"time":lambda e:e["ts"],"kind":lambda e:e["kind"],"actor":lambda e:e["actor"],
-          "amount":lambda e:int(e["amount_raw"]),"quote":lambda e:int(e["quote_raw"]),
-          "price":lambda e:Fraction(int(e["quote_raw"]),int(e["amount_raw"])),
-          "pool":lambda e:(pools[e["pool"]]["fee"],e["pool"]),"tx":lambda e:e["tx_hash"]}
-    selected.sort(key=lambda e:(keys[field](e),e["height"],e["idx"],e["tx_hash"]),reverse=direction=="desc")
+    selected=selected_trades(market_trades,pools,hours,q,side,sort,now)
     sold=sum(int(e["amount_raw"]) for e in selected)
     quote=sum(int(e["quote_raw"]) for e in selected)
     sides={kind:{"raw":0,"quote":0,"count":0} for kind in ("sell","buy")}
@@ -286,12 +322,8 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
         day["bought_raw" if buy else "sold_raw"]+=int(e["amount_raw"])
         day["buy_quote_raw" if buy else "sale_quote_raw"]+=int(e["quote_raw"])
         day["buys_count" if buy else "sales_count"]+=1
-    for e in selected:
-        e["amount"]=tokens(e["amount_raw"]);e["quote"]=tokens(e["quote_raw"],6)
-        e["price"]=tokens(price_raw(e["quote_raw"],e["amount_raw"]),12)
-        e["time_local"]=local_time(e["ts"])
-        e["attribution"]=e["meta"].get("attribution","pool_only")
     page_limit=len(selected) if limit is None else limit
+    page=[public_trade(event) for event in selected[offset:offset+page_limit]]
     result.update(ready=True,summary={"minted":tokens(minted),"burned":tokens(burned),"supply":tokens(supply),
         "pooled":tokens(pooled),"outside_pools":tokens(supply-pooled),"pooled_raw":str(pooled),
         "outside_raw":str(supply-pooled),"minted_raw":str(minted),"burned_raw":str(burned),
@@ -307,8 +339,8 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
         "average_price":tokens(price_raw(quote,sold),12) if sold else None,
         "transactions":len({e["tx_hash"] for e in selected}),"swaps":len(selected),
         "liquidity_added":tokens(liquidity_added),"all_sales":len(all_sales)},
-        pools=list(pools.values()),trades=selected[offset:offset+page_limit],
-        sales=selected[offset:offset+page_limit] if side=="sell" else [],total=len(selected),limit=page_limit,
+        pools=list(pools.values()),trades=page,
+        sales=page if side=="sell" else [],total=len(selected),limit=page_limit,
         has_more=offset+page_limit<len(selected),minters=minters,
         daily=[{"date":day,**{key:str(value) if key.endswith("raw") else value for key,value in d.items()},
                 "price_raw":str(price_raw(d["quote_raw"],d["raw"]))} for day,d in sorted(daily.items())])

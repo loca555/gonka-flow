@@ -2,6 +2,7 @@
 (()=>{
  const ui=id=>document.getElementById(id);
  const flow={hours:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,foreground:false,request:0};
+ const pages=new Map();
  const fmt=value=>value===null||value===undefined?"—":amount(value,4);
  const addr=value=>'<button class="address-button" data-flow-address="'+esc(value)+'" title="'+esc(value)+'">'+esc(short(value,10))+'</button>';
  const holderKinds={
@@ -109,7 +110,7 @@
   const data=flow.data;
   if(flow.foreground||!data?.ready||(direction<0?data.offset===0:!data.has_more))return;
   // Navigate from the displayed page, including after a failed request.
-  flow.offset=Math.max(0,data.offset+direction*data.limit);refresh();
+  flow.offset=Math.max(0,data.offset+direction*data.limit);refresh(false,false,true);
  }
  function renderPagination(message=""){
   const data=flow.data,ready=data?.ready,busy=flow.foreground;
@@ -193,9 +194,6 @@
   ui("trade-status").textContent=warning;ui("trade-status").hidden=!warning;
   ui("flow-content").hidden=!data.ready;
   if(!data.ready)return;
-  const noun=all?"Торговля":buy?"Покупки":"Продажи";
-  ui("sales-result").textContent=noun+" · "+(data.q?data.q:"все адреса")+" · найдено "+count(data.total)+" исполнений"+
-   (data.hours?" · за "+count(data.hours/24)+" дней":" · вся история");
   document.querySelectorAll("[data-trade-side]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.tradeSide===data.side)));
   ui("flow-volume-label").textContent=all?"Оборот торгов":buy?"Куплено из пулов":"Продано в пулах";
   ui("flow-quote-label").textContent=all?"Оборот USDT":buy?"Уплачено в пулы":"Выдано пулами";
@@ -230,17 +228,33 @@
   renderBreakdown("flow-price-breakdown",all,[
    {side:"buy",value:price(summary.buy_average_price),unit:"USDT"},
    {side:"sell",value:price(summary.sale_average_price),unit:"USDT"}]);
+  renderTradePage(data);
+  renderMinters(data);
+  renderChart(data);
+ }
+ function pageFields(data){
+  return {trades:data.trades,total:data.total,offset:data.offset,limit:data.limit,has_more:data.has_more};
+ }
+ function rememberPage(data){
+  if(!data.ready)return;
+  pages.set(data.offset,{ready:true,...pageFields(data),snapshot_height:data.snapshot.height,as_of:data.now});
+  if(pages.size>12)pages.delete(pages.keys().next().value);
+ }
+ function renderTradePage(data){
+  const noun=data.side==="all"?"Торговля":data.side==="buy"?"Покупки":"Продажи";
+  ui("sales-result").textContent=noun+" · "+(data.q?data.q:"все адреса")+" · найдено "+count(data.total)+" исполнений"+
+   (data.hours?" · за "+count(data.hours/24)+" дней":" · вся история");
+  setTableSort("trades-table",data.sort);
   ui("sales-total").textContent=count(data.total);
   setLiveHTML(ui("sales-rows"),data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td>'+
    (e.attribution==="initiator_net"?addr(e.actor):'<span class="mono" title="'+esc(e.actor)+'">'+esc(e.actor?short(e.actor,10):"Не установлен")+'</span>')+
    '<small>'+(e.attribution==="initiator_net"?(e.kind==="buy"?"Приток WGNK подтверждён":"Отток WGNK подтверждён"):"Участник не установлен")+'</small></td><td class="numeric">'+esc(fmt(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td><small>Uniswap V3</small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' б.п.</td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):
    '<tr><td colspan="8" class="empty">Сделок по этим фильтрам в отслеживаемых пулах не найдено.</td></tr>');
-  renderMinters(data);
-  renderChart(data);
  }
- async function refresh(reset=false,background=false){
+ async function refresh(reset=false,background=false,pageOnly=false){
   if(background&&flow.loading)return;
   if(reset)flow.offset=0;
+  const previous=flow.data;
   flow.abort?.abort();const controller=flow.abort=new AbortController(),id=++flow.request;
   const timer=setTimeout(()=>controller.abort(),30000);flow.loading=true;flow.foreground=!background;
   let pageMessage="";
@@ -250,15 +264,26 @@
    ui("sales-result").textContent="Ищем "+(flow.side==="all"?"сделки":flow.side==="buy"?"покупки":"продажи")+"…";
   }
   try{
-   const response=await fetch("/api/mints/flows?"+new URLSearchParams({hours:flow.hours,q:flow.q,offset:flow.offset,limit:25,side:flow.side,sort:flow.sort}),{signal:controller.signal});
-   if(!response.ok)throw new Error("HTTP "+response.status);
-   const data=await response.json();if(id!==flow.request)return;
+   let data=pageOnly?pages.get(flow.offset):null;
+   if(!data){
+    const filter=pageOnly?previous:flow;
+    const params={hours:filter.hours,q:filter.q,offset:flow.offset,limit:25,side:filter.side,sort:filter.sort};
+    if(pageOnly)Object.assign(params,{through:previous.snapshot.height,as_of:previous.now});
+    const response=await fetch((pageOnly?"/api/mints/trades?":"/api/mints/flows?")+new URLSearchParams(params),{signal:controller.signal});
+    if(!response.ok)throw new Error("HTTP "+response.status);
+    data=await response.json();
+   }
+   if(id!==flow.request)return;
+   if(pageOnly&&data.ready&&(data.snapshot_height!==previous.snapshot.height||data.as_of!==previous.now))throw new Error("Снимок торгов изменился. Повторите загрузку.");
    if(flow.data?.ready&&!data.ready){
     flow.offset=flow.data.offset;
     if(!background){pageMessage="Страница пока недоступна. Показаны прежние сделки; повторите переход.";ui("sales-result").textContent=pageMessage;}
     renderHeaderPrice(flow.data,true);ui("trade-status").textContent="Сервис восстанавливает торговый снимок. Последние проверенные данные сохранены; повторим автоматически.";ui("trade-status").hidden=false;return;
    }
-   flow.data=data;flow.offset=data.offset;render(data);
+   flow.offset=data.offset;
+   if(pageOnly){flow.data={...previous,...pageFields(data)};renderTradePage(flow.data);}
+   else{flow.data=data;pages.clear();render(data);}
+   rememberPage(flow.data);
   }catch(error){if(id===flow.request){
    flow.offset=flow.data?.offset||0;
    if(!background)pageMessage="Страница не загрузилась. Показаны прежние сделки; повторите переход.";
