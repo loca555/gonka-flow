@@ -1,7 +1,7 @@
 /* Market views are independent of the mint-size filter. Only finalized, verified pool data. */
 (()=>{
  const ui=id=>document.getElementById(id);
- const flow={hours:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,request:0};
+ const flow={hours:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,foreground:false,request:0};
  const fmt=value=>value===null||value===undefined?"—":amount(value,4);
  const addr=value=>'<button class="address-button" data-flow-address="'+esc(value)+'" title="'+esc(value)+'">'+esc(short(value,10))+'</button>';
  const holderKinds={
@@ -78,7 +78,8 @@
   '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="trade-key buy" data-chart-side="buy">Покупки</span><span class="trade-key sell" data-chart-side="sell">Продажи</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 WGNK · столбцы: покупки + продажи WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+
   '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Покупки и продажи показаны вместе по умолчанию.</p></div></div>'+
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
-  '<div class="pagination"><button id="sales-prev">← Назад</button><span id="sales-page"></span><button id="sales-next">Далее →</button></div>';
+  '<p id="sales-page-status" class="search-result" role="status" aria-live="polite" hidden></p>'+
+  '<div id="sales-pagination" class="pagination" role="group" aria-label="Страницы сделок"><button id="sales-prev" type="button" disabled>← Назад</button><span id="sales-page" aria-live="polite" aria-atomic="true"></span><button id="sales-next" type="button" disabled>Далее →</button></div>';
   ui("minter-report-host").innerHTML='<section class="minter-report"><h2>Минтеры и их продажи <span id="minter-count"></span></h2><p class="flow-explanation">Вся история. Даты — первая и последняя чеканка адреса; сортировка дат — по последней. Продажи могут включать купленные или полученные переводом WGNK: конкретные партии токенов не отслеживаются. Адрес Gonka — проверенный отправитель в мост, не установленный владелец или майнер.</p><p id="minter-status" class="flow-explanation"></p><div class="table-container minter-table"><table id="minter-table"><thead><tr><th data-sort="address" data-default="asc">Минтер · Ethereum</th><th data-sort="native" data-default="asc">Отправитель · Gonka</th><th data-sort="dates">Даты чеканки</th><th data-sort="minted" class="numeric">Получено при чеканке</th><th data-sort="balance" class="numeric">Баланс сейчас</th><th data-sort="sold" class="numeric">Продано адресом</th><th data-sort="price" class="numeric">Средняя цена за 1 WGNK, USDT</th><th data-sort="count">Исполнений продаж</th></tr></thead><tbody id="minter-rows"></tbody></table></div></section>';
   mountHolders();
   function search(side=flow.side){
@@ -94,8 +95,8 @@
   configureTableSort("minter-table",flow.minterSort,sort=>{flow.minterSort=sort;if(flow.data?.ready)renderMinters(flow.data);});
   ui("sales-period").addEventListener("change",()=>{flow.hours=Number(ui("sales-period").value);refresh(true);});
   ui("sales-reset").addEventListener("click",()=>{flow.q="";flow.hours=0;flow.side="all";ui("sales-query").value="";ui("sales-period").value="0";refresh(true);});
-  ui("sales-prev").addEventListener("click",()=>{flow.offset=Math.max(0,flow.offset-25);refresh();});
-  ui("sales-next").addEventListener("click",()=>{flow.offset+=25;refresh();});
+  ui("sales-prev").addEventListener("click",()=>changePage(-1));
+  ui("sales-next").addEventListener("click",()=>changePage(1));
   document.addEventListener("click",event=>{
    const address=event.target.closest("[data-flow-address]");
    if(address){
@@ -103,6 +104,20 @@
     window.WgnkAddress.open(address.dataset.flowAddress,address,address.dataset.gnkAddress||"");
    }
   });
+ }
+ function changePage(direction){
+  const data=flow.data;
+  if(flow.foreground||!data?.ready||(direction<0?data.offset===0:!data.has_more))return;
+  // Navigate from the displayed page, including after a failed request.
+  flow.offset=Math.max(0,data.offset+direction*data.limit);refresh();
+ }
+ function renderPagination(message=""){
+  const data=flow.data,ready=data?.ready,busy=flow.foreground;
+  ui("sales-prev").disabled=busy||!ready||data.offset===0;
+  ui("sales-next").disabled=busy||!ready||!data.has_more;
+  ui("sales-pagination").setAttribute("aria-busy",String(busy));
+  ui("sales-page").textContent=!ready?"—":data.total?count(data.offset+1)+"–"+count(Math.min(data.total,data.offset+data.limit))+" из "+count(data.total):"0 сделок";
+  ui("sales-page-status").textContent=message;ui("sales-page-status").hidden=!message;
  }
  function renderChart(data){
   if(ui("trading-view").hidden)return;
@@ -220,8 +235,6 @@
    (e.attribution==="initiator_net"?addr(e.actor):'<span class="mono" title="'+esc(e.actor)+'">'+esc(e.actor?short(e.actor,10):"Не установлен")+'</span>')+
    '<small>'+(e.attribution==="initiator_net"?(e.kind==="buy"?"Приток WGNK подтверждён":"Отток WGNK подтверждён"):"Участник не установлен")+'</small></td><td class="numeric">'+esc(fmt(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td><small>Uniswap V3</small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' б.п.</td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):
    '<tr><td colspan="8" class="empty">Сделок по этим фильтрам в отслеживаемых пулах не найдено.</td></tr>');
-  ui("sales-prev").disabled=data.offset===0;ui("sales-next").disabled=!data.has_more;
-  ui("sales-page").textContent=data.total?count(data.offset+1)+"–"+count(Math.min(data.total,data.offset+data.limit))+" из "+count(data.total):"0 сделок";
   renderMinters(data);
   renderChart(data);
  }
@@ -229,8 +242,10 @@
   if(background&&flow.loading)return;
   if(reset)flow.offset=0;
   flow.abort?.abort();const controller=flow.abort=new AbortController(),id=++flow.request;
-  const timer=setTimeout(()=>controller.abort(),30000);flow.loading=true;
+  const timer=setTimeout(()=>controller.abort(),30000);flow.loading=true;flow.foreground=!background;
+  let pageMessage="";
   if(!background){
+   renderPagination("Загружаем страницу…");
    ui("sales-search").setAttribute("aria-busy","true");
    ui("sales-result").textContent="Ищем "+(flow.side==="all"?"сделки":flow.side==="buy"?"покупки":"продажи")+"…";
   }
@@ -238,17 +253,21 @@
    const response=await fetch("/api/mints/flows?"+new URLSearchParams({hours:flow.hours,q:flow.q,offset:flow.offset,limit:25,side:flow.side,sort:flow.sort}),{signal:controller.signal});
    if(!response.ok)throw new Error("HTTP "+response.status);
    const data=await response.json();if(id!==flow.request)return;
-   if(background&&flow.data?.ready&&!data.ready){
+   if(flow.data?.ready&&!data.ready){
+    flow.offset=flow.data.offset;
+    if(!background){pageMessage="Страница пока недоступна. Показаны прежние сделки; повторите переход.";ui("sales-result").textContent=pageMessage;}
     renderHeaderPrice(flow.data,true);ui("trade-status").textContent="Сервис восстанавливает торговый снимок. Последние проверенные данные сохранены; повторим автоматически.";ui("trade-status").hidden=false;return;
    }
-   flow.data=data;render(data);
+   flow.data=data;flow.offset=data.offset;render(data);
   }catch(error){if(id===flow.request){
+   flow.offset=flow.data?.offset||0;
+   if(!background)pageMessage="Страница не загрузилась. Показаны прежние сделки; повторите переход.";
    renderHeaderPrice(flow.data,true);
    ui("trade-status").textContent="Нет свежего ответа по пулам и сделкам. Последние данные сохранены. "+(error.name==="AbortError"?"Таймаут.":error.message);
    ui("trade-status").hidden=false;
    if(!background)ui("sales-result").textContent="Поиск не выполнен. Ниже сохранён предыдущий результат. Повторите запрос.";
   }}
-  finally{clearTimeout(timer);if(id===flow.request){flow.loading=false;ui("sales-search").setAttribute("aria-busy","false");}}
+  finally{clearTimeout(timer);if(id===flow.request){flow.loading=false;flow.foreground=false;ui("sales-search").setAttribute("aria-busy","false");renderPagination(pageMessage);}}
  }
  mount();refresh();
  window.addEventListener("resize",()=>{if(flow.data?.ready)renderChart(flow.data);});
