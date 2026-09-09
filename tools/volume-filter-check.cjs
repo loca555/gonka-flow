@@ -119,4 +119,3 @@ const base=process.env.VOLUME_TEST_BASE||'http://127.0.0.1:8796';
    screenshots:4},null,2));
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
-
