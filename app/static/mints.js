@@ -109,14 +109,7 @@ function showView(){
  window.dispatchEvent(new Event("gonka:view"));
 }
 function renderCoverage(d){
- const c=d.coverage,s=c.live,h=c.history;
- const stale=!s.checked_at||d.now-s.checked_at>90||!s.latest_ts||d.now-s.latest_ts>120;
- const error=s.error||h.error;
- el("status-dot").className="status-dot"+(error?" error":!stale&&c.complete?" ok":"");
- el("live-caption").textContent=!d.indexer_enabled?"Сборщик остановлен":error?"Ethereum · ожидание RPC":stale?"Ethereum · проверяем свежесть":"LIVE · Ethereum";
- el("coverage-detail").textContent=c.total?"Проверено "+count(c.covered)+" из "+count(c.total)+" блоков · до финального #"+count(c.head):"Проверяем историю Ethereum";
- el("rpc-note").hidden=!error;
- if(error)el("rpc-note").textContent=error;
+ GonkaSync.update("mints",d);
  el("last-update").textContent="Ответ сервера "+clock(d.now)+" · только чтение";
  el("contract-link").href="https://etherscan.io/address/"+d.contract;
 }
@@ -173,12 +166,13 @@ async function refresh(reset=false){
    get("/api/mints/bridge?"+new URLSearchParams({minimum:state.minimum,sort:state.sort,offset:state.offset,limit:50}))
   ]);
   if(id!==state.request)return;
+  renderCoverage(d);
   if(state.bridge?.ready&&!bridge.ready){el("error-banner").textContent="Сервис восстанавливает снимок. Последние проверенные данные сохранены; повторим автоматически.";el("error-banner").hidden=false;return;}
   state.data=d;state.bridge=bridge;el("error-banner").hidden=true;
-  renderCoverage(d);renderMetrics(d);renderChart(d);renderRecipients(d);renderRows(bridge);
+  renderMetrics(d);renderChart(d);renderRecipients(d);renderRows(bridge);
  }catch(e){if(id===state.request){
   el("error-banner").textContent=(e.name==="AbortError"?"Сервер не ответил вовремя.":e.message)+" Предыдущие данные сохранены.";
-  el("error-banner").hidden=false;el("live-caption").textContent="Нет свежего ответа сервера";el("status-dot").className="status-dot error";
+  el("error-banner").hidden=false;GonkaSync.fail("mints");
  }}
  finally{clearTimeout(timeout);if(id===state.request)state.fetching=false;}
 }

@@ -280,6 +280,7 @@
    }
    if(id!==flow.request)return;
    if(pageOnly&&data.ready&&(data.snapshot_height!==previous.snapshot.height||data.as_of!==previous.now))throw new Error("Снимок торгов изменился. Повторите загрузку.");
+   if(!pageOnly)GonkaSync.update("market",data);
    if(flow.data?.ready&&!data.ready){
     flow.offset=flow.data.offset;
     if(!background){pageMessage="Страница пока недоступна. Показаны прежние сделки; повторите переход.";ui("sales-result").textContent=pageMessage;}
@@ -290,6 +291,7 @@
    else{flow.data=data;pages.clear();render(data);}
    rememberPage(flow.data);
   }catch(error){if(id===flow.request){
+   if(!pageOnly)GonkaSync.fail("market");
    flow.offset=flow.data?.offset||0;
    if(!background)pageMessage="Страница не загрузилась. Показаны прежние сделки; повторите переход.";
    renderHeaderPrice(flow.data,true);
