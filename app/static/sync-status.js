@@ -2,19 +2,13 @@
 // Each endpoint reports its own index. A complete mint index alone is not LIVE.
 const GonkaSync=(()=>{
  const channels={mints:null,market:null},node=id=>document.getElementById(id);
- const number=value=>Math.trunc(value).toLocaleString("ru-RU");
  const age=packet=>packet?(Date.now()-packet.received)/1000:Infinity;
  const now=packet=>(packet?.data?.now||0)+age(packet);
  const old=(packet,ts,limit)=>!ts||now(packet)-ts>limit;
- const stamp=ts=>new Date(ts*1000).toLocaleString("ru-RU",{timeZone:"Asia/Nicosia",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"});
  function render(){
   const mint=channels.mints,market=channels.market,d=mint?.data,f=market?.data;
   const c=d?.coverage,s=c?.live||{},h=c?.history||{},fc=f?.coverage,fs=f?.status||{},snapshot=f?.snapshot;
   const head=Math.max(fc?.head||0,s.latest_height||0,fs.latest_height||0);
-  const mintTotal=c?.total||0;
-  const marketTotal=fc?.start&&head?head-fc.start+1:0;
-  // Market indexed_height is the end of contiguous, successfully indexed ranges.
-  const marketCovered=marketTotal?Math.max(0,Math.min(head,fc.indexed_height)-fc.start+1):0;
   const mintComplete=Boolean(c?.complete);
   const marketComplete=Boolean(fc?.complete&&fc.head>=head);
   const verified=Boolean(f?.ready&&snapshot?.ledger_verified&&snapshot.height>=head);
@@ -36,10 +30,6 @@ const GonkaSync=(()=>{
   node("live-caption").textContent=caption;
   node("status-dot").className="status-dot"+(phase==="live"?" ok":phase==="error"?" error":["syncing","verifying"].includes(phase)?" syncing":"");
   node("status-dot").closest(".connection-status").dataset.state=phase;
-  node("coverage-detail").textContent=mintTotal?"Чеканка: "+number(c.covered)+" из "+number(mintTotal)+" блоков":"Чеканка: проверяем историю…";
-  node("market-coverage-detail").textContent=marketTotal?"Торговля: "+number(marketCovered)+" из "+number(marketTotal)+" блоков":"Торговля: проверяем историю…";
-  node("snapshot-detail").textContent=phase==="live"?"Торговля до #"+number(snapshot.height)+" · "+stamp(snapshot.ts):
-   head?"Загружаем до #"+number(head)+(snapshot?" · снимок #"+number(snapshot.height):" · снимок готовится"):"Ожидаем блок Ethereum";
   const notes=[];
   if(mint?.failed)notes.push("Нет свежего ответа по чеканке. Повторим автоматически.");
   if(market?.failed)notes.push("Нет свежего ответа по торговле и мосту. Повторим автоматически.");

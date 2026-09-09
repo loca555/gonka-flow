@@ -53,10 +53,10 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
   const reload=async(value,expected)=>{scenario=value;await page.goto(base+'/#trading');await page.reload();return state(expected);};
   holdMarket=new Promise(resolve=>releaseMarket=resolve);
   await page.goto(base+'/#trading');
-  await page.waitForFunction(()=>document.querySelector('#coverage-detail').textContent.includes('из'));
+  await state('loading');
   assert(!String(await page.locator('#live-caption').textContent()).includes('LIVE'));
   releaseMarket();holdMarket=null;await state('live');reports.push('No LIVE before both endpoints respond');
-  assert((await page.locator('#snapshot-detail').textContent()).includes('Торговля до #'));
+  assert.equal(await page.locator('#coverage-detail, #market-coverage-detail, #snapshot-detail, .holder-history-panel').count(),0);
   for(const [name,value,expected] of [
    ['Live trades before finality',{liveTail:84},'live'],
    ['Market backlog',{marketLag:300,snapshotLag:300},'syncing'],
@@ -76,8 +76,6 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
   ]){
    const text=await reload(value,expected);reports.push(name);
    if(value.marketLag){
-    const coverage=await page.locator('#market-coverage-detail').textContent();
-    assert(coverage.includes((market.coverage.head+(value.liveTail||0)-market.coverage.start+1-value.marketLag).toLocaleString('ru-RU')));
     await fs.mkdir('test-results',{recursive:true});
     await page.locator('.page-top').screenshot({path:'test-results/sync-status-loading.jpg',type:'jpeg',quality:85});
    }
@@ -106,6 +104,9 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
   reports.push('Pagination keeps current sync status');
   await reload({liveTail:84},'live');
   assert((await page.locator('.sales-table-heading').innerText()).includes('Покупки и продажи показаны вместе'));
+  assert.equal(await page.locator('#holder-group-cards [data-holder-group]').count(),4);
+  assert.equal(await page.locator('.holder-history-panel, #holder-history-chart').count(),0);
+  await page.locator('#sales-chart svg').waitFor();
   for(const [name,width] of [['desktop',1440],['mobile',390]]){
    await page.setViewportSize({width,height:900});
    await page.evaluate(()=>window.scrollTo(0,0));

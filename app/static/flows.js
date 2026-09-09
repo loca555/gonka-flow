@@ -19,7 +19,6 @@
  function mountHolders(){
   ui("distribution-legend").insertAdjacentHTML("afterend",'<section id="outside-holders" class="outside-holders" aria-labelledby="outside-holders-title"><div class="holder-heading"><h3 id="outside-holders-title">Вне пулов · распределение баланса</h3><p id="outside-holders-total"></p></div><div id="outside-holders-content" hidden><div id="holder-distribution-bar" class="holder-distribution-bar" role="img"></div><div id="holder-group-cards" class="holder-group-cards"></div><p class="holder-method">Категория по объёму WGNK за всю историю: покупки / (покупки + продажи), аналогично для продаж. Только подтверждённые сделки двух пулов; переводы и мост не являются сделками. Ровно 90/10 — трейдеры. Условные категории адресов, не установленные личности. Доля — от текущего баланса вне пулов, не от торгового оборота.</p></div></section>');
   document.body.insertAdjacentHTML("beforeend",'<dialog id="holder-dialog" aria-labelledby="holder-dialog-title"><div class="dialog-heading"><div><span class="eyebrow">WGNK / ВНЕ ПУЛОВ</span><h2 id="holder-dialog-title"></h2></div><button id="holder-close" aria-label="Закрыть список адресов" autofocus>✕</button></div><p id="holder-dialog-summary" class="holder-dialog-summary"></p><p id="holder-dialog-rule" class="flow-explanation"></p><div class="table-container holder-address-table" tabindex="0" aria-label="Все адреса категории, прокручиваемый список"><table id="holder-table"><thead><tr><th data-sort="address" data-default="asc">Адрес Ethereum</th><th data-sort="balance" class="numeric">Баланс WGNK</th><th data-sort="share" class="numeric">Доля группы</th><th data-sort="bought" class="numeric">Куплено WGNK</th><th data-sort="sold" class="numeric">Продано WGNK</th><th data-sort="buyshare" class="numeric">Доля покупок</th></tr></thead><tbody id="holder-rows"></tbody></table></div><p id="holder-dialog-note" class="flow-explanation"></p></dialog>');
-  ui("holder-group-cards").insertAdjacentHTML("afterend",'<article class="holder-history-panel" aria-labelledby="holder-history-title"><div class="holder-history-heading"><div><h3 id="holder-history-title">Баланс категорий во времени</h3><p id="holder-history-period">С момента создания моста · по дням</p></div><div class="holder-history-legend">'+Object.entries(holderKinds).map(([key,value])=>'<span class="holder-'+key+'"><i></i>'+value.label+'</span>').join('')+'</div></div><div id="holder-history-chart" class="interactive-chart"></div><div class="holder-history-footer"><span id="holder-history-snapshot"></span><span>Наведите курсор или коснитесь графика</span></div><p class="holder-history-note">Баланс на конец дня; последний день — на проверенном снимке. Категория адреса определяется по его сделкам к этому дню. При смене категории весь остаток переходит на другую линию — это не обязательно перевод токенов.</p></article>');
   const dialog=ui("holder-dialog");closeOnBackdrop(dialog);
   ui("holder-close").addEventListener("click",()=>dialog.close());
   dialog.addEventListener("close",()=>{
@@ -125,17 +124,6 @@
  }
  function renderChart(data){
   if(ui("trading-view").hidden)return;
-  const history=data.holder_history;
-  const groups=ui("holder-history-chart");
-  if(history?.ts)groups.dataset.snapshotTs=String(history.ts);
-  renderLiveChart(groups,history?{ready:history.ready,points:history.points}:null,()=>GonkaChart.renderGroups(groups,history,holderKinds));
-  if(history?.ready){
-   ui("holder-history-period").textContent="С создания моста · "+date(history.start_ts)+" — "+date(history.ts)+" · по дням";
-   ui("holder-history-snapshot").textContent="Последняя точка · #"+count(history.height)+" · "+date(history.ts)+" "+clock(history.ts);
-  }else{
-   ui("holder-history-period").textContent="История категорий ещё не подтверждена";
-   ui("holder-history-snapshot").textContent="Недоступные данные не заменяются нулями";
-  }
   ui("sales-chart-title").textContent="Цена и объём "+(data.side==="all"?"торгов":data.side==="buy"?"покупок":"продаж");
   document.querySelectorAll("[data-chart-side]").forEach(key=>{key.hidden=data.side!=="all"&&key.dataset.chartSide!==data.side;});
   const market=ui("sales-chart");
