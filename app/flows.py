@@ -201,7 +201,7 @@ class FlowCollector:
             await self.snapshot(start,head)
         return 15
 
-def selected_trades(market_trades,pools,hours,q,side,sort,now):
+def selected_trades(market_trades,pools,hours,q,side,sort,now,minimum=0):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
     field,direction=sort.rsplit("_",1)
     if field not in ("time","kind","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
@@ -209,6 +209,7 @@ def selected_trades(market_trades,pools,hours,q,side,sort,now):
     selected=[]
     all_trades=[e for e in market_trades if side=="all" or e["kind"]==side]
     for e in all_trades:
+        if int(e["amount_raw"])<minimum*10**9: continue
         meta=json.loads(e["meta"])
         if hours and e["ts"]<now-hours*3600: continue
         if q:
@@ -229,10 +230,10 @@ def public_trade(event):
             "price":tokens(price_raw(event["quote_raw"],event["amount_raw"]),12),
             "time_local":local_time(event["ts"]),"attribution":event["meta"].get("attribution","pool_only")}
 
-def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
+def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0):
     """Page a pinned verified snapshot without replaying balances, charts or minters."""
     result={"ready":False,"snapshot_height":through,"as_of":as_of,"hours":hours,"q":q,
-            "side":side,"sort":sort,"offset":offset,"limit":limit,"total":0,"has_more":False,"trades":[]}
+            "side":side,"sort":sort,"minimum":minimum,"offset":offset,"limit":limit,"total":0,"has_more":False,"trades":[]}
     deployment=db.get("mints:deployment")
     target=db.get("mints:status",{}).get("finalized_height")
     snapshot=db.get("flow:snapshot")
@@ -245,6 +246,11 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
     placeholders=",".join("?" for _ in pools)
     where="chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ? AND kind IN ('buy','sell') AND pool IN ("+placeholders+")"
     params=[start,through,*pools]
+    if minimum:
+        # Raw amounts are canonical decimal strings and may exceed SQLite's integer range.
+        raw=str(minimum*10**9)
+        where+=" AND (length(amount_raw)>? OR (length(amount_raw)=? AND amount_raw>=?))"
+        params.extend((len(raw),len(raw),raw))
     # The default feed can page in SQLite without decoding every historical Swap.
     if not q and sort in ("time_asc","time_desc") and side in ("all","buy","sell"):
         if side!="all":where+=" AND kind=?";params.append(side)
@@ -258,12 +264,12 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
         result.update(ready=True,total=total,has_more=offset+limit<total,trades=[public_trade(row) for row in rows])
         return result
     rows=[dict(row) for row in db.conn.execute("SELECT * FROM events WHERE "+where,params)]
-    selected=selected_trades(rows,pools,hours,q,side,sort,as_of)
+    selected=selected_trades(rows,pools,hours,q,side,sort,as_of,minimum)
     result.update(ready=True,total=len(selected),has_more=offset+limit<len(selected),
                   trades=[public_trade(event) for event in selected[offset:offset+limit]])
     return result
 
-def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
+def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
     field,direction=sort.rsplit("_",1)
     if field not in ("time","kind","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
@@ -276,7 +282,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
     result={"now":now,"timezone":TIME_ZONE,"status":status,"snapshot":snapshot,"ready":False,
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
-            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"trades":[],"address_balance":None,"address_history":None,
+            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"minimum":minimum,"trades":[],"address_balance":None,"address_history":None,
             "outside_holders":None,"holder_history":None,"latest_trade":None,
             "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
     if not deployment or not target: return result
@@ -314,7 +320,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc"):
             "gnk_verified_mints":len(native_links[r["address"]]),
             "minted":tokens(r["minted_raw"]),"sold":tokens(r["sales_raw"]),"balance":tokens(ledger.get(r["address"],0)),
             "quote":tokens(r["quote_raw"],6),"average_price":tokens(price_raw(r["quote_raw"],r["sales_raw"]),12) if r["sales_raw"] else None})
-    selected=selected_trades(market_trades,pools,hours,q,side,sort,now)
+    selected=selected_trades(market_trades,pools,hours,q,side,sort,now,minimum)
     sold=sum(int(e["amount_raw"]) for e in selected)
     quote=sum(int(e["quote_raw"]) for e in selected)
     sides={kind:{"raw":0,"quote":0,"count":0} for kind in ("sell","buy")}

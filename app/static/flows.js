@@ -1,7 +1,7 @@
 /* Market views are independent of the mint-size filter. Only finalized, verified pool data. */
 (()=>{
  const ui=id=>document.getElementById(id);
- const flow={hours:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,foreground:false,request:0};
+ const flow={hours:0,minimum:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,foreground:false,request:0};
  const pages=new Map();
  const fmt=value=>value===null||value===undefined?"—":amount(value,4);
  const addr=value=>'<button class="address-button" data-flow-address="'+esc(value)+'" title="'+esc(value)+'">'+esc(short(value,10))+'</button>';
@@ -78,6 +78,7 @@
   '<p id="trade-explanation" class="flow-explanation">Это валовой оборот: одни и те же токены могут продаваться повторно. Цена = USDT на выходе пула / WGNK на входе, без газа и возможных комиссий маршрутизатора. Другие DEX, CEX и внебиржевые сделки не учтены. Обычные переводы не обозначаются продажами.</p>'+
   '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="trade-key buy" data-chart-side="buy">Покупки</span><span class="trade-key sell" data-chart-side="sell">Продажи</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 WGNK · столбцы: покупки + продажи WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+
   '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Покупки и продажи показаны вместе по умолчанию.</p></div></div>'+
+  '<form id="sales-volume-filter" class="volume-filter" aria-label="Фильтр объёма сделок"><label for="sales-minimum">Объём от <input id="sales-minimum" type="number" min="0" max="1000000000000" step="1" value="0" inputmode="numeric" title="Минимальный объём в целых WGNK; 0 — любой объём"> <span>WGNK</span></label><button type="submit">Применить</button><button type="button" data-volume-reset disabled>Сбросить</button></form>' +
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
   '<p id="sales-page-status" class="search-result" role="status" aria-live="polite" hidden></p>'+
   '<div id="sales-pagination" class="pagination" role="group" aria-label="Страницы сделок"><button id="sales-prev" type="button" disabled>← Назад</button><span id="sales-page" aria-live="polite" aria-atomic="true"></span><button id="sales-next" type="button" disabled>Далее →</button></div>';
@@ -95,7 +96,8 @@
   configureTableSort("trades-table",flow.sort,sort=>{flow.sort=sort;refresh(true);});
   configureTableSort("minter-table",flow.minterSort,sort=>{flow.minterSort=sort;if(flow.data?.ready)renderMinters(flow.data);});
   ui("sales-period").addEventListener("change",()=>{flow.hours=Number(ui("sales-period").value);refresh(true);});
-  ui("sales-reset").addEventListener("click",()=>{flow.q="";flow.hours=0;flow.side="all";ui("sales-query").value="";ui("sales-period").value="0";refresh(true);});
+  const resetVolume=configureVolumeFilter("sales-volume-filter",minimum=>{flow.minimum=minimum;refresh(true);});
+  ui("sales-reset").addEventListener("click",()=>{resetVolume();flow.minimum=0;flow.q="";flow.hours=0;flow.side="all";ui("sales-query").value="";ui("sales-period").value="0";refresh(true);});
   ui("sales-prev").addEventListener("click",()=>changePage(-1));
   ui("sales-next").addEventListener("click",()=>changePage(1));
   document.addEventListener("click",event=>{
@@ -243,7 +245,8 @@
  function renderTradePage(data){
   const noun=data.side==="all"?"Торговля":data.side==="buy"?"Покупки":"Продажи";
   ui("sales-result").textContent=noun+" · "+(data.q?data.q:"все адреса")+" · найдено "+count(data.total)+" исполнений"+
-   (data.hours?" · за "+count(data.hours/24)+" дней":" · вся история");
+   (data.hours?" · за "+count(data.hours/24)+" дней":" · вся история")+
+   (data.minimum?" · объём от "+count(data.minimum)+" WGNK":"");
   setTableSort("trades-table",data.sort);
   ui("sales-total").textContent=count(data.total);
   setLiveHTML(ui("sales-rows"),data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td>'+
@@ -267,7 +270,7 @@
    let data=pageOnly?pages.get(flow.offset):null;
    if(!data){
     const filter=pageOnly?previous:flow;
-    const params={hours:filter.hours,q:filter.q,offset:flow.offset,limit:25,side:filter.side,sort:filter.sort};
+    const params={hours:filter.hours,minimum:filter.minimum,q:filter.q,offset:flow.offset,limit:25,side:filter.side,sort:filter.sort};
     if(pageOnly)Object.assign(params,{through:previous.snapshot.height,as_of:previous.now});
     const response=await fetch((pageOnly?"/api/mints/trades?":"/api/mints/flows?")+new URLSearchParams(params),{signal:controller.signal});
     if(!response.ok)throw new Error("HTTP "+response.status);

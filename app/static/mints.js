@@ -20,7 +20,7 @@ const date=ts=>new Date(ts*1000).toLocaleDateString("ru-RU",{timeZone:"Asia/Nico
 const clock=ts=>new Date(ts*1000).toLocaleTimeString("ru-RU",{timeZone:"Asia/Nicosia",hour:"2-digit",minute:"2-digit",second:"2-digit"});
 const txUrl=h=>"https://etherscan.io/tx/"+encodeURIComponent(h);
 const blockUrl=h=>"https://etherscan.io/block/"+encodeURIComponent(h);
-const state={sort:"time_desc",offset:0,request:0,data:null,bridge:null};
+const state={minimum:0,sort:"time_desc",offset:0,request:0,data:null,bridge:null};
 const liveMarkup=new WeakMap(),liveCharts=new WeakMap();
 function setLiveHTML(host,html){
  const previous=liveMarkup.get(host);
@@ -79,6 +79,19 @@ function configureTableSort(id,sort,onChange){
  });
  setTableSort(id,sort);
 }
+function configureVolumeFilter(id,onChange){
+ const form=el(id),input=form.querySelector("input"),reset=form.querySelector("[data-volume-reset]");
+ const clear=()=>{input.value="0";reset.disabled=true;};
+ form.addEventListener("submit",event=>{
+  event.preventDefault();
+  if(!form.reportValidity())return;
+  const minimum=Number(input.value||0);
+  input.value=String(minimum);reset.disabled=minimum===0;
+  onChange(minimum);
+ });
+ reset.addEventListener("click",()=>{clear();onChange(0);});
+ return clear;
+}
 function showView(){
  if(location.hash==="#mints")history.replaceState(null,"",location.pathname+"#bridge");
  const view=location.hash==="#leaders"?"leaders":location.hash==="#minters"?"minters":["#bridge","#method"].includes(location.hash)?"bridge":"trading";
@@ -136,7 +149,7 @@ function minterSalesLabel(e){
 }
 function renderRows(d){
  el("bridge-note").textContent=!d.ready?"Сверенный снимок моста пока не готов. Это не означает отсутствие событий.":
-  "Чеканка и сжигание любого размера · финальный снимок #"+count(d.snapshot.height)+
+  "Чеканка и сжигание "+(d.minimum?"от "+count(d.minimum)+" WGNK":"любого размера")+" · финальный снимок #"+count(d.snapshot.height)+
   (d.coverage.complete?" · история без пропусков":" · догружаем "+count(d.coverage.missing)+" блоков");
  if(!d.ready){el("prev").disabled=true;el("next").disabled=true;return;}
  el("row-count").textContent=count(d.total);
@@ -144,10 +157,10 @@ function renderRows(d){
  setLiveHTML(el("mint-rows"),d.items.length?d.items.map(e=>{
   const burn=e.kind==="bridge_burn";
   return '<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+(burn?"sell":"buy")+'">'+(burn?"Сжигание":"Чеканка")+'</span></td><td><button class="address-button" data-flow-address="'+esc(e.address)+'" title="'+esc(e.address)+'">'+esc(short(e.address,10))+'</button>'+minterSalesLabel(e)+'</td><td class="numeric"><span class="amount-value">'+esc(amount(e.amount))+'</span><small>WGNK</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>log #'+e.log_index+'</small></td><td><span class="final-badge">✓ Финальный</span><small>#'+count(e.height)+'</small></td><td><button class="detail-button" data-tx="'+esc(e.tx_hash)+'" data-log="'+e.log_index+'" aria-label="Детали события '+esc(short(e.tx_hash))+'">↗</button></td></tr>';
- }).join(""):'<tr><td colspan="7" class="empty">Событий моста в подтверждённой истории пока нет.</td></tr>');
+ }).join(""):'<tr><td colspan="7" class="empty">'+(d.minimum?"Событий моста с объёмом от "+count(d.minimum)+" WGNK не найдено. Уменьшите порог или сбросьте фильтр.":"Событий моста в подтверждённой истории пока нет.")+'</td></tr>');
  el("prev").disabled=d.offset===0;el("next").disabled=!d.has_more;
  el("page-info").textContent=d.total?count(d.offset+1)+"–"+count(Math.min(d.offset+d.limit,d.total))+" из "+count(d.total):"0 событий";
- el("csv-filtered").href="/api/mints/bridge/export.csv?"+new URLSearchParams({minimum:0,sort:state.sort});
+ el("csv-filtered").href="/api/mints/bridge/export.csv?"+new URLSearchParams({minimum:d.minimum,sort:d.sort});
 }
 async function refresh(reset=false){
  if(reset)state.offset=0;
@@ -157,7 +170,7 @@ async function refresh(reset=false){
   const get=async url=>{const r=await fetch(url,{signal:controller.signal});if(!r.ok)throw new Error("Нет свежего ответа (HTTP "+r.status+").");return r.json();};
   const [d,bridge]=await Promise.all([
    get("/api/mints?minimum=0&limit=1"),
-   get("/api/mints/bridge?"+new URLSearchParams({minimum:0,sort:state.sort,offset:state.offset,limit:50}))
+   get("/api/mints/bridge?"+new URLSearchParams({minimum:state.minimum,sort:state.sort,offset:state.offset,limit:50}))
   ]);
   if(id!==state.request)return;
   if(state.bridge?.ready&&!bridge.ready){el("error-banner").textContent="Сервис восстанавливает снимок. Последние проверенные данные сохранены; повторим автоматически.";el("error-banner").hidden=false;return;}
@@ -179,6 +192,7 @@ function details(tx,index){
   '<dt>Точное количество в минимальных единицах</dt><dd class="mono">'+esc(e.amount_raw)+'</dd></dl><div class="dialog-actions"><a href="'+txUrl(tx)+'" target="_blank" rel="noopener noreferrer">Транзакция в Etherscan ↗</a><button data-copy="'+esc(e.address)+'">Копировать адрес</button><button data-flow-address="'+esc(e.address)+'">История адреса · WGNK / GNK</button></div>';
  el("mint-dialog").showModal();
 }
+configureVolumeFilter("bridge-volume-filter",minimum=>{state.minimum=minimum;refresh(true);});
 el("prev").addEventListener("click",()=>{state.offset=Math.max(0,state.offset-50);refresh();});
 el("next").addEventListener("click",()=>{state.offset+=50;refresh();});
 el("close-dialog").addEventListener("click",()=>el("mint-dialog").close());

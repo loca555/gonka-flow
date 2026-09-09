@@ -228,6 +228,44 @@ class FlowTests(unittest.TestCase):
         self.db.put("flow:snapshot",None)
         self.assertIsNone(analysis(self.db,q=A)["address_balance"])
 
+    def test_trade_minimum_filters_totals_before_pagination(self):
+        reference=analysis(self.db,side="all")
+        filtered=analysis(self.db,side="all",minimum=11,limit=1)
+        self.assertEqual((filtered["minimum"],filtered["total"],filtered["summary"]["volume"]),(11,1,"30"))
+        self.assertEqual(filtered["summary"]["quote"],"12")
+        self.assertEqual(sum(int(day["raw"]) for day in filtered["daily"]),30*UNIT)
+        self.assertEqual(analysis(self.db,side="all",minimum=30)["total"],1)
+        empty=analysis(self.db,side="all",minimum=31)
+        self.assertEqual((empty["total"],empty["trades"],empty["daily"]),(0,[],[]))
+        self.assertIsNone(empty["summary"]["average_price"])
+        for key in ("latest_trade","minters","outside_holders","holder_history"):
+            self.assertEqual(filtered[key],reference[key],key)
+        for key in ("minted","burned","supply","pooled","outside_pools"):
+            self.assertEqual(filtered["summary"][key],reference["summary"][key],key)
+        self.assertEqual(analysis(self.db,q=A,minimum=1000)["address_balance"],
+                         analysis(self.db,q=A)["address_balance"])
+
+    def test_trade_minimum_preserves_exact_boundary_above_sqlite_integer_range(self):
+        from app.flows import trade_page
+        minimum=10**12
+        boundary=minimum*UNIT
+        for height,raw in ((3,boundary-1),(5,boundary),(7,2**200)):
+            self.db.conn.execute("UPDATE events SET amount_raw=? WHERE height=? AND kind IN ('buy','sell')",
+                                 (str(raw),height))
+        self.db.conn.commit()
+        for sort in ("time_asc","time_desc","amount_desc","price_asc"):
+            with self.subTest(sort=sort):
+                full=analysis(self.db,side="all",minimum=minimum,sort=sort)
+                self.assertEqual(full["total"],2)
+                self.assertEqual({row["amount_raw"] for row in full["trades"]},{str(boundary),str(2**200)})
+                for offset in (0,1,2):
+                    page=trade_page(self.db,through=12,as_of=full["now"],side="all",minimum=minimum,
+                                    sort=sort,limit=1,offset=offset)
+                    self.assertEqual(page["minimum"],minimum)
+                    self.assertEqual(page["total"],2)
+                    self.assertEqual(page["trades"],full["trades"][offset:offset+1])
+                    self.assertEqual(page["has_more"],offset==0)
+
     def test_trade_page_matches_full_analysis_filters_and_exact_sorting(self):
         from app.flows import trade_page
         options=[{"side":side,"sort":field+"_"+direction}
@@ -236,6 +274,7 @@ class FlowTests(unittest.TestCase):
                  for direction in ("asc","desc")]
         options.extend({"side":"all","q":q,"hours":hours} for q in ("",A,"0x"+"f"*40,self.events[2]["tx_hash"])
                        for hours in (0,1))
+        options.extend({**filters,"minimum":11} for filters in tuple(options))
         for filters in options:
             with self.subTest(filters=filters):
                 full=analysis(self.db,limit=1,offset=1,**filters)
@@ -302,6 +341,22 @@ class FlowTests(unittest.TestCase):
             self.assertEqual(response.headers["cache-control"],"no-store")
             self.assertEqual(response.json()["trades"],full["trades"])
             self.assertNotIn("summary",response.json())
+            for minimum,total in ((0,3),(11,1),(31,0),(10,3)):
+                filters={"side":"all","minimum":minimum,"limit":1}
+                filtered=client.get("/api/mints/flows",params=filters).json()
+                self.assertEqual((filtered["total"],filtered["minimum"]),(total,minimum))
+                page=client.get("/api/mints/trades",params={**filters,"through":12,"as_of":filtered["now"]}).json()
+                self.assertEqual(page["trades"],filtered["trades"])
+                self.assertEqual((page["total"],page["minimum"]),(total,minimum))
+            for route in ("/api/mints/flows","/api/mints/trades","/api/mints/bridge","/api/mints/bridge/export.csv"):
+                for invalid in (-1,"1.5",10**12+1):
+                    self.assertEqual(client.get(route,params={**params,"minimum":invalid}).status_code,422)
+            for minimum,total in ((0,2),(5,2),(6,1),(101,0)):
+                bridge=client.get("/api/mints/bridge",params={"minimum":minimum}).json()
+                export=client.get("/api/mints/bridge/export.csv",params={"minimum":minimum})
+                self.assertEqual(bridge["total"],total)
+                self.assertEqual(export.status_code,200)
+                self.assertEqual(len(export.text.strip().splitlines()),total+1)
             for invalid in ({"through":0},{"limit":201},{"offset":-1},{"sort":"bad"},{"q":"not-an-address"}):
                 self.assertEqual(client.get("/api/mints/trades",params={**params,**invalid}).status_code,422)
             self.assertEqual(client.get("/api/mints/trades").status_code,422)
