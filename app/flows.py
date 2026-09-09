@@ -1,4 +1,4 @@
-"""Finalized WGNK market activity. No GNK calls, wallet census or price-service requests."""
+"""Verified WGNK market activity through the latest block. No GNK-wide scans."""
 import asyncio
 import json
 import re
@@ -30,6 +30,26 @@ def event_rows(db,start,head):
     return [dict(r) for r in db.conn.execute(
         "SELECT * FROM events WHERE chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ? ORDER BY height,idx,id",
         (start,head))]
+
+def market_packet(db, snapshot_hash="", through=None):
+    saved=db.get("flow:live",{})
+    packets=[saved.get("current"),*saved.get("history",[])]
+    for packet in packets:
+        if not packet: continue
+        snap=packet["snapshot"]
+        if snapshot_hash and snap["hash"]!=snapshot_hash: continue
+        if through is not None and snap["height"]!=through: continue
+        start=db.get("mints:deployment",{}).get("height")
+        if start and history_end(db,start,packet["base"])==packet["base"]:
+            return packet
+    return None
+
+
+def market_rows(db,start,snapshot,packet=None):
+    if packet:
+        return event_rows(db,start,packet["base"])+packet["events"]
+    return event_rows(db,start,snapshot["height"])
+
 
 def balances(rows):
     result=defaultdict(int);minted=burned=0
@@ -110,6 +130,10 @@ class FlowCollector:
         self.pools={}
 
     async def batch(self,lo,hi,archive=False):
+        events,blocks=await self.read_batch(lo,hi,archive=archive)
+        self.db.save_batch("ethereum",lo,hi,events,blocks)
+
+    async def read_batch(self,lo,hi,archive=False,finalized=True):
         topics=[TRANSFER,SWAP,MINT,BURN,LP_MINT,LP_BURN]
         logs=await self.net.eth_logs({"fromBlock":hex(lo),"toBlock":hex(hi),
             "address":[TOKEN]+list(self.pools),"topics":[topics]},archive=archive)
@@ -122,7 +146,7 @@ class FlowCollector:
         heights=sorted({lo,hi}|{int(item["blockNumber"],16) for item in logs})
         blocks=[]
         for pos in range(0,len(heights),2):
-            blocks.extend(await asyncio.gather(*(self.owner.block(h,archive=archive) for h in heights[pos:pos+2])))
+            blocks.extend(await asyncio.gather(*(self.owner.block(h,archive=archive,finalized=finalized) for h in heights[pos:pos+2])))
         by_height={b["height"]:b for b in blocks}
         receipts={}
         for tx in sorted({r["transactionHash"].lower() for r in logs
@@ -146,7 +170,7 @@ class FlowCollector:
             receipt=receipts.get(item["transactionHash"].lower())
             if receipt and (receipt["blockHash"].lower()!=block["hash"] or int(receipt["blockNumber"],16)!=block["height"]):
                 raise ValueError("WGNK swap receipt block conflict")
-            event=parse_eth_log(item,block,self.pools,receipt,True)
+            event=parse_eth_log(item,block,self.pools,receipt,finalized)
             if event: events.append(event)
         by_id={e["id"]:e for e in events}
         if len(by_id)!=len(events): raise ValueError("Duplicate market events")
@@ -156,11 +180,14 @@ class FlowCollector:
             incoming=by_id.get(old["id"])
             if not incoming or any(str(old[k])!=str(incoming[k]) for k in fields):
                 raise ValueError("Finalized market event conflict")
-        self.db.save_batch("ethereum",lo,hi,events,blocks)
+        return events,blocks
 
     async def snapshot(self,start,head):
         header=await self.owner.block(head)
-        rows=event_rows(self.db,start,head)
+        result=await self.checked_snapshot(head,header,event_rows(self.db,start,head))
+        self.db.put("flow:snapshot",result)
+
+    async def checked_snapshot(self,head,header,rows):
         ledger,minted,burned=balances(rows)
         if any(v<0 for v in ledger.values()): raise ValueError("Incomplete WGNK balance ledger")
         supply=int(await self.net.call(TOKEN,"totalSupply()",tag=hex(head)),16)
@@ -174,7 +201,47 @@ class FlowCollector:
         result={"height":head,"hash":header["hash"],"ts":header["ts"],"checked_at":int(time.time()),
                 "minted_raw":str(minted),"burned_raw":str(burned),"supply_raw":str(supply),
                 "pools":pools,"ledger_verified":True}
-        self.db.put("flow:snapshot",result)
+        return result
+
+    async def live(self,start,final):
+        # A packet owns its exact tail and immutable prefix boundary. Publishing one
+        # KV value keeps rows, balances and the block identity consistent across RPC failures.
+        raw=await self.net.eth("eth_getBlockByNumber",["latest",False])
+        head=int(raw["number"],16)
+        header={"height":head,"hash":raw["hash"].lower(),"ts":int(raw["timestamp"],16)}
+        if head<final or not re.fullmatch("0x[0-9a-f]{64}",header["hash"]):
+            raise ValueError("Invalid latest Ethereum block")
+        if history_end(self.db,start,final)!=final:
+            raise ValueError("Final market history is incomplete")
+        saved=self.db.get("flow:live",{})
+        previous=saved.get("current")
+        canonical=False
+        if previous and previous["snapshot"]["height"]<=head:
+            old=previous["snapshot"]
+            boundary=header if old["height"]==head else await self.owner.block(old["height"],finalized=False)
+            canonical=boundary["hash"]==old["hash"]
+        tail=[];lo=final+1
+        if canonical:
+            tail=[e for e in previous["events"] if e["height"]>final]
+            lo=max(lo,previous["snapshot"]["height"]+1)
+        for begin in range(lo,head+1,self.owner.cfg.eth_history_batch):
+            end=min(head,begin+self.owner.cfg.eth_history_batch-1)
+            events,_=await self.read_batch(begin,end,finalized=False)
+            tail.extend({**e,"meta":json.dumps(e["meta"],ensure_ascii=False)} for e in events)
+        tail.sort(key=lambda e:(e["height"],e["idx"],e["id"]))
+        prefix=event_rows(self.db,start,final)
+        if len({e["id"] for e in prefix+tail})!=len(prefix)+len(tail):
+            raise ValueError("Duplicate live market event")
+        result=await self.checked_snapshot(head,header,prefix+tail)
+        boundary=await self.owner.block(head,finalized=False)
+        if boundary["hash"]!=header["hash"]:
+            raise ValueError("Latest Ethereum block changed during verification")
+        packet={"base":final,"snapshot":result,"events":tail}
+        history=[]
+        if canonical:
+            history=[p for p in [previous,*saved.get("history",[])] if p["snapshot"]["hash"]!=result["hash"]][:12]
+        self.db.put("flow:live",{"current":packet,"history":history})
+        self.owner.status("flow:status",indexed_height=head,latest_height=head,latest_ts=header["ts"])
 
     async def run(self):
         await self.owner.ready.wait()
@@ -199,7 +266,8 @@ class FlowCollector:
         snapshot=self.db.get("flow:snapshot",{})
         if snapshot.get("height")!=head or time.time()-snapshot.get("checked_at",0)>300:
             await self.snapshot(start,head)
-        return 15
+        await self.live(start,head)
+        return 5
 
 def selected_trades(market_trades,pools,hours,q,side,sort,now,minimum=0):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
@@ -230,14 +298,28 @@ def public_trade(event):
             "price":tokens(price_raw(event["quote_raw"],event["amount_raw"]),12),
             "time_local":local_time(event["ts"]),"attribution":event["meta"].get("attribution","pool_only")}
 
-def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0):
+def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0,snapshot_hash=""):
     """Page a pinned verified snapshot without replaying balances, charts or minters."""
     result={"ready":False,"snapshot_height":through,"as_of":as_of,"hours":hours,"q":q,
             "side":side,"sort":sort,"minimum":minimum,"offset":offset,"limit":limit,"total":0,"has_more":False,"trades":[]}
     deployment=db.get("mints:deployment")
+    if not deployment or not 0<=as_of<=int(time.time()):return result
+    packet=market_packet(db,snapshot_hash,through)
+    if packet:
+        snap=packet["snapshot"];pools={p["address"]:p for p in snap["pools"]}
+        rows=[e for e in market_rows(db,deployment["height"],snap,packet) if e["kind"] in ("buy","sell") and e["pool"] in pools]
+        selected=selected_trades(rows,pools,hours,q,side,sort,as_of,minimum)
+        result.update(ready=True,snapshot_hash=snap["hash"],total=len(selected),has_more=offset+limit<len(selected),
+                      trades=[public_trade(event) for event in selected[offset:offset+limit]])
+        return result
     target=db.get("mints:status",{}).get("finalized_height")
     snapshot=db.get("flow:snapshot")
-    if not deployment or not target or not snapshot:return result
+    if not target or not snapshot:return result
+    if snapshot_hash:
+        block=db.conn.execute("SELECT hash FROM blocks WHERE chain='ethereum' AND height=?",(through,)).fetchone()
+        known=snapshot["hash"] if through==snapshot["height"] else block[0] if block else None
+        if known!=snapshot_hash:return result
+    result["snapshot_hash"]=snapshot_hash or (snapshot.get("hash") if through==snapshot["height"] else None)
     start=deployment["height"]
     if not start<=through<=snapshot["height"]<=history_end(db,start,target) or not 0<=as_of<=int(time.time()):
         return result
@@ -277,8 +359,10 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
     now=int(time.time())
     deployment=db.get("mints:deployment")
     status=db.get("flow:status",{})
-    target=db.get("mints:status",{}).get("finalized_height")
-    snapshot=db.get("flow:snapshot")
+    chain=db.get("mints:status",{})
+    packet=market_packet(db)
+    snapshot=packet["snapshot"] if packet else db.get("flow:snapshot")
+    target=max(chain.get("latest_height",0),chain.get("finalized_height",0),status.get("latest_height",0)) or None
     result={"now":now,"timezone":TIME_ZONE,"status":status,"snapshot":snapshot,"ready":False,
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
@@ -286,12 +370,13 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
             "outside_holders":None,"holder_history":None,"latest_trade":None,
             "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
     if not deployment or not target: return result
-    start=deployment["height"];end=history_end(db,start,target)
+    start=deployment["height"];end=packet["snapshot"]["height"] if packet else history_end(db,start,target)
+    target=max(target,end)
     result["coverage"]={"start":start,"head":target,"indexed_height":end,
         "complete":end==target,"missing":max(0,target-end)}
     if not snapshot or snapshot["height"]>end: return result
     cut=snapshot["height"]
-    rows=event_rows(db,start,cut)
+    rows=market_rows(db,start,snapshot,packet)
     ledger,minted,burned=balances(rows)
     result["outside_holders"]=outside_holders(rows,ledger,snapshot)
     result["holder_history"]=holder_history(rows,ledger,snapshot,deployment,result["outside_holders"])
@@ -301,7 +386,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
         result["address_history"]=address_history(rows,q,snapshot,ledger.get(q,0))
     pools={p["address"]:p for p in snapshot["pools"]}
     market_trades=[e for e in rows if e["kind"] in ("sell","buy") and e["pool"] in pools]
-    # The header quote is global: latest finalized Swap, before any view filters.
+    # The header quote is global: latest verified Swap, before any view filters.
     latest=max(market_trades,key=lambda e:(e["height"],e["idx"],e["tx_hash"]),default=None)
     if latest:
         result["latest_trade"]={key:latest[key] for key in ("ts","height","tx_hash","kind","pool")}

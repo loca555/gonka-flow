@@ -1,4 +1,4 @@
-/* Market views are independent of the mint-size filter. Only finalized, verified pool data. */
+/* Market views are independent of the mint-size filter. Verified pool data through the latest indexed block. */
 (()=>{
  const ui=id=>document.getElementById(id);
  const flow={hours:0,minimum:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,foreground:false,request:0};
@@ -77,7 +77,7 @@
   '<section class="metrics sales-metrics" aria-label="Итоги сделок"><article><span><span id="flow-volume-label">Оборот торгов</span> <small>WGNK</small></span><strong id="flow-sold">—</strong><dl id="flow-volume-breakdown" class="trade-breakdown" hidden></dl><p id="flow-sales-count"></p></article><article><span><span id="flow-quote-label">Оборот USDT</span> <small>USDT</small></span><strong id="flow-proceeds">—</strong><dl id="flow-quote-breakdown" class="trade-breakdown" hidden></dl><p id="flow-quote-note">Сумма USDT по покупкам и продажам, не прибыль</p></article><article><span><span id="flow-price-label">Средняя цена за 1 WGNK</span> <small>USDT</small></span><strong id="flow-price">—</strong><dl id="flow-price-breakdown" class="trade-breakdown" hidden></dl><p>Взвешено по объёму WGNK</p></article></section>'+
   '<p id="trade-explanation" class="flow-explanation">Это валовой оборот: одни и те же токены могут продаваться повторно. Цена = USDT на выходе пула / WGNK на входе, без газа и возможных комиссий маршрутизатора. Другие DEX, CEX и внебиржевые сделки не учтены. Обычные переводы не обозначаются продажами.</p>'+
   '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="trade-key buy" data-chart-side="buy">Покупки</span><span class="trade-key sell" data-chart-side="sell">Продажи</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 WGNK · столбцы: покупки + продажи WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+
-  '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Только финальные блоки Ethereum: новые сделки появляются после финализации.</p></div></div>'+
+  '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Покупки и продажи показаны вместе по умолчанию.</p></div></div>'+
   '<form id="sales-volume-filter" class="volume-filter" aria-label="Фильтры сделок"><label for="sales-side">Сделки <select id="sales-side"><option value="all">Покупки и продажи</option><option value="sell">Только продажи</option><option value="buy">Только покупки</option></select></label><label for="sales-minimum">Объём от <input id="sales-minimum" type="number" min="0" max="1000000000000" step="1" value="0" inputmode="numeric" title="Минимальный объём в целых WGNK; 0 — любой объём"> <span>WGNK</span></label><button type="submit">Применить</button><button type="button" data-volume-reset disabled>Сбросить</button></form>' +
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
   '<p id="sales-page-status" class="search-result" role="status" aria-live="polite" hidden></p>'+
@@ -241,7 +241,7 @@
  }
  function rememberPage(data){
   if(!data.ready)return;
-  pages.set(data.offset,{ready:true,...pageFields(data),snapshot_height:data.snapshot.height,as_of:data.now});
+  pages.set(data.offset,{ready:true,...pageFields(data),snapshot_height:data.snapshot.height,snapshot_hash:data.snapshot.hash,as_of:data.now});
   if(pages.size>12)pages.delete(pages.keys().next().value);
  }
  function renderTradePage(data){
@@ -273,13 +273,13 @@
    if(!data){
     const filter=pageOnly?previous:flow;
     const params={hours:filter.hours,minimum:filter.minimum,q:filter.q,offset:flow.offset,limit:25,side:filter.side,sort:filter.sort};
-    if(pageOnly)Object.assign(params,{through:previous.snapshot.height,as_of:previous.now});
+    if(pageOnly)Object.assign(params,{through:previous.snapshot.height,snapshot_hash:previous.snapshot.hash,as_of:previous.now});
     const response=await fetch((pageOnly?"/api/mints/trades?":"/api/mints/flows?")+new URLSearchParams(params),{signal:controller.signal});
     if(!response.ok)throw new Error("HTTP "+response.status);
     data=await response.json();
    }
    if(id!==flow.request)return;
-   if(pageOnly&&data.ready&&(data.snapshot_height!==previous.snapshot.height||data.as_of!==previous.now))throw new Error("Снимок торгов изменился. Повторите загрузку.");
+   if(pageOnly&&data.ready&&(data.snapshot_height!==previous.snapshot.height||data.snapshot_hash!==previous.snapshot.hash||data.as_of!==previous.now))throw new Error("Снимок торгов изменился. Повторите загрузку.");
    if(!pageOnly)GonkaSync.update("market",data);
    if(flow.data?.ready&&!data.ready){
     flow.offset=flow.data.offset;
@@ -304,6 +304,6 @@
  mount();refresh();
  window.addEventListener("resize",()=>{if(flow.data?.ready)renderChart(flow.data);});
  window.addEventListener("gonka:view",()=>{if(flow.data?.ready)renderChart(flow.data);});
- setInterval(()=>{if(!document.hidden&&!flow.loading)refresh(false,true);},20000);
+ setInterval(()=>{if(!document.hidden&&!flow.loading)refresh(false,true);},10000);
  document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh(false,true);});
 })();

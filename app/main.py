@@ -141,10 +141,12 @@ def create_app(settings=None):
                               limit:int=Query(25,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000),
                               side:str=Query("sell",pattern="^(sell|buy|all)$"),
                               sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN),
-                              minimum:int=Query(0,ge=0,le=10**12)):
+                              minimum:int=Query(0,ge=0,le=10**12),
+                              snapshot_hash:str=Query("",pattern="^(|0x[0-9a-fA-F]{64})$")):
         if cfg.mode!="mints":raise HTTPException(404,"Монитор WGNK отключён")
         return JSONResponse(trade_page(request.app.state.db,through=through,as_of=as_of,hours=hours,
-                                       q=q.lower(),limit=limit,offset=offset,side=side,sort=sort,minimum=minimum))
+                                       q=q.lower(),limit=limit,offset=offset,side=side,sort=sort,minimum=minimum,
+                                       snapshot_hash=snapshot_hash.lower()))
 
     @app.get("/api/mints/leaders")
     async def mint_leaders(request:Request):
