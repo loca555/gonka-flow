@@ -78,7 +78,7 @@
   '<p id="trade-explanation" class="flow-explanation">Это валовой оборот: одни и те же токены могут продаваться повторно. Цена = USDT на выходе пула / WGNK на входе, без газа и возможных комиссий маршрутизатора. Другие DEX, CEX и внебиржевые сделки не учтены. Обычные переводы не обозначаются продажами.</p>'+
   '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="trade-key buy" data-chart-side="buy">Покупки</span><span class="trade-key sell" data-chart-side="sell">Продажи</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 WGNK · столбцы: покупки + продажи WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+
   '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Покупки и продажи показаны вместе по умолчанию.</p></div></div>'+
-  '<form id="sales-volume-filter" class="volume-filter" aria-label="Фильтр объёма сделок"><label for="sales-minimum">Объём от <input id="sales-minimum" type="number" min="0" max="1000000000000" step="1" value="0" inputmode="numeric" title="Минимальный объём в целых WGNK; 0 — любой объём"> <span>WGNK</span></label><button type="submit">Применить</button><button type="button" data-volume-reset disabled>Сбросить</button></form>' +
+  '<form id="sales-volume-filter" class="volume-filter" aria-label="Фильтры сделок"><label for="sales-side">Сделки <select id="sales-side"><option value="all">Покупки и продажи</option><option value="sell">Только продажи</option><option value="buy">Только покупки</option></select></label><label for="sales-minimum">Объём от <input id="sales-minimum" type="number" min="0" max="1000000000000" step="1" value="0" inputmode="numeric" title="Минимальный объём в целых WGNK; 0 — любой объём"> <span>WGNK</span></label><button type="submit">Применить</button><button type="button" data-volume-reset disabled>Сбросить</button></form>' +
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
   '<p id="sales-page-status" class="search-result" role="status" aria-live="polite" hidden></p>'+
   '<div id="sales-pagination" class="pagination" role="group" aria-label="Страницы сделок"><button id="sales-prev" type="button" disabled>← Назад</button><span id="sales-page" aria-live="polite" aria-atomic="true"></span><button id="sales-next" type="button" disabled>Далее →</button></div>';
@@ -96,6 +96,7 @@
   configureTableSort("trades-table",flow.sort,sort=>{flow.sort=sort;refresh(true);});
   configureTableSort("minter-table",flow.minterSort,sort=>{flow.minterSort=sort;if(flow.data?.ready)renderMinters(flow.data);});
   ui("sales-period").addEventListener("change",()=>{flow.hours=Number(ui("sales-period").value);refresh(true);});
+  ui("sales-side").addEventListener("change",()=>{flow.side=ui("sales-side").value;refresh(true);});
   const resetVolume=configureVolumeFilter("sales-volume-filter",minimum=>{flow.minimum=minimum;refresh(true);});
   ui("sales-reset").addEventListener("click",()=>{resetVolume();flow.minimum=0;flow.q="";flow.hours=0;flow.side="all";ui("sales-query").value="";ui("sales-period").value="0";refresh(true);});
   ui("sales-prev").addEventListener("click",()=>changePage(-1));
@@ -196,6 +197,7 @@
   ui("trade-status").textContent=warning;ui("trade-status").hidden=!warning;
   ui("flow-content").hidden=!data.ready;
   if(!data.ready)return;
+  ui("sales-side").value=data.side;
   document.querySelectorAll("[data-trade-side]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.tradeSide===data.side)));
   ui("flow-volume-label").textContent=all?"Оборот торгов":buy?"Куплено из пулов":"Продано в пулах";
   ui("flow-quote-label").textContent=all?"Оборот USDT":buy?"Уплачено в пулы":"Выдано пулами";
