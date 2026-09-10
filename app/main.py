@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from .config import Settings, TOKEN
 from .db import Database, tokens
 from .indexer import Indexer
@@ -90,6 +91,11 @@ def create_app(settings=None):
         elif request.url.path.startswith("/static/") and Path(request.url.path).suffix in (".js", ".css", ".html"):
             response.headers["Cache-Control"] = "no-cache"
         return response
+
+    # Public read-only data is also consumed by the IPFS frontend on gateway origins.
+    # Register outside headers_and_limits so API errors retain CORS headers too.
+    app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                       allow_methods=["GET"], allow_credentials=False)
 
     @app.get("/")
     async def index():
