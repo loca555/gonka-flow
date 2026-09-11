@@ -314,31 +314,38 @@ window.GonkaChart=(()=>{
   const step=[100n,125n,150n,200n,250n,500n,1000n].map(factor=>(factor*power+99n)/100n).find(value=>value>=required);
   return step*4n;
  }
- function renderPriceBands(host,points,{side,bounds,stepRaw,maximum,sparse=false}){
+ function renderPriceBands(host,points,{side,bounds,stepRaw,maximum,countMaximum=0,dayBands=null,sparse=false}){
   if(!points.length){host.innerHTML='<p class="empty">'+(side==="buy"?"Покупок":"Продаж")+' с подтверждённым адресом пока нет.</p>';return;}
   const lookup=new Map(points.map(p=>[p.from_price_raw,p]));
-  const rows=bounds.map(from=>lookup.get(from)||{from_price_raw:from,to_price_raw:String(BigInt(from)+BigInt(stepRaw)),volume_raw:"0",quote_raw:"0",swaps:0,price_raw:null});
+  const dayLookup=dayBands===null?null:new Map(dayBands.map(row=>[row.from_price_raw,row.days]));
+  const rows=bounds.map(from=>({...(lookup.get(from)||{from_price_raw:from,to_price_raw:String(BigInt(from)+BigInt(stepRaw)),volume_raw:"0",quote_raw:"0",swaps:0,price_raw:null}),days:dayLookup===null?null:dayLookup.get(from)||0}));
   const total=points.reduce((sum,row)=>sum+BigInt(row.volume_raw),0n);
-  const W=Math.max(280,host.clientWidth),H=W<500?320:350,left=W<500?66:68,right=18,top=36,bottom=H-68,plot=W-left-right;
+  const W=Math.max(280,host.clientWidth),H=W<500?340:360,left=W<500?66:68,right=54,top=44,bottom=H-68,plot=W-left-right;
   const high=bandVolumeCeiling(maximum),slot=plot/rows.length,barWidth=Math.max(1,Math.min(80,slot*.68));
+  const countHigh=ceiling(points.reduce((max,row)=>BigInt(row.swaps)>max?BigInt(row.swaps):max,BigInt(countMaximum)));
   const x=i=>left+slot*(i+.5),y=raw=>bottom-Number(BigInt(raw)*1000000n/high)/1000000*(bottom-top);
+  const countY=count=>bottom-Number(BigInt(count)*1000000n/countHigh)/1000000*(bottom-top);
   const labelStride=Math.max(1,Math.ceil(rows.length/Math.max(1,Math.floor(plot/34))));
-  let svg='<svg class="price-histogram '+side+'" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="'+(side==="buy"?"Покупки":"Продажи")+': объём WGNK по диапазонам цены USDT за 1 WGNK. Стрелки выбирают диапазон.">';
-  svg+='<text class="chart-unit" x="'+left+'" y="17">Объём · WGNK</text>';
+  let svg='<svg class="price-histogram '+side+'" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="'+(side==="buy"?"Покупки":"Продажи")+': объём WGNK столбцами, шкала слева. Количество сделок линией, шкала справа. В подсказке число сделок и дней на уровне. Стрелки выбирают диапазон цены.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="17">Объём · WGNK</text><text class="chart-unit price-count-axis" x="'+(W-right)+'" y="17" text-anchor="end">Сделки</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
-   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(bandVolumeLabel(high*BigInt(i)/4n))+'</text>';
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(bandVolumeLabel(high*BigInt(i)/4n))+'</text><text class="price-count-axis" x="'+(W-right+9)+'" y="'+(py+4)+'">'+escape((countHigh*BigInt(i)/4n).toLocaleString('ru-RU'))+'</text>';
   }
   rows.forEach((row,i)=>{
    const py=y(row.volume_raw);
    if(BigInt(row.volume_raw)>0n){
     svg+='<rect class="price-volume" data-kind="'+side+'" data-from="'+row.from_price_raw+'" data-to="'+row.to_price_raw+'" data-raw="'+row.volume_raw+'" x="'+(x(i)-barWidth/2)+'" y="'+py+'" width="'+barWidth+'" height="'+(bottom-py)+'" rx="3"/>';
-    if(slot>=52)svg+='<text class="price-bar-value" x="'+x(i)+'" y="'+(py-8)+'" text-anchor="middle">'+escape(bandVolumeLabel(row.volume_raw))+'</text>';
+    if(slot>=52)svg+='<text class="price-bar-value" x="'+x(i)+'" y="'+(Math.min(py,countY(row.swaps))-10)+'" text-anchor="middle">'+escape(bandVolumeLabel(row.volume_raw))+'</text>';
    }
    if(i%labelStride===0||i===rows.length-1)svg+='<text class="price-band-label" x="'+x(i)+'" y="'+(bottom+20)+'" text-anchor="middle"><tspan x="'+x(i)+'">'+escape(priceTick(row.from_price_raw))+'</tspan><tspan x="'+x(i)+'" dy="14">–'+escape(priceTick(row.to_price_raw))+'</tspan></text>';
   });
+  svg+='<path class="price-count-line" d="'+rows.map((row,i)=>(i?'L':'M')+x(i).toFixed(2)+','+countY(row.swaps).toFixed(2)).join(' ')+'"/>';
+  rows.forEach((row,i)=>{
+   svg+='<circle class="price-count-point" data-kind="'+side+'" data-from="'+row.from_price_raw+'" data-to="'+row.to_price_raw+'" data-swaps="'+row.swaps+'" data-days="'+(row.days??'')+'" cx="'+x(i)+'" cy="'+countY(row.swaps)+'" r="3.5"/>';
+  });
   svg+='<text class="chart-unit" x="'+(left+plot/2)+'" y="'+(H-6)+'" text-anchor="middle">'+(sparse?'Диапазоны со сделками · ':'')+'Цена · USDT за 1 WGNK</text>';
-  svg+='<rect class="price-band-selection" visibility="hidden" y="'+top+'" height="'+(bottom-top)+'" width="'+slot+'" rx="4"/><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip" role="status" hidden></div>';
+  svg+='<rect class="price-band-selection" visibility="hidden" y="'+top+'" height="'+(bottom-top)+'" width="'+slot+'" rx="4"/><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip price-band-tooltip" role="status" hidden></div>';
   host.innerHTML=svg;
   const root=host.querySelector('svg'),selection=host.querySelector('.price-band-selection'),tooltip=host.querySelector('.chart-tooltip');
   const peak=points.reduce((best,row)=>BigInt(row.volume_raw)>BigInt(best.volume_raw)?row:best);
@@ -348,10 +355,12 @@ window.GonkaChart=(()=>{
    const row=rows[selected],px=x(selected);
    selection.setAttribute('x',left+slot*selected);selection.setAttribute('visibility','visible');
    host.querySelectorAll('.price-volume').forEach(bar=>bar.classList.toggle('is-selected',bar.dataset.from===row.from_price_raw));
-   tooltip.innerHTML='<strong>'+escape(priceRange(row.from_price_raw,row.to_price_raw))+' <small>USDT</small></strong><span>Цена за 1 WGNK · до верхней границы</span><strong>'+escape(exact(row.volume_raw,9))+' <small>WGNK</small></strong><span>'+escape(formatShare(row.volume_raw,total))+' всего объёма '+(side==='buy'?'покупок':'продаж')+'</span><span>Сумма: '+escape(exact(row.quote_raw,6))+' USDT</span><span>Средняя цена: '+escape(formatPrice(row.price_raw))+' USDT</span><span>Исполнений: '+row.swaps.toLocaleString('ru-RU')+'</span>';
+   host.querySelectorAll('.price-count-point').forEach(dot=>dot.classList.toggle('is-selected',dot.dataset.from===row.from_price_raw));
+   tooltip.innerHTML='<strong>'+escape(priceRange(row.from_price_raw,row.to_price_raw))+' <small>USDT</small></strong><span>Цена за 1 WGNK · до верхней границы</span><div class="price-band-stats"><div class="price-count-stat"><b>'+row.swaps.toLocaleString('ru-RU')+'</b><span>Сделок</span></div><div><b>'+(row.days===null?'—':row.days.toLocaleString('ru-RU'))+'</b><span>Дней на уровне</span></div></div><strong>'+escape(exact(row.volume_raw,9))+' <small>WGNK</small></strong><span>'+escape(formatShare(row.volume_raw,total))+' всего объёма '+(side==='buy'?'покупок':'продаж')+'</span><span>Сумма: '+escape(exact(row.quote_raw,6))+' USDT</span><span>Средняя цена: '+escape(formatPrice(row.price_raw))+' USDT</span>';
+   tooltip.dataset.from=row.from_price_raw;tooltip.dataset.swaps=String(row.swaps);tooltip.dataset.days=row.days===null?'':String(row.days);
    tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';
-   tooltip.style.top='24px';
+   tooltip.style.top=Math.max(6,Math.min(24,H-tooltip.offsetHeight-6))+'px';
   }
   const hide=()=>{selection.setAttribute('visibility','hidden');tooltip.hidden=true;host.querySelectorAll('.is-selected').forEach(bar=>bar.classList.remove('is-selected'));};
   const pointer=event=>{const box=root.getBoundingClientRect();show(Math.floor(((event.clientX-box.left)*W/box.width-left)/slot));};

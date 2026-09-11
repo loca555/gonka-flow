@@ -3,13 +3,13 @@
  const ranking={data:null,loading:false,request:0,priceStep:'5',sort:{buy:'volume_desc',sell:'volume_desc'}};
  const sides=[{key:'buy',list:'buyers',title:'Крупнейшие покупатели',verb:'Куплено',label:'Покупки'},
               {key:'sell',list:'sellers',title:'Крупнейшие продавцы',verb:'Продано',label:'Продажи'}];
- el('leaders-content').innerHTML='<div class="leader-price-controls"><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><div class="leaders-grid">'+sides.map(side=>
+ el('leaders-content').innerHTML='<div class="leader-price-controls"><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><p class="leader-days-note">Один день — один диапазон с наибольшим общим объёмом покупок и продаж. Дни без сделок не учитываются · время Кипра.</p><div class="leaders-grid">'+sides.map(side=>
   '<section class="panel leader-panel '+side.key+'" aria-labelledby="leaders-'+side.key+'-title">'+
   '<div class="leader-heading"><h2 id="leaders-'+side.key+'-title">'+side.title+'</h2><span id="leaders-'+side.key+'-count"></span></div>'+
   '<div class="leader-total"><strong id="leaders-'+side.key+'-total">—</strong><span>WGNK</span><small>Оборот адресов в рейтинге</small></div>'+
   '<section class="leader-chart-panel" aria-labelledby="leaders-'+side.key+'-chart-title">'+
   '<div class="leader-chart-heading"><h3 id="leaders-'+side.key+'-chart-title">'+side.label+' по цене</h3>'+
-  '<div class="market-chart-legend"><span class="trade-key '+side.key+'">Объём WGNK</span></div></div>'+
+  '<div class="market-chart-legend"><span class="trade-key '+side.key+'">Объём WGNK</span><span class="count-key">Количество сделок</span></div></div>'+
   '<div id="leaders-'+side.key+'-chart" class="interactive-chart"></div><div id="leaders-'+side.key+'-price-summary" class="leader-price-summary"></div></section>'+
   '<div class="table-container leader-table" tabindex="0" aria-label="'+side.title+', прокручиваемый список">'+
   '<table id="leaders-'+side.key+'-table"><thead><tr><th data-sort="rank" data-default="asc">№</th><th data-sort="address" data-default="asc">Адрес</th>'+
@@ -31,9 +31,11 @@
    if(!sparse){bounds=[];for(let value=low;value<=high;value+=step)bounds.push(String(value));}
   }
   const maximum=all.reduce((max,row)=>BigInt(row.volume_raw)>max?BigInt(row.volume_raw):max,0n).toString();
+  const countMaximum=all.reduce((max,row)=>Math.max(max,row.swaps),0);
+  const dayBands=data.price_days?.[ranking.priceStep]?.bands??null;
   for(const side of sides){
    const points=distribution[side.key],host=el('leaders-'+side.key+'-chart');
-   const options={side:side.key,bounds,stepRaw:step.toString(),maximum,sparse};
+   const options={side:side.key,bounds,stepRaw:step.toString(),maximum,countMaximum,dayBands,sparse};
    renderLiveChart(host,[points,options],()=>GonkaChart.renderPriceBands(host,points,options));
    const summary=el('leaders-'+side.key+'-price-summary'),total=data.summary[side.key];
    const peak=points.reduce((best,row)=>!best||BigInt(row.volume_raw)>BigInt(best.volume_raw)?row:best,null);

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -81,10 +82,12 @@ class LeaderTests(unittest.TestCase):
         self.assertIsNone(pending["summary"])
         self.assertIsNone(pending["excluded"])
         self.assertIsNone(pending["price_distribution"])
+        self.assertIsNone(pending["price_days"])
         empty=self.compute([])
         self.assertTrue(empty["ready"])
         self.assertEqual(empty["summary"]["buy"]["volume_raw"], "0")
         self.assertEqual(empty["buyers"], [])
+        self.assertEqual(empty["price_days"], {step: {"total_days": 0, "bands": []} for step in ("5", "10")})
         self.assertEqual(empty["price_distribution"], {"5":{"buy":[], "sell":[]}, "10":{"buy":[], "sell":[]}})
 
     def test_integration_uses_final_snapshot_and_all_addresses_not_only_minters(self):
@@ -146,6 +149,60 @@ class LeaderTests(unittest.TestCase):
         self.assertEqual(points[0]["price_raw"], str((quote-1)*10**15//volume))
         self.assertEqual(points[1]["price_raw"], "100000000000")
         self.assertEqual(data["price_distribution"]["5"]["sell"], [])
+
+    def test_one_day_uses_combined_volume_not_swap_count_or_each_side_separately(self):
+        data=self.compute([
+            trade("buy", A, 4*UNIT, 440_000, ts=1),
+            trade("sell", B, 8*UNIT, 960_000, ts=1),
+            trade("buy", A, 10*UNIT, 1_600_000, ts=1),
+            trade("buy", C, 999*UNIT, 300_000_000, ts=1, attribution="pool_only"),
+            trade("buy", A, UNIT, 160_000, ts=86401),
+            trade("sell", B, 20*UNIT, 7_000_000, ts=86401),
+            trade("buy", A, UNIT, 110_000, ts=172801),
+            trade("buy", A, UNIT, 110_000, ts=172801),
+            trade("sell", B, 3*UNIT, 660_000, ts=172801),
+            trade("buy", "", 1000*UNIT, 100_000_000, ts=259201),
+        ])
+        days=data["price_days"]["5"]
+        self.assertEqual(days["total_days"], 3)
+        self.assertEqual([(r["from_price_raw"], r["days"]) for r in days["bands"]],
+                         [("100000000000", 1), ("200000000000", 1), ("350000000000", 1)])
+        # Separate Swap executions in the same transaction still count separately.
+        self.assertEqual(data["price_distribution"]["5"]["buy"][0]["swaps"], 3)
+        for distribution in data["price_days"].values():
+            self.assertEqual(sum(r["days"] for r in distribution["bands"]), 3)
+
+    def test_day_winners_are_recomputed_when_price_step_changes(self):
+        data=self.compute([trade("buy", A, 9*UNIT, 1_440_000),
+                           trade("buy", A, 6*UNIT, 1_260_000),
+                           trade("sell", B, 6*UNIT, 1_560_000)])
+        self.assertEqual(data["price_days"]["5"]["bands"],
+                         [{"from_price_raw":"150000000000", "to_price_raw":"200000000000", "days":1}])
+        self.assertEqual(data["price_days"]["10"]["bands"],
+                         [{"from_price_raw":"200000000000", "to_price_raw":"300000000000", "days":1}])
+
+    def test_calendar_days_follow_site_timezone_in_winter_and_summer_without_filling_gaps(self):
+        rows=[]
+        for iso, quote in [("2026-01-01T21:59:59+00:00", 100_000),
+                           ("2026-01-01T22:00:00+00:00", 200_000),
+                           ("2026-07-01T20:59:59+00:00", 100_000),
+                           ("2026-07-01T21:00:00+00:00", 200_000)]:
+            rows.append(trade("buy", A, UNIT, quote, ts=int(datetime.fromisoformat(iso).timestamp())))
+        days=self.compute(rows)["price_days"]["5"]
+        self.assertEqual(days["total_days"], 4)
+        self.assertEqual([r["days"] for r in days["bands"]], [2, 2])
+
+    def test_day_volume_comparison_is_exact_and_ties_are_order_independent(self):
+        huge=2**200
+        lower=trade("buy", A, huge*UNIT, huge*100_000)
+        higher=trade("sell", B, (huge+1)*UNIT, (huge+1)*200_000)
+        days=self.compute([lower, higher])["price_days"]["5"]
+        self.assertEqual(days["bands"][0]["from_price_raw"], "200000000000")
+        equal=trade("sell", B, huge*UNIT, huge*200_000)
+        for rows in ([lower, equal], [equal, lower]):
+            days=self.compute(rows)["price_days"]["5"]
+            self.assertEqual(days["total_days"], 1)
+            self.assertEqual(days["bands"][0]["from_price_raw"], "100000000000")
 
     def test_api_and_local_navigation(self):
         with tempfile.TemporaryDirectory() as temp:
