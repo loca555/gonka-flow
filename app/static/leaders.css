@@ -10,6 +10,22 @@
 .leader-total{padding:16px 20px 20px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
 .leader-total strong{color:var(--side-color);font-size:32px;font-weight:550;letter-spacing:-1px;font-variant-numeric:tabular-nums}
 .leader-total>span{color:var(--muted);font-size:14px}.leader-total small{flex-basis:100%;color:var(--muted);font-size:12px}
+.leader-chart-panel{border-top:1px solid var(--line);padding:18px 0 8px}
+.leader-chart-heading{padding:0 20px;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px 18px}
+.leader-chart-heading h3{font-size:16px;font-weight:550}.leader-chart-heading .market-chart-legend{font-size:12px;gap:10px 16px}
+.leader-chart-panel .interactive-chart{min-height:320px;margin:14px 12px 0}
+.leader-chart-panel .price-histogram text,.leader-chart-panel .price-histogram .chart-unit{font-size:12px}
+.leader-chart-panel .chart-tooltip span,.leader-chart-panel .chart-tooltip small{font-size:12px}.leader-chart-panel .market-tooltip-sides b{font-size:14px}
+.leader-price-controls{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px 20px;margin:18px 0}
+.leader-price-controls p{font-size:16px;font-weight:550}.leader-price-controls label{display:flex;gap:12px;align-items:center;color:var(--muted);font-size:14px}
+.leader-price-controls select{font-variant-numeric:tabular-nums}
+.price-histogram .price-volume{fill:var(--side-color);opacity:.72}.price-histogram .price-volume.is-selected{opacity:1}
+.price-histogram .price-band-selection{fill:var(--side-color);fill-opacity:.06;stroke:var(--side-color);stroke-width:1}
+.leader-chart-panel .price-histogram .price-band-label{font-size:11px}.leader-chart-panel .price-histogram .price-bar-value{font-size:11px;fill:var(--side-color)}
+.leader-price-summary{display:grid;grid-template-columns:1.15fr 1fr;gap:18px;margin:8px 20px 12px;padding:18px 0 0;border-top:1px solid var(--line)}
+.leader-price-summary span,.leader-price-summary small{display:block;color:var(--muted);font-size:12px}.leader-price-summary strong{display:block;font-size:20px;font-weight:550;color:var(--side-color);margin:5px 0;font-variant-numeric:tabular-nums}
+.leader-price-summary strong small{display:inline;font-size:12px}.leader-price-summary>div{min-width:0}
+@media(max-width:480px){.leader-price-summary{grid-template-columns:1fr;gap:14px;margin-left:16px;margin-right:16px}.leader-price-controls p{width:100%}}
 .leader-table{border:0;border-top:1px solid var(--line);border-radius:0;max-height:560px;overflow:auto;scrollbar-gutter:stable}
 .leader-table table{min-width:610px}.leader-table th{position:sticky;top:0;z-index:1;text-transform:none;letter-spacing:0;font-size:12px;padding:14px 10px}
 .leader-table td{padding:14px 10px;font-size:14px}.leader-table td .address-button{font-size:14px}
@@ -17,4 +33,4 @@
 .leader-volume-bar{display:block;min-height:3px;border-radius:3px;background:var(--side-color);opacity:.55;margin:7px 0 0 auto}
 .leaders-note{border-top:1px solid var(--line);padding-top:16px}.leader-table:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 @media(max-width:1350px){.leaders-grid{grid-template-columns:1fr}.leader-table table{min-width:610px}}
-@media(max-width:760px){.leader-heading{padding:18px 16px 0}.leader-heading h2{font-size:18px}.leader-total{padding:16px}.leader-table{max-height:450px}.leaders-heading h1{font-size:28px}.leader-total strong{font-size:28px}}
+@media(max-width:760px){.leader-chart-heading{padding:0 16px}.leader-chart-panel .interactive-chart{margin:14px 6px 0}.leader-heading{padding:18px 16px 0}.leader-heading h2{font-size:18px}.leader-total{padding:16px}.leader-table{max-height:450px}.leaders-heading h1{font-size:28px}.leader-total strong{font-size:28px}}

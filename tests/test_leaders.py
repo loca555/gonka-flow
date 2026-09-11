@@ -80,10 +80,12 @@ class LeaderTests(unittest.TestCase):
         self.assertFalse(pending["ready"])
         self.assertIsNone(pending["summary"])
         self.assertIsNone(pending["excluded"])
+        self.assertIsNone(pending["price_distribution"])
         empty=self.compute([])
         self.assertTrue(empty["ready"])
         self.assertEqual(empty["summary"]["buy"]["volume_raw"], "0")
         self.assertEqual(empty["buyers"], [])
+        self.assertEqual(empty["price_distribution"], {"5":{"buy":[], "sell":[]}, "10":{"buy":[], "sell":[]}})
 
     def test_integration_uses_final_snapshot_and_all_addresses_not_only_minters(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -107,6 +109,43 @@ class LeaderTests(unittest.TestCase):
                 self.assertEqual(result["buyers"][0]["volume_raw"], analysis(db,q=B,side="buy")["summary"]["volume_raw"])
             finally:
                 db.close()
+
+    def test_price_bands_use_each_swap_exact_boundaries_and_separate_sides(self):
+        data=self.compute([
+            trade("buy", A, UNIT+1, 50_000),  # Just below 0.05, even if displayed as 0.05.
+            trade("buy", B, UNIT, 50_000),    # Exactly 0.05 belongs to [0.05, 0.10).
+            trade("buy", B, 2*UNIT, 199_999),
+            trade("buy", A, UNIT, 100_000),   # Exactly 0.10 belongs to [0.10, 0.15).
+            trade("sell", B, 10*UNIT, 1_200_000),
+            trade("sell", B, 2*UNIT, 600_000),
+            trade("buy", C, 999*UNIT, 99_000_000, attribution="pool_only"),
+            trade("sell", "", 999*UNIT, 99_000_000),
+        ])
+        five=data["price_distribution"]["5"]
+        self.assertEqual([b["from_price_raw"] for b in five["buy"]], ["0", "50000000000", "100000000000"])
+        self.assertEqual([b["from_price_raw"] for b in five["sell"]], ["100000000000", "300000000000"])
+        self.assertEqual(five["buy"][1], {"from_price_raw":"50000000000", "to_price_raw":"100000000000",
+            "volume_raw":str(3*UNIT), "volume":"3", "quote_raw":"249999", "quote":"0.249999", "swaps":2,
+            "price_raw":"83333000000"})
+        ten=data["price_distribution"]["10"]
+        self.assertEqual([b["from_price_raw"] for b in ten["buy"]], ["0", "100000000000"])
+        self.assertEqual(ten["buy"][0]["volume_raw"], str(4*UNIT+1))
+        for steps in data["price_distribution"].values():
+            for side in ("buy", "sell"):
+                for field in ("volume_raw", "quote_raw", "swaps"):
+                    self.assertEqual(sum(int(b[field]) for b in steps[side]), int(data["summary"][side][field]))
+
+    def test_price_bands_do_not_round_uint256_ratios_across_boundary(self):
+        base=2**200
+        volume,quote=base*100_000,base*10  # Exact ratio 0.10 USDT per WGNK.
+        data=self.compute([trade("buy", A, volume, quote-1), trade("buy", B, volume, quote)])
+        points=data["price_distribution"]["5"]["buy"]
+        self.assertEqual([p["from_price_raw"] for p in points], ["50000000000", "100000000000"])
+        self.assertEqual(points[0]["volume_raw"], str(volume))
+        self.assertEqual(points[0]["quote_raw"], str(quote-1))
+        self.assertEqual(points[0]["price_raw"], str((quote-1)*10**15//volume))
+        self.assertEqual(points[1]["price_raw"], "100000000000")
+        self.assertEqual(data["price_distribution"]["5"]["sell"], [])
 
     def test_api_and_local_navigation(self):
         with tempfile.TemporaryDirectory() as temp:

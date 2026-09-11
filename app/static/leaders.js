@@ -1,12 +1,16 @@
 /* Gross attributed swap volume, not holder balances, profit or beneficial ownership. */
 (()=>{
- const ranking={data:null,loading:false,request:0,sort:{buy:'volume_desc',sell:'volume_desc'}};
- const sides=[{key:'buy',list:'buyers',title:'Крупнейшие покупатели',verb:'Куплено'},
-              {key:'sell',list:'sellers',title:'Крупнейшие продавцы',verb:'Продано'}];
- el('leaders-content').innerHTML='<div class="leaders-grid">'+sides.map(side=>
+ const ranking={data:null,loading:false,request:0,priceStep:'5',sort:{buy:'volume_desc',sell:'volume_desc'}};
+ const sides=[{key:'buy',list:'buyers',title:'Крупнейшие покупатели',verb:'Куплено',label:'Покупки'},
+              {key:'sell',list:'sellers',title:'Крупнейшие продавцы',verb:'Продано',label:'Продажи'}];
+ el('leaders-content').innerHTML='<div class="leader-price-controls"><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><div class="leaders-grid">'+sides.map(side=>
   '<section class="panel leader-panel '+side.key+'" aria-labelledby="leaders-'+side.key+'-title">'+
   '<div class="leader-heading"><h2 id="leaders-'+side.key+'-title">'+side.title+'</h2><span id="leaders-'+side.key+'-count"></span></div>'+
   '<div class="leader-total"><strong id="leaders-'+side.key+'-total">—</strong><span>WGNK</span><small>Оборот адресов в рейтинге</small></div>'+
+  '<section class="leader-chart-panel" aria-labelledby="leaders-'+side.key+'-chart-title">'+
+  '<div class="leader-chart-heading"><h3 id="leaders-'+side.key+'-chart-title">'+side.label+' по цене</h3>'+
+  '<div class="market-chart-legend"><span class="trade-key '+side.key+'">Объём WGNK</span></div></div>'+
+  '<div id="leaders-'+side.key+'-chart" class="interactive-chart"></div><div id="leaders-'+side.key+'-price-summary" class="leader-price-summary"></div></section>'+
   '<div class="table-container leader-table" tabindex="0" aria-label="'+side.title+', прокручиваемый список">'+
   '<table id="leaders-'+side.key+'-table"><thead><tr><th data-sort="rank" data-default="asc">№</th><th data-sort="address" data-default="asc">Адрес</th>'+
   '<th data-sort="volume" class="numeric">'+side.verb+' · WGNK</th><th data-sort="quote" class="numeric">Сумма · USDT</th>'+
@@ -15,6 +19,37 @@
  for(const side of sides)configureTableSort('leaders-'+side.key+'-table',ranking.sort[side.key],sort=>{
   ranking.sort[side.key]=sort;if(ranking.data?.ready)renderTable(side,ranking.data,true);
  });
+ function renderCharts(data){
+  if(!data?.ready||el('leaders-view').hidden)return;
+  const distribution=data.price_distribution[ranking.priceStep],all=[...distribution.buy,...distribution.sell];
+  let bounds=[...new Set(all.map(row=>row.from_price_raw))].sort((a,b)=>BigInt(a)<BigInt(b)?-1:BigInt(a)>BigInt(b)?1:0);
+  const step=BigInt(ranking.priceStep)*10000000000n;
+  let sparse=false;
+  if(bounds.length){
+   const low=BigInt(bounds[0]),high=BigInt(bounds[bounds.length-1]);
+   sparse=(high-low)/step>40n;
+   if(!sparse){bounds=[];for(let value=low;value<=high;value+=step)bounds.push(String(value));}
+  }
+  const maximum=all.reduce((max,row)=>BigInt(row.volume_raw)>max?BigInt(row.volume_raw):max,0n).toString();
+  for(const side of sides){
+   const points=distribution[side.key],host=el('leaders-'+side.key+'-chart');
+   const options={side:side.key,bounds,stepRaw:step.toString(),maximum,sparse};
+   renderLiveChart(host,[points,options],()=>GonkaChart.renderPriceBands(host,points,options));
+   const summary=el('leaders-'+side.key+'-price-summary'),total=data.summary[side.key];
+   const peak=points.reduce((best,row)=>!best||BigInt(row.volume_raw)>BigInt(best.volume_raw)?row:best,null);
+   summary.hidden=!peak;
+   if(peak){
+    const average=BigInt(total.quote_raw)*1000000000000000n/BigInt(total.volume_raw);
+    setLiveHTML(summary,'<div><span>Больше всего объёма</span><strong>'+GonkaChart.priceRange(peak.from_price_raw,peak.to_price_raw)+' <small>USDT</small></strong><small>'+GonkaChart.formatShare(peak.volume_raw,total.volume_raw)+' объёма · '+amount(peak.volume)+' WGNK</small></div>'+
+     '<div><span>Средневзвешенная цена</span><strong>'+GonkaChart.formatPrice(average)+' <small>USDT</small></strong><small>за 1 WGNK · вся история</small></div>');
+   }
+  }
+ }
+ el('leaders-price-step').addEventListener('change',event=>{
+  ranking.priceStep=event.target.value;renderCharts(ranking.data);
+ });
+ const chartResize=new ResizeObserver(()=>renderCharts(ranking.data));
+ for(const side of sides)chartResize.observe(el('leaders-'+side.key+'-chart'));
  function renderTable(side,data,reset=false){
   const table=el('leaders-'+side.key+'-table'),scroll=table.parentElement,top=reset?0:scroll.scrollTop,left=scroll.scrollLeft;
   const [field,direction]=ranking.sort[side.key].split('_'),sign=direction==='asc'?1:-1;
@@ -46,10 +81,11 @@
   }
   el('leaders-content').hidden=false;
   const snapshot=data.snapshot,stale=data.status.error||data.now-snapshot.checked_at>180;
-  el('leaders-status').textContent='Финальный снимок #'+count(snapshot.height)+' · '+date(snapshot.ts)+' '+clock(snapshot.ts)+
+  el('leaders-status').textContent='Снимок #'+count(snapshot.height)+' · '+date(snapshot.ts)+' '+clock(snapshot.ts)+
    (data.coverage.complete?' · история без пропусков':' · история неполная, догружаем '+count(data.coverage.missing)+' блоков')+
    (stale?' · свежие данные временно недоступны, показан сохранённый снимок':'');
   for(const side of sides)renderTable(side,data);
+  renderCharts(data);
   el('leaders-excluded').hidden=false;
   el('leaders-excluded').textContent='Не вошли в рейтинг: покупки '+amount(data.excluded.buy.volume)+' WGNK ('+count(data.excluded.buy.swaps)+
    ' исполнений) и продажи '+amount(data.excluded.sell.volume)+' WGNK ('+count(data.excluded.sell.swaps)+' исполнений) — адрес участника не подтверждён.';
