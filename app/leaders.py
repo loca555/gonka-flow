@@ -4,12 +4,13 @@ from .config import ZERO
 from .db import tokens
 from .flows import analysis, price_raw
 from .timezones import local_day
+from .bridge_volume import bridge_price_bands
 
 
 def trade_leaders(db):
-    data = analysis(db, side="all", limit=None)
+    data = analysis(db, side="all", limit=None, include_bridge=True)
     result = {key: data[key] for key in ("ready", "now", "timezone", "snapshot", "coverage", "status", "pools")}
-    result.update(buyers=[], sellers=[], summary=None, excluded=None, price_distribution=None, price_days=None,
+    result.update(buyers=[], sellers=[], summary=None, excluded=None, price_distribution=None, price_days=None, price_bridge=None, bridge=None,
                   attribution="initiator_net", period="all_history",
                   scope="All addresses in tracked pools; gross swap volume attributed by transaction-wide WGNK net-flow direction")
     if not data["ready"]:
@@ -51,12 +52,17 @@ def trade_leaders(db):
     # One calendar day belongs to one price band across both trade directions.
     # Recompute at each step: merging 5-cent winners would give wrong 10-cent days.
     # Equal volumes choose the lower band, independently of event ordering.
-    price_days = {}
+    price_days, price_bridge = {}, {}
+    bridge = data.get("bridge")
+    if bridge:
+        result["bridge"] = {key: value for key, value in bridge.items() if key != "daily"}
     for step, days in day_bins.items():
-        counts = {}
-        for volumes in days.values():
+        counts, winners = {}, {}
+        for day, volumes in days.items():
             winner = min(volumes, key=lambda index: (-volumes[index], index))
             counts[winner] = counts.get(winner, 0) + 1
+            winners[day] = winner
+        price_bridge[str(step)] = bridge_price_bands(bridge, winners, step)
         price_days[str(step)] = {
             "total_days": len(days),
             "bands": [{"from_price_raw": str(index * step * 10**10),
@@ -72,7 +78,7 @@ def trade_leaders(db):
                         for rank, row in enumerate(rows, 1)]
         total = {key: sum(row[key] for row in rows) for key in ("volume_raw", "quote_raw", "swaps")}
         summary[side] = {**quantities(total), "addresses": len(rows)}
-    result.update(summary=summary, price_days=price_days, excluded={side: quantities(row) for side, row in excluded.items()},
+    result.update(summary=summary, price_days=price_days, price_bridge=price_bridge, excluded={side: quantities(row) for side, row in excluded.items()},
                   price_distribution={str(step): {
                       side: [{"from_price_raw": str(index * step * 10**10),
                               "to_price_raw": str((index + 1) * step * 10**10), **quantities(bucket),

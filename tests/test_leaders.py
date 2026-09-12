@@ -30,7 +30,7 @@ class LeaderTests(unittest.TestCase):
     def compute(self, rows):
         with patch("app.leaders.analysis", return_value=source(rows)) as read:
             result = trade_leaders(None)
-        read.assert_called_once_with(None, side="all", limit=None)
+        read.assert_called_once_with(None, side="all", limit=None, include_bridge=True)
         return result
 
     def test_both_sides_gross_volume_weighted_price_and_transaction_count(self):

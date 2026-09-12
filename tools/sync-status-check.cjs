@@ -23,7 +23,7 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
     if(scenario.newHead)d.coverage.live.latest_height+=scenario.newHead;
     if(scenario.staleMint)d.coverage.live.checked_at-=100;
    }else if(name==='market'){
-    d.status={...d.status,checked_at:now,error:null,ok:true};d.snapshot.checked_at=now;d.snapshot.ts=now;
+    d.status={...d.status,checked_at:now,error:null,ok:true};d.snapshot.checked_at=now;d.snapshot.ts=scenario.snapshotTs||now;
     if(scenario.liveTail){d.coverage.head+=scenario.liveTail;d.coverage.indexed_height+=scenario.liveTail;d.snapshot.height+=scenario.liveTail;}
     d.status.latest_height=d.coverage.head;d.status.latest_ts=now;
     if(scenario.marketLag){d.coverage.indexed_height-=scenario.marketLag;d.coverage.complete=false;d.coverage.missing=scenario.marketLag;}
@@ -59,13 +59,18 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
   assert.equal(await page.locator('#coverage-detail, #market-coverage-detail, #snapshot-detail, .holder-history-panel').count(),0);
   for(const [name,value,expected] of [
    ['Live trades before finality',{liveTail:84},'live'],
+   ['One missing block',{marketLag:1,snapshotLag:1,snapshotTs:Date.parse('2026-09-12T09:12:11+03:00')/1000},'syncing'],
+   ['Two missing blocks',{marketLag:2,snapshotLag:2},'syncing'],
+   ['Five missing blocks',{marketLag:5,snapshotLag:5},'syncing'],
    ['Market backlog',{marketLag:300,snapshotLag:300},'syncing'],
+   ['Both indexes have gaps',{marketLag:3,mintLag:100,snapshotLag:3},'syncing'],
    ['Mint history gap',{mintLag:100},'syncing'],
    ['Snapshot reconciliation',{snapshotLag:1},'verifying'],
    ['New tip arrived first',{newHead:32},'syncing'],
    ['RPC failure',{rpcError:true},'error'],
    ['HTTP failure',{offline:true},'error'],
    ['Collector disabled',{paused:true},'paused'],
+   ['Paused with a backlog',{paused:true,marketLag:2,snapshotLag:2},'paused'],
    ['Stale mint worker',{staleMint:true},'stale'],
    ['Stale market worker',{staleMarket:true},'stale'],
    ['Expired snapshot validation',{oldSnapshot:true},'stale'],
@@ -75,6 +80,23 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
    ['Recovery',{},'live']
   ]){
    const text=await reload(value,expected);reports.push(name);
+   if(!value.offline)await page.waitForFunction(()=>/^\d{2}\.\d{2}\.\d{4}/.test(document.querySelector('#sync-progress').textContent));
+   const progress=await page.locator('#sync-progress').innerText();
+   assert(await page.locator('#sync-progress').isVisible());
+   if(!value.offline)assert.match(progress,/^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2} · /,name);
+   else assert(progress.includes('получаем состояние истории'));
+   if(expected==='live')assert(progress.endsWith('история без пропусков'));
+   if(value.snapshotTs)assert(progress.startsWith('12.09.2026 09:12:11 · '));
+   if(value.marketLag===1)assert(progress.endsWith('история неполная, догружаем 1 блок'));
+   if(value.marketLag===2)assert(progress.endsWith(value.paused?'осталось загрузить 2 блока':'догружаем 2 блока'));
+   if(value.marketLag===5)assert(progress.endsWith('догружаем 5 блоков'));
+   if(value.mintLag&&value.marketLag)assert(progress.includes('торговля и мост: догружаем 3 блока · чеканка: догружаем 100 блоков'));
+   if(expected==='verifying')assert(progress.endsWith('история загружена, сверяем снимок'));
+   if(['paused','error','stale'].includes(expected))assert(!progress.includes('догружаем'));
+   if(value.marketLag===1){
+    await fs.mkdir('test-results',{recursive:true});
+    await page.locator('.connection-status').screenshot({path:'test-results/sync-progress-one-block.jpg',type:'jpeg',quality:90});
+   }
    if(value.marketLag){
     await fs.mkdir('test-results',{recursive:true});
     await page.locator('.page-top').screenshot({path:'test-results/sync-status-loading.jpg',type:'jpeg',quality:85});
@@ -102,6 +124,14 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
   await page.locator('#sales-next').click();
   await page.locator('#sales-pagination[aria-busy="false"]').waitFor();await state('live');
   reports.push('Pagination keeps current sync status');
+  await reload({marketLag:1,snapshotLag:1,snapshotTs:Date.parse('2026-09-12T09:12:11+03:00')/1000},'syncing');
+  for(const width of [1440,390]){
+   await page.setViewportSize({width,height:900});
+   const caption=await page.locator('#live-caption').boundingBox(),progress=await page.locator('#sync-progress').boundingBox();
+   assert(progress.y>=caption.y+caption.height,'Progress must be below the status caption');
+   assert(progress.x>=0&&progress.x+progress.width<=width+1,'Progress must fit the viewport');
+   await page.locator('.page-top').screenshot({path:'test-results/sync-progress-'+width+'.jpg',type:'jpeg',quality:90});
+  }
   await reload({liveTail:84},'live');
   assert((await page.locator('.sales-table-heading').innerText()).includes('Покупки и продажи показаны вместе'));
   assert.equal(await page.locator('#holder-group-cards [data-holder-group]').count(),4);

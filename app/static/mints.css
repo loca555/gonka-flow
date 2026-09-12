@@ -102,3 +102,5 @@
 @media(max-width:600px){.header-actions{flex-basis:100%;margin-left:0}.header-price{align-items:flex-start;margin-right:auto}.header-price>strong{font-size:18px}.masthead nav{gap:20px}}
 
 .status-dot.syncing{animation:sync-pulse 1.6s ease-in-out infinite}@keyframes sync-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.status-dot.syncing{animation:none}}
+
+.connection-status #sync-progress{line-height:1.5;font-variant-numeric:tabular-nums}

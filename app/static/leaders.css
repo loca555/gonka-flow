@@ -42,3 +42,9 @@
 .leader-chart-panel .price-histogram .price-count-axis{fill:var(--market-price)}
 .price-band-tooltip{min-width:230px}.price-band-stats{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:10px 0;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .price-band-stats b{display:block;font-size:23px;font-weight:550;font-variant-numeric:tabular-nums;line-height:1.2;margin-bottom:4px}.price-count-stat b{color:var(--market-price)}
+
+.leader-bridge-note{margin:-8px 0 22px;padding:12px 16px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:12px;line-height:1.65}
+.leader-bridge-note summary{cursor:pointer}.leader-bridge-note p{margin-top:10px;max-width:1000px}.leader-bridge-note a{color:var(--accent)}
+.price-bridge-stats{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.price-bridge-stats>span{margin-bottom:4px}.price-bridge-stats>div{display:flex;justify-content:space-between;gap:14px;align-items:baseline;line-height:1.65}
+.price-bridge-stats b{font-size:13px;font-weight:550;font-variant-numeric:tabular-nums;white-space:nowrap}.bridge-in{color:var(--trade-buy)}.bridge-out{color:var(--trade-sell)}

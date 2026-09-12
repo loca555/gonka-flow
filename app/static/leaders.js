@@ -3,7 +3,7 @@
  const ranking={data:null,loading:false,request:0,priceStep:'5',sort:{buy:'volume_desc',sell:'volume_desc'}};
  const sides=[{key:'buy',list:'buyers',title:'Крупнейшие покупатели',verb:'Куплено',label:'Покупки'},
               {key:'sell',list:'sellers',title:'Крупнейшие продавцы',verb:'Продано',label:'Продажи'}];
- el('leaders-content').innerHTML='<div class="leader-price-controls"><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><p class="leader-days-note">Один день — один диапазон с наибольшим общим объёмом покупок и продаж. Дни без сделок не учитываются · время Кипра.</p><div class="leaders-grid">'+sides.map(side=>
+ el('leaders-content').innerHTML='<div class="leader-price-controls"><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><p class="leader-days-note">Один день — один диапазон с наибольшим общим объёмом покупок и продаж. Дни без сделок не учитываются · время Кипра.</p><details id="leaders-bridge-note" class="leader-bridge-note"></details><div class="leaders-grid">'+sides.map(side=>
   '<section class="panel leader-panel '+side.key+'" aria-labelledby="leaders-'+side.key+'-title">'+
   '<div class="leader-heading"><h2 id="leaders-'+side.key+'-title">'+side.title+'</h2><span id="leaders-'+side.key+'-count"></span></div>'+
   '<div class="leader-total"><strong id="leaders-'+side.key+'-total">—</strong><span>WGNK</span><small>Оборот адресов в рейтинге</small></div>'+
@@ -19,6 +19,19 @@
  for(const side of sides)configureTableSort('leaders-'+side.key+'-table',ranking.sort[side.key],sort=>{
   ranking.sort[side.key]=sort;if(ranking.data?.ready)renderTable(side,ranking.data,true);
  });
+ function renderBridgeNote(data){
+  const host=el('leaders-bridge-note'),bridge=data.bridge,mapped=data.price_bridge?.[ranking.priceStep];
+  if(!bridge?.ready||!mapped){setLiveHTML(host,'<summary>Объёмы моста пока не подтверждены</summary><p>Для расчёта нужна полная история моста и проверка стартового пополнения пула.</p>');return;}
+  const adjustment=bridge.adjustment,excluded=BigInt(adjustment.amount_raw),unassigned=mapped.unassigned;
+  const link=(kind,value,label)=>'<a href="https://etherscan.io/'+kind+'/'+esc(value)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+' ↗</a>';
+  let text='<summary>Мост в подсказках · ввод и вывод за дни уровня'+(excluded?' · исключено '+GonkaChart.exact(excluded,9)+' WGNK стартовой ликвидности':'')+'</summary>'+
+   '<p>Объём моста относится ко всему дню и одинаков на обоих графиках. Это не объём покупок или продаж.</p>';
+  if(excluded)text+='<p>Из ввода за 09.06.2026 вычтена стартовая ликвидность: '+GonkaChart.exact(excluded,9)+' WGNK. Адрес '+link('address',adjustment.origin,short(adjustment.origin,6))+
+   ' передал средства через '+link('address',adjustment.relay,short(adjustment.relay,6))+' в '+link('address',adjustment.pool,'пул')+'. Пополнения: '+
+   adjustment.deposits.map((d,i)=>link('tx',d.tx_hash,String(i+1))).join(' · ')+'. Это корректировка показателя; исходные переводы сохранены.</p>';
+  if(unassigned.days)text+='<p>Дни без сделок в рейтинге: '+count(unassigned.days)+'. Вне ценовых диапазонов: ввод '+GonkaChart.exact(unassigned.in_raw,9)+' WGNK, вывод '+GonkaChart.exact(unassigned.out_raw,9)+' WGNK.</p>';
+  setLiveHTML(host,text);host.dataset.excluded=adjustment.amount_raw;
+ }
  function renderCharts(data){
   if(!data?.ready||el('leaders-view').hidden)return;
   const distribution=data.price_distribution[ranking.priceStep],all=[...distribution.buy,...distribution.sell];
@@ -33,9 +46,11 @@
   const maximum=all.reduce((max,row)=>BigInt(row.volume_raw)>max?BigInt(row.volume_raw):max,0n).toString();
   const countMaximum=all.reduce((max,row)=>Math.max(max,row.swaps),0);
   const dayBands=data.price_days?.[ranking.priceStep]?.bands??null;
+  const bridgeBands=data.bridge?.ready?data.price_bridge?.[ranking.priceStep]?.bands??null:null;
+  renderBridgeNote(data);
   for(const side of sides){
    const points=distribution[side.key],host=el('leaders-'+side.key+'-chart');
-   const options={side:side.key,bounds,stepRaw:step.toString(),maximum,countMaximum,dayBands,sparse};
+   const options={side:side.key,bounds,stepRaw:step.toString(),maximum,countMaximum,dayBands,bridgeBands,sparse};
    renderLiveChart(host,[points,options],()=>GonkaChart.renderPriceBands(host,points,options));
    const summary=el('leaders-'+side.key+'-price-summary'),total=data.summary[side.key];
    const peak=points.reduce((best,row)=>!best||BigInt(row.volume_raw)>BigInt(best.volume_raw)?row:best,null);

@@ -12,6 +12,7 @@ from .timezones import TIME_ZONE, local_day, local_time
 from .address_history import address_history
 from .holder_groups import outside_holders
 from .holder_history import holder_history
+from .bridge_volume import bridge_daily
 
 def price_raw(quote, quantity, quote_decimals=6):
     """USDT/WGNK at 12 decimal places, explicitly rounded down."""
@@ -351,7 +352,7 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
                   trades=[public_trade(event) for event in selected[offset:offset+limit]])
     return result
 
-def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0):
+def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0,include_bridge=False):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
     field,direction=sort.rsplit("_",1)
     if field not in ("time","kind","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
@@ -377,6 +378,8 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
     if not snapshot or snapshot["height"]>end: return result
     cut=snapshot["height"]
     rows=market_rows(db,start,snapshot,packet)
+    if include_bridge:
+        result["bridge"]=bridge_daily(rows,cut)
     ledger,minted,burned=balances(rows)
     result["outside_holders"]=outside_holders(rows,ledger,snapshot)
     result["holder_history"]=holder_history(rows,ledger,snapshot,deployment,result["outside_holders"])

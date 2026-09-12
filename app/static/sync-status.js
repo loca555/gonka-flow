@@ -5,6 +5,29 @@ const GonkaSync=(()=>{
  const age=packet=>packet?(Date.now()-packet.received)/1000:Infinity;
  const now=packet=>(packet?.data?.now||0)+age(packet);
  const old=(packet,ts,limit)=>!ts||now(packet)-ts>limit;
+ const blocks=value=>{
+  const last=value%10,pair=value%100;
+  return value.toLocaleString("ru-RU")+" "+(pair>=11&&pair<=14?"блоков":last===1?"блок":last>=2&&last<=4?"блока":"блоков");
+ };
+ function progressText(mint,market,head,phase,complete,verified){
+  const parts=[],snapshot=market?.snapshot,coverage=market?.coverage;
+  if(snapshot?.ts){
+   const stamp=new Date(snapshot.ts*1000),options={timeZone:market.timezone||"Asia/Nicosia"};
+   parts.push(stamp.toLocaleDateString("ru-RU",{...options,day:"2-digit",month:"2-digit",year:"numeric"})+" "+
+    stamp.toLocaleTimeString("ru-RU",{...options,hour:"2-digit",minute:"2-digit",second:"2-digit"}));
+  }
+  if(!mint?.coverage||!coverage)parts.push("получаем состояние истории");
+  else{
+   const mintMissing=mint.coverage.missing;
+   const marketMissing=Number.isFinite(coverage.indexed_height)?Math.max(0,head-coverage.indexed_height,coverage.missing||0):coverage.missing;
+   const action=phase==="syncing"?"догружаем ":"осталось загрузить ";
+   if(marketMissing>0&&mintMissing>0)parts.push("история неполная", "торговля и мост: "+action+blocks(marketMissing),"чеканка: "+action+blocks(mintMissing));
+   else if(marketMissing>0||mintMissing>0)parts.push("история неполная, "+action+blocks(marketMissing>0?marketMissing:mintMissing));
+   else if(complete)parts.push(verified?"история без пропусков":"история загружена, сверяем снимок");
+   else parts.push("проверяем полноту истории");
+  }
+  return parts.join(" · ");
+ }
  function render(){
   const mint=channels.mints,market=channels.market,d=mint?.data,f=market?.data;
   const c=d?.coverage,s=c?.live||{},h=c?.history||{},fc=f?.coverage,fs=f?.status||{},snapshot=f?.snapshot;
@@ -30,6 +53,9 @@ const GonkaSync=(()=>{
   node("live-caption").textContent=caption;
   node("status-dot").className="status-dot"+(phase==="live"?" ok":phase==="error"?" error":["syncing","verifying"].includes(phase)?" syncing":"");
   node("status-dot").closest(".connection-status").dataset.state=phase;
+  node("sync-progress").textContent=progressText(d,f,head,phase,mintComplete&&marketComplete,verified);
+  node("sync-progress").hidden=false;
+  node("sync-progress").title="Время последнего проверенного снимка · Кипр";
   const notes=[];
   if(mint?.failed)notes.push("Нет свежего ответа по чеканке. Повторим автоматически.");
   if(market?.failed)notes.push("Нет свежего ответа по торговле и мосту. Повторим автоматически.");

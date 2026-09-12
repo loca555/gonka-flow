@@ -314,11 +314,12 @@ window.GonkaChart=(()=>{
   const step=[100n,125n,150n,200n,250n,500n,1000n].map(factor=>(factor*power+99n)/100n).find(value=>value>=required);
   return step*4n;
  }
- function renderPriceBands(host,points,{side,bounds,stepRaw,maximum,countMaximum=0,dayBands=null,sparse=false}){
+ function renderPriceBands(host,points,{side,bounds,stepRaw,maximum,countMaximum=0,dayBands=null,bridgeBands=null,sparse=false}){
   if(!points.length){host.innerHTML='<p class="empty">'+(side==="buy"?"Покупок":"Продаж")+' с подтверждённым адресом пока нет.</p>';return;}
   const lookup=new Map(points.map(p=>[p.from_price_raw,p]));
   const dayLookup=dayBands===null?null:new Map(dayBands.map(row=>[row.from_price_raw,row.days]));
-  const rows=bounds.map(from=>({...(lookup.get(from)||{from_price_raw:from,to_price_raw:String(BigInt(from)+BigInt(stepRaw)),volume_raw:"0",quote_raw:"0",swaps:0,price_raw:null}),days:dayLookup===null?null:dayLookup.get(from)||0}));
+  const bridgeLookup=bridgeBands===null?null:new Map(bridgeBands.map(row=>[row.from_price_raw,row]));
+  const rows=bounds.map(from=>({...(lookup.get(from)||{from_price_raw:from,to_price_raw:String(BigInt(from)+BigInt(stepRaw)),volume_raw:"0",quote_raw:"0",swaps:0,price_raw:null}),days:dayLookup===null?null:dayLookup.get(from)||0,bridge:bridgeLookup===null?null:bridgeLookup.get(from)||{in_raw:"0",out_raw:"0"}}));
   const total=points.reduce((sum,row)=>sum+BigInt(row.volume_raw),0n);
   const W=Math.max(280,host.clientWidth),H=W<500?340:360,left=W<500?66:68,right=54,top=44,bottom=H-68,plot=W-left-right;
   const high=bandVolumeCeiling(maximum),slot=plot/rows.length,barWidth=Math.max(1,Math.min(80,slot*.68));
@@ -326,7 +327,7 @@ window.GonkaChart=(()=>{
   const x=i=>left+slot*(i+.5),y=raw=>bottom-Number(BigInt(raw)*1000000n/high)/1000000*(bottom-top);
   const countY=count=>bottom-Number(BigInt(count)*1000000n/countHigh)/1000000*(bottom-top);
   const labelStride=Math.max(1,Math.ceil(rows.length/Math.max(1,Math.floor(plot/34))));
-  let svg='<svg class="price-histogram '+side+'" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="'+(side==="buy"?"Покупки":"Продажи")+': объём WGNK столбцами, шкала слева. Количество сделок линией, шкала справа. В подсказке число сделок и дней на уровне. Стрелки выбирают диапазон цены.">';
+  let svg='<svg class="price-histogram '+side+'" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="'+(side==="buy"?"Покупки":"Продажи")+': объём WGNK столбцами, шкала слева. Количество сделок линией, шкала справа. В подсказке число сделок, дней на уровне и объём моста за эти дни. Стрелки выбирают диапазон цены.">';
   svg+='<text class="chart-unit" x="'+left+'" y="17">Объём · WGNK</text><text class="chart-unit price-count-axis" x="'+(W-right)+'" y="17" text-anchor="end">Сделки</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
@@ -357,7 +358,11 @@ window.GonkaChart=(()=>{
    host.querySelectorAll('.price-volume').forEach(bar=>bar.classList.toggle('is-selected',bar.dataset.from===row.from_price_raw));
    host.querySelectorAll('.price-count-point').forEach(dot=>dot.classList.toggle('is-selected',dot.dataset.from===row.from_price_raw));
    tooltip.innerHTML='<strong>'+escape(priceRange(row.from_price_raw,row.to_price_raw))+' <small>USDT</small></strong><span>Цена за 1 WGNK · до верхней границы</span><div class="price-band-stats"><div class="price-count-stat"><b>'+row.swaps.toLocaleString('ru-RU')+'</b><span>Сделок</span></div><div><b>'+(row.days===null?'—':row.days.toLocaleString('ru-RU'))+'</b><span>Дней на уровне</span></div></div><strong>'+escape(exact(row.volume_raw,9))+' <small>WGNK</small></strong><span>'+escape(formatShare(row.volume_raw,total))+' всего объёма '+(side==='buy'?'покупок':'продаж')+'</span><span>Сумма: '+escape(exact(row.quote_raw,6))+' USDT</span><span>Средняя цена: '+escape(formatPrice(row.price_raw))+' USDT</span>';
+   tooltip.innerHTML+='<div class="price-bridge-stats"><span>Мост в эти дни · WGNK</span>'+(row.bridge?
+    '<div><span>Ввод</span><b class="bridge-in">'+escape(exact(row.bridge.in_raw,9))+'</b></div><div><span>Вывод</span><b class="bridge-out">'+escape(exact(row.bridge.out_raw,9))+'</b></div>':
+    '<span>Данные пока не подтверждены</span>')+'</div>';
    tooltip.dataset.from=row.from_price_raw;tooltip.dataset.swaps=String(row.swaps);tooltip.dataset.days=row.days===null?'':String(row.days);
+   tooltip.dataset.bridgeIn=row.bridge?.in_raw??'';tooltip.dataset.bridgeOut=row.bridge?.out_raw??'';
    tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';
    tooltip.style.top=Math.max(6,Math.min(24,H-tooltip.offsetHeight-6))+'px';

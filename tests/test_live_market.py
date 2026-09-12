@@ -54,6 +54,30 @@ class LiveMarketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(event_rows(self.db,1,13)),len(self.events))
         self.assertEqual(bridge_listing(self.db,minimum=0)["snapshot"]["height"],12)
 
+    async def test_leader_bridge_uses_same_live_snapshot_then_finalizes_without_duplication(self):
+        from app.leaders import trade_leaders
+        from app.config import ZERO
+        # Mint and burn in the live block, leaving supply and pool balances unchanged.
+        self.tail += [blank("ethereum",self.headers[13],"live_mint",2,"bridge_mint",7*fixtures.UNIT,
+                            ZERO,fixtures.A,finalized=0),
+                      blank("ethereum",self.headers[13],"live_burn",3,"bridge_burn",7*fixtures.UNIT,
+                            fixtures.A,ZERO,finalized=0)]
+        await self.collector.live(1,12)
+        live=trade_leaders(self.db)
+        self.assertEqual(live["snapshot"]["height"],13)
+        self.assertEqual(live["bridge"]["totals"]["in_raw"],str(107*fixtures.UNIT))
+        self.assertEqual(live["bridge"]["totals"]["out_raw"],str(12*fixtures.UNIT))
+        self.assertEqual(sum(int(b["in_raw"]) for b in live["price_bridge"]["5"]["bands"]),107*fixtures.UNIT)
+        # This feed intentionally remains finalized; leaders must not mix its older snapshot.
+        self.assertEqual(bridge_listing(self.db,minimum=0)["snapshot"]["height"],12)
+        self.db.save_batch("ethereum",13,13,[{**e,"finalized":1} for e in self.tail],[self.headers[13]])
+        self.db.put("mints:status",{"finalized_height":13,"latest_height":14})
+        self.head=14
+        await self.collector.live(1,13)
+        final=trade_leaders(self.db)
+        self.assertEqual(final["bridge"],live["bridge"])
+        self.assertEqual(final["price_bridge"],live["price_bridge"])
+
     async def test_incremental_extension_reuses_validated_tail_without_duplicates(self):
         await self.collector.live(1,12)
         self.head=14;self.tail+=self.make_tail(14,3);self.pool_balance=45*fixtures.UNIT
