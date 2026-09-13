@@ -1,5 +1,5 @@
 /* Isolated, read-only localhost UI check. Never opens the user's browser profile. */
-const {chromium}=require('playwright');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs/promises');
 const path=require('node:path');
@@ -12,7 +12,7 @@ function displayed(value){
  return '$'+(n/1000n).toLocaleString('ru-RU')+'.'+f;
 }
 (async()=>{
- const browser=await chromium.launch({headless:true,channel:'chrome'});
+ const browser=await chromium.launch({headless:true,chromiumSandbox:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{channel:'chrome'})});
  try{
   const page=await browser.newPage({viewport:{width:1440,height:950}}),errors=[],widths=[];
   page.on('pageerror',error=>errors.push(error.message));
@@ -27,6 +27,7 @@ function displayed(value){
   async function verifyPrice(value){
    await page.waitForFunction(expected=>document.getElementById('header-price-value')?.textContent===expected,value);
    assert.equal(await page.locator('#header-price-value').textContent(),value);
+   assert.equal(await page.title(),value+' · WGNK — Gonka Flow');
   }
   await verifyPrice(displayed(data.latest_trade.price));
   assert.equal(await page.locator('#header-price>span').count(),0,'no visible unit label');
@@ -83,8 +84,15 @@ function displayed(value){
    await page.unroute('**/api/mints/flows?**');
   }
   await action(background);
+  await page.route('**/api/mints/flows?**',route=>route.fulfill({json:{...data,latest_trade:{...data.latest_trade,price:'0.246'}}}));
+  await page.evaluate(()=>Object.defineProperty(document,'hidden',{configurable:true,get:()=>true}));
+  // No visibility event or button: the regular timer must update a hidden tab.
+  await page.waitForFunction(()=>document.title==='$0.246 · WGNK — Gonka Flow',null,{timeout:45000});
+  await verifyPrice('$0.246');
+  await page.evaluate(()=>delete document.hidden);await page.unroute('**/api/mints/flows?**');
+  await action(background);
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({ok:true,widths,price:displayed(data.latest_trade.price),
-   latestTrade:data.latest_trade,filtersAndSort:true,failureAndRecovery:true,errors,screenshots:out},null,2));
+   latestTrade:data.latest_trade,filtersAndSort:true,failureAndRecovery:true,tabTitle:true,hiddenTabTimer:true,errors,screenshots:out},null,2));
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

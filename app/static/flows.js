@@ -1,6 +1,8 @@
 /* Market views are independent of the mint-size filter. Verified pool data through the latest indexed block. */
 (()=>{
  const ui=id=>document.getElementById(id);
+ const defaultTitle=document.title;
+ let lastMarketRefresh=0;
  const flow={hours:0,minimum:0,q:"",offset:0,side:"all",sort:"time_desc",minterSort:"sold_desc",data:null,loading:false,foreground:false,request:0};
  const pages=new Map();
  const fmt=value=>value===null||value===undefined?"—":amount(value,4);
@@ -166,6 +168,7 @@
   const box=ui("header-price"),value=ui("header-price-value"),trade=data?.latest_trade;
   if(!box||!value)return;
   value.textContent=trade?headerPrice(trade.price):"—";
+  document.title=value.textContent==="—"?defaultTitle:value.textContent+" · WGNK — Gonka Flow";
   value.setAttribute("aria-label","Цена за 1 WGNK, USDT: "+value.textContent);
   const stale=failed||Boolean(data?.status?.error)||(data?.snapshot&&data.now-data.snapshot.checked_at>180);
   box.dataset.state=stale?"stale":trade?"ready":data?.ready?"empty":"loading";
@@ -246,6 +249,7 @@
  }
  async function refresh(reset=false,background=false,pageOnly=false){
   if(background&&flow.loading)return;
+  if(!pageOnly)lastMarketRefresh=Date.now();
   if(reset)flow.offset=0;
   const previous=flow.data;
   flow.abort?.abort();const controller=flow.abort=new AbortController(),id=++flow.request;
@@ -292,6 +296,7 @@
  mount();refresh();
  window.addEventListener("resize",()=>{if(flow.data?.ready)renderChart(flow.data);});
  window.addEventListener("gonka:view",()=>{if(flow.data?.ready)renderChart(flow.data);});
- setInterval(()=>{if(!document.hidden&&!flow.loading)refresh(false,true);},10000);
+ // Keep the tab quote current in the background, with fewer requests while hidden.
+ setInterval(()=>{if(!flow.loading&&(!document.hidden||Date.now()-lastMarketRefresh>=30000))refresh(false,true);},10000);
  document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh(false,true);});
 })();
