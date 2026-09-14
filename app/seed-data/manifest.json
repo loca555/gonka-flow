@@ -1,16 +1,18 @@
 {
+  "gonka_holders": 560,
+  "gonka_holders_height": 6063698,
   "format": 1,
   "network": "ethereum",
-  "height": 25974694,
-  "ts": 1789376855,
-  "events": 13234,
-  "mints": 863,
-  "gonka_links": 863,
-  "gonka_burn_links": 477,
-  "gonka_incoming": 9563,
+  "height": 25975462,
+  "ts": 1789386071,
+  "events": 13318,
+  "mints": 864,
+  "gonka_links": 864,
+  "gonka_burn_links": 478,
+  "gonka_incoming": 9567,
   "gonka_balances": 149,
   "gonka_scope": "Only native senders and recipients linked to included WGNK mints/burns; explorer coverage is not chain-complete proof",
-  "sha256": "a495337cbdd1180edbeb2ac5c8bc65ab4cb3a431fb082c9963b28809ad9eb7ae",
-  "unpacked_bytes": 30703616,
-  "archive_bytes": 5843602
+  "sha256": "ec493474b8bf620650017f915e052ad3a7f1986ed8ea095ec653c35ea5160241",
+  "unpacked_bytes": 30953472,
+  "archive_bytes": 5892214
 }

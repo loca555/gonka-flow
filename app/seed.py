@@ -1,6 +1,7 @@
 """Public WGNK archive and targeted Gonka provenance for disposable/free hosting.
 
-Never copies labels, full-chain GNK data, RPC configuration, credentials or private research.
+Includes completed public GNK holder snapshots from 10k; never copies labels,
+full-chain GNK history, RPC configuration, credentials or private research.
 Existing runtime databases are never replaced.
 """
 import gzip
@@ -79,6 +80,54 @@ def export_provenance(reader,db):
     db.conn.commit()
 
 
+GNK_HOLDER_FIELDS = ("height", "ts", "checked_at", "supply_raw", "scanned", "source")
+GNK_HOLDER_SOURCE = "cosmos.bank.denom_owners; pinned block; supply reconciled"
+
+
+def public_holder_seed(conn):
+    """Allowlist a completed snapshot, excluding staging rows and private metadata."""
+    from .public_holders import MINIMUM_RAW
+    row = conn.execute("SELECT value FROM kv WHERE key='public_holders:GNK'").fetchone()
+    if not row:
+        return None, []
+    saved = json.loads(row[0])
+    snapshot = {k: saved[k] for k in GNK_HOLDER_FIELDS}
+    if (snapshot['source'] != GNK_HOLDER_SOURCE
+            or any(type(snapshot[k]) is not int or snapshot[k] < 1
+                   for k in ('height', 'ts', 'checked_at', 'scanned'))
+            or snapshot['checked_at'] < snapshot['ts']):
+        raise ValueError('Invalid public GNK holder snapshot')
+    supply = int(snapshot['supply_raw'])
+    if str(supply) != snapshot['supply_raw'] or supply <= 0:
+        raise ValueError('Invalid GNK snapshot supply')
+    rows = []
+    addresses = set()
+    for row in conn.execute('SELECT address,balance_raw FROM public_gnk_holders ORDER BY address'):
+        address, raw = row
+        if (not GNK.fullmatch(address) or address in addresses
+                or str(int(raw)) != raw or int(raw) < MINIMUM_RAW):
+            raise ValueError('Invalid public GNK holder record')
+        addresses.add(address)
+        rows.append((address, raw))
+    omitted = snapshot['scanned'] - len(rows)
+    remainder = supply - sum(int(raw) for _, raw in rows)
+    if omitted < 0 or not omitted <= remainder <= omitted * (MINIMUM_RAW - 1):
+        raise ValueError('Public GNK holder subset disagrees with verified census supply/count')
+    return snapshot, rows
+
+
+def export_public_holders(reader, db):
+    from .public_holders import initialize as initialize_holders
+    snapshot, rows = public_holder_seed(reader)
+    if snapshot is None:
+        return {"gonka_holders": 0}
+    initialize_holders(db)
+    with db.conn:
+        db.conn.executemany('INSERT INTO public_gnk_holders VALUES(?,?)', rows)
+    db.put('public_holders:GNK', snapshot)
+    return {"gonka_holders": len(rows), "gonka_holders_height": snapshot['height']}
+
+
 def export_seed(source, destination):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
@@ -124,6 +173,7 @@ def export_seed(source, destination):
                 db.put("flow:snapshot", snapshot)
                 db.put("flow:status", {"indexed_height":end})
                 export_provenance(reader,db)
+                holder_manifest = export_public_holders(reader,db)
                 data = analysis(db)
                 if not data["ready"] or not data["coverage"]["complete"] or not progress(db)["complete"]:
                     raise ValueError("Seed history has gaps")
@@ -138,7 +188,7 @@ def export_seed(source, destination):
                              for r in db.conn.execute("SELECT * FROM events WHERE kind='bridge_mint'")}
                 if mint_rows != event_mints:
                     raise ValueError("Seed mint and market archives disagree")
-                manifest = {"format":1, "network":"ethereum", "height":end, "ts":snapshot["ts"],
+                manifest = {**holder_manifest, "format":1, "network":"ethereum", "height":end, "ts":snapshot["ts"],
                             "events":db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
                             "mints":db.conn.execute("SELECT COUNT(*) FROM wgnk_mints").fetchone()[0],
                             "gonka_links":db.conn.execute("SELECT COUNT(*) FROM gonka_mint_links").fetchone()[0],
@@ -185,6 +235,10 @@ def restore_seed(target, archive=DEFAULT_ARCHIVE):
                 raise ValueError("Seed integrity check failed")
             if conn.execute("SELECT COUNT(*) FROM events WHERE chain!='ethereum'").fetchone()[0]:
                 raise ValueError("Seed contains an out-of-scope chain")
+            holder_snapshot, holder_rows = public_holder_seed(conn)
+            if (len(holder_rows) != manifest.get('gonka_holders', 0)
+                    or (holder_snapshot and holder_snapshot['height'] != manifest.get('gonka_holders_height'))):
+                raise ValueError('GNK holder seed disagrees with manifest')
         # Exclusive link creation cannot overwrite a concurrently created runtime DB.
         try:
             os.link(staged, target)

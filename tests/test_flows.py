@@ -507,14 +507,29 @@ class FlowTests(unittest.TestCase):
         self.db.put("private:config", {"api_key":"test-only-do-not-export"})
         self.db.conn.execute("INSERT INTO labels VALUES(?,?,?,?,?)",(A,"private label","test","local",1))
         self.db.conn.commit()
+        from app.public_holders import initialize as initialize_holders, MINIMUM_RAW
+        from app.seed import GNK_HOLDER_SOURCE
+        initialize_holders(self.db)
+        gnk_address='gonka1'+'q'*38
+        self.db.conn.execute('INSERT INTO public_gnk_holders VALUES(?,?)',(gnk_address,str(MINIMUM_RAW)))
+        self.db.conn.execute('INSERT INTO public_gnk_holder_stage VALUES(?,?)',('gonka1'+'p'*38,str(2*MINIMUM_RAW)))
+        self.db.conn.commit()
+        self.db.put('public_holders:GNK',dict(height=20,ts=10,checked_at=11,scanned=2,
+            supply_raw=str(MINIMUM_RAW+7),source=GNK_HOLDER_SOURCE,private_note='do-not-export'))
+        self.db.put('public_holders:GNK:scan',{'key':'incomplete-do-not-export'})
         folder=Path(self.temp.name)/"seed"
         manifest=export_seed(Path(self.temp.name)/"test.sqlite3",folder)
         self.assertEqual(manifest["height"],12)
+        self.assertEqual(manifest["gonka_holders"],1)
         archive=folder/"wgnk.sqlite3.gz";target=Path(self.temp.name)/"runtime"/"test.sqlite3"
         self.assertTrue(restore_seed(target,archive))
         restored=Database(target)
         try:
             self.assertIsNone(restored.get("private:config"))
+            self.assertEqual(restored.conn.execute('SELECT address,balance_raw FROM public_gnk_holders').fetchone()[0],gnk_address)
+            self.assertNotIn('private_note',restored.get('public_holders:GNK'))
+            self.assertIsNone(restored.get('public_holders:GNK:scan'))
+            self.assertEqual(restored.conn.execute('SELECT count(*) FROM public_gnk_holder_stage').fetchone()[0],0)
             self.assertEqual(restored.conn.execute("SELECT COUNT(*) FROM labels").fetchone()[0],0)
             self.assertTrue(analysis(restored)["ready"])
             restored.put("runtime:keep",True)

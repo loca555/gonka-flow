@@ -14,7 +14,8 @@ def address_history(rows, address, snapshot, expected_balance):
     """
     pools = {p["address"] for p in snapshot["pools"]}
     days = defaultdict(lambda: {"delta_raw": 0, "bought_raw": 0, "sold_raw": 0,
-                                "buys_count": 0, "sales_count": 0})
+                                "buys_count": 0, "sales_count": 0,
+                                "buy_quote_raw": 0, "sale_quote_raw": 0})
     for event in rows:
         kind = event["kind"]
         incoming = kind in ("transfer", "bridge_mint") and event["dst"] == address
@@ -30,6 +31,7 @@ def address_history(rows, address, snapshot, expected_balance):
         if trade:
             day["bought_raw" if kind == "buy" else "sold_raw"] += quantity
             day["buys_count" if kind == "buy" else "sales_count"] += 1
+            day["buy_quote_raw" if kind == "buy" else "sale_quote_raw"] += int(event["quote_raw"])
 
     last = local_day(snapshot["ts"])
     if days and max(days) > last:
@@ -45,6 +47,7 @@ def address_history(rows, address, snapshot, expected_balance):
                 return None
             points.append({"date": key, "balance_raw": str(balance),
                            "bought_raw": str(day["bought_raw"]), "sold_raw": str(day["sold_raw"]),
+                           "buy_quote_raw": str(day["buy_quote_raw"]), "sale_quote_raw": str(day["sale_quote_raw"]),
                            "buys_count": day["buys_count"], "sales_count": day["sales_count"]})
             current += timedelta(days=1)
     if balance != int(expected_balance):

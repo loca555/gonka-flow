@@ -8,7 +8,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app.db import Database
 from app.flows import analysis
 from app.mints import initialize,progress
-from app.seed import restore_seed,DEFAULT_ARCHIVE
+from app.seed import restore_seed,DEFAULT_ARCHIVE,public_holder_seed
 
 archive=Path(sys.argv[1]) if len(sys.argv)>1 else DEFAULT_ARCHIVE
 with tempfile.TemporaryDirectory(prefix='gonka-seed-check-') as tmp:
@@ -24,9 +24,13 @@ with tempfile.TemporaryDirectory(prefix='gonka-seed-check-') as tmp:
         tables={r[0] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if 'labels' in tables:assert db.conn.execute('SELECT COUNT(*) FROM labels').fetchone()[0]==0
         keys=[r[0] for r in db.conn.execute('SELECT key FROM kv')]
-        assert all(key in {'mints:deployment','mints:status','mints:next','mints:bootstrapped','flow:snapshot','flow:status'} for key in keys),keys
+        assert all(key in {'mints:deployment','mints:status','mints:next','mints:bootstrapped','flow:snapshot','flow:status','public_holders:GNK'} for key in keys),keys
+        holder_snapshot, holder_rows = public_holder_seed(db.conn)
+        if holder_snapshot:
+            assert db.conn.execute('SELECT COUNT(*) FROM public_gnk_holder_stage').fetchone()[0]==0
         assert not restore_seed(target,archive),'Existing runtime database must not be overwritten'
         print(json.dumps({'ok':True,'height':data['snapshot']['height'],'ts':data['snapshot']['ts'],
             'coverage':data['coverage'],'swaps':data['total'],'last_trade':data['latest_trade'],
-            'public_only':True,'existing_db_preserved':True}))
+            'public_only':True,'existing_db_preserved':True,'gnk_holders':len(holder_rows),
+            'gnk_height':holder_snapshot['height'] if holder_snapshot else None}))
     finally:db.close()

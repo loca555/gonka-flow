@@ -18,7 +18,7 @@ class IpfsExportTests(unittest.TestCase):
             self.assertEqual(build(second), manifest)
             paths = sorted(p.relative_to(first).as_posix() for p in first.rglob('*') if p.is_file())
             self.assertEqual(set(paths), set(manifest['files']) | {'ipfs-build.json'})
-            self.assertEqual(len(paths), 14)
+            self.assertEqual(len(paths), 16)
             for name in paths:
                 content = (first / name).read_bytes()
                 self.assertEqual(content, (second / name).read_bytes())
@@ -32,7 +32,7 @@ class IpfsExportTests(unittest.TestCase):
             self.assertIn('connect-src', index)
             for name, digest in re.findall(r'\./(static/[^"?]+)\?v=([a-f0-9]{16})', index):
                 self.assertEqual(digest, manifest['files'][name][:16])
-            for script in ('mints', 'flows', 'gonka', 'address-trades', 'leaders'):
+            for script in ('mints', 'flows', 'gonka', 'address-trades', 'leaders', 'holders'):
                 self.assertIn(DEFAULT_API + '/api/mints', (first / f'static/{script}.js').read_text(encoding='utf-8'))
             (first / 'keep.txt').write_text('keep')
             with self.assertRaises(ValueError):

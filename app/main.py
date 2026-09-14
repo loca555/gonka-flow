@@ -155,6 +155,20 @@ def create_app(settings=None):
                                        q=q.lower(),limit=limit,offset=offset,side=side,sort=sort,minimum=minimum,
                                        snapshot_hash=snapshot_hash.lower()))
 
+    @app.get("/api/mints/holders")
+    async def mint_holders(request:Request,asset:str=Query("WGNK",pattern="^(WGNK|GNK)$"),
+                           q:str=Query("",max_length=90,pattern="^[a-zA-Z0-9]*$"),
+                           limit:int=Query(25,ge=1,le=100),offset:int=Query(0,ge=0,le=5000000)):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        from .public_holders import listing
+        key=("public_holders",asset,q.lower(),limit,offset)
+        if len(cache)>1000: cache.clear()
+        if key not in cache or time.time()-cache[key][0]>8:
+            data=listing(request.app.state.db,asset,q,limit,offset)
+            data["indexer_enabled"]=cfg.indexer_enabled
+            cache[key]=(time.time(),data)
+        return cache[key][1]
+
     @app.get("/api/mints/leaders")
     async def mint_leaders(request:Request,start_date:calendar_date | None=Query(None)):
         start_date=start_date.isoformat() if start_date else None

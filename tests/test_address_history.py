@@ -76,13 +76,24 @@ class AddressHistoryTests(unittest.TestCase):
         self.assertEqual(history["balance_raw"], data["address_balance"]["amount_raw"])
         self.assertEqual((history["height"], history["ts"]), (10, self.snapshot["ts"]))
         self.assertEqual(history["points"][-1]["balance_raw"], str(550 * UNIT))
-        for key in ("bought_raw", "sold_raw", "buys_count", "sales_count"):
+        for key in ("bought_raw", "sold_raw", "buys_count", "sales_count", "buy_quote_raw", "sale_quote_raw"):
             self.assertEqual(sum(int(p[key]) for p in history["points"]), int(data["summary"][key]))
         self.assertEqual(data["summary"]["buys_count"], 1)
         self.assertEqual(data["summary"]["sales_count"], 1)
         # A transfer-only day and quiet days must not disappear from the line.
         self.assertEqual(history["points"][1]["bought_raw"], "0")
         self.assertEqual(history["points"][4]["sales_count"], 0)
+
+    def test_daily_prices_use_quote_sums_not_unweighted_execution_prices(self):
+        rows = event_rows(self.db, 1, 10)
+        buy = next(e for e in rows if e['kind'] == 'buy' and e['pool'] == POOL)
+        rows.append({**buy, 'amount_raw': str(10 * UNIT), 'quote_raw': '2000000'})
+        history = address_history(rows, A, self.snapshot, 550 * UNIT)
+        day = next(p for p in history['points'] if p['date'] == '2026-07-02')
+        self.assertEqual(day['buy_quote_raw'], '3000000')
+        self.assertEqual(int(day['buy_quote_raw']) * 10**15 // int(day['bought_raw']), 60_000_000_000)
+        self.assertEqual(day['sale_quote_raw'], '1000000')
+        self.assertEqual(history['points'][0]['buy_quote_raw'], '0')
 
     def test_timeline_is_independent_of_table_sort_pagination_and_trade_filters(self):
         expected = analysis(self.db, q=A, side="all")["address_history"]
