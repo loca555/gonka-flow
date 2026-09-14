@@ -45,6 +45,8 @@ def initialize(db):
       CREATE TABLE IF NOT EXISTS gonka_address_balances(address TEXT PRIMARY KEY,value TEXT NOT NULL);
     """)
     initialize_burns(db)
+    from .gnk_holder_history import initialize as initialize_history
+    initialize_history(db)
 
 
 def coins(value):
@@ -261,6 +263,8 @@ def save_page(db,address,page,modules=None):
             raise ValueError("Достигнут лимит пагинации эксплорера; история неполная")
         state.update(offset=next_offset,anchor=hashes[-1],next_check=0)
     with db.conn:
+        from .gnk_holder_history import discover
+        discover(db,address,rows,modules or {})
         for event in incoming:
             identity = (address,event["tx_hash"],event["event_index"])
             old = db.conn.execute("SELECT amount_raw,src,height FROM gonka_incoming WHERE address=? AND tx_hash=? AND event_index=?",identity).fetchone()
@@ -521,7 +525,14 @@ class ProvenanceCollector:
         return .2
 
     async def incoming(self):
-        addresses = native_addresses(self.db)
+        if (not native_addresses(self.db) and not self.db.conn.execute('SELECT 1 FROM public_gnk_holders LIMIT 1').fetchone()
+                and not self.db.conn.execute('SELECT 1 FROM holder_native_targets LIMIT 1').fetchone()): return 5
+        if self.modules is None:
+            data=await self.request("/chain-api/cosmos/auth/v1beta1/module_accounts")
+            self.modules={a["base_account"]["address"]:a["name"] for a in data["accounts"]}
+        from .gnk_holder_history import targets
+        # Seed holders and follow outgoing native transfer recipients. Never module hubs.
+        addresses = sorted(set(native_addresses(self.db)) | set(targets(self.db,self.modules)))
         if not addresses:
             return 5
         now = int(time.time())

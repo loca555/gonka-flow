@@ -40,6 +40,35 @@ class PublicHoldersTests(unittest.TestCase):
         self.assertEqual(listing(self.db,'WGNK',query=B)['total'],0)
         found=listing(self.db,'WGNK',query=A.upper())['items'][0]
         self.assertEqual(found['rank'],2);self.assertNotIn('label',found)
+    def test_trade_categories_follow_exact_volume_threshold_and_ignore_transfers(self):
+        self.seed_wgnk()
+        self.assertEqual(listing(self.db,'WGNK',query=A)['items'][0]['category'],'unclassified')
+        for bought,sold,expected in [(91,9,'investors'),(9,91,'sellers'),(90,10,'traders'),
+                                     (10,90,'traders'),(0,100,'sellers'),(100,0,'investors'),
+                                     (9*10**30+1,10**30,'investors')]:
+            self.db.conn.execute("DELETE FROM events WHERE kind IN ('buy','sell')")
+            self.db.conn.commit()
+            events=[blank('ethereum',BLOCK,'0x'+'e'*64,i,kind,raw,actor=A,pool=C,
+                          meta={'attribution':'initiator_net'})
+                    for i,(kind,raw) in enumerate([('buy',bought),('sell',sold)]) if raw]
+            events.extend([
+                blank('ethereum',BLOCK,'0x'+'f'*64,0,'sell',10**40,actor=A,pool=C,meta={'attribution':'initiator_only'}),
+                blank('ethereum',BLOCK,'0x'+'f'*64,1,'sell',10**40,actor=A,pool=B,meta={'attribution':'initiator_net'})])
+            self.db.save_batch('ethereum',1,1,events,[],finalized=False)  # Keep existing mint ledger.
+            row=listing(self.db,'WGNK',query=A)['items'][0]
+            self.assertEqual((row['category'],row['bought_raw'],row['sold_raw']),(expected,str(bought),str(sold)))
+            self.assertEqual(listing(self.db,'WGNK',query=C)['items'][0]['category'],'pool')
+
+    def test_live_verified_swap_counts_before_finalization(self):
+        self.seed_wgnk();snap=self.db.get('flow:snapshot')
+        newer={**snap,'height':2,'hash':'0x'+'c'*64}
+        trade=blank('ethereum',newer,'0x'+'d'*64,0,'buy',100,actor=A,pool=C,finalized=False)
+        trade['meta']='{"attribution":"initiator_net"}'
+        self.db.put('flow:live',{'current':{'snapshot':newer,'base':1,'events':[trade]},'history':[]})
+        result=listing(self.db,'WGNK',query=A)
+        self.assertEqual(result['items'][0]['category'],'investors')
+        self.assertEqual(result['classification']['height'],2)
+
     def test_missing_ranges_or_invalid_supply_never_look_empty(self):
         self.seed_wgnk();self.db.conn.execute('DELETE FROM ranges');self.db.conn.commit()
         result=listing(self.db,'WGNK');self.assertFalse(result['ready']);self.assertIsNone(result['total'])
@@ -83,6 +112,7 @@ class PublicHoldersTests(unittest.TestCase):
             await NativeHolders(owner).run()
         asyncio.run(run());result=listing(db,'GNK')
         self.assertTrue(result['ready']);self.assertEqual(result['total'],2)
+        self.assertTrue(all(row['category']=='unknown' for row in result['items']))
         self.assertEqual(result['items'][0]['balance_raw'],str(huge))
         self.assertEqual(result['snapshot']['scanned'],3)
         self.assertIsNone(result['progress'])

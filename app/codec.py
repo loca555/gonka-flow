@@ -76,6 +76,9 @@ def messages(raw):
             result.append({"type": name, "origin": fields[2], "contract": fields[3].lower(),
                            "owner": fields[4], "amount": fields[6], "eth_height": fields[7],
                            "receipt_index": fields[8]})
+        elif name.endswith("MsgClaimRewards"):
+            value=pb(anymsg[2][0])
+            result.append({"type":name,"creator":value.get(1,[b""])[0].decode()})
         else:
             result.append({"type": name})
     return result
@@ -166,6 +169,11 @@ def parse_native(block_response, result_response, module_names):
                 kind = "reward_vested" if reward_claim else "vesting_credit"
                 events.append(blank("gonka", block, tx, idx, kind, raw_amount,
                                     dst=a.get("participant", ""), meta={"attributes": a, "event": ev["type"]}))
+    # A payout address alone is not proof that it is the mining participant.
+    creators={tx:{m.get("creator") for m in msgs if m["type"].endswith("MsgClaimRewards")} for tx,raw,msgs in groups}
+    for event in events:
+        if event["kind"] in ("reward_paid","reward_vested") and creators.get(event["tx_hash"])=={event["dst"]}:
+            event["meta"]["mining_participant"]=event["dst"]
     return block, events
 
 def address(word):

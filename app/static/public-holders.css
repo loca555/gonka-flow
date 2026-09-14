@@ -4,3 +4,12 @@
 .holders-table{border:0;border-top:1px solid var(--line);border-radius:0;max-height:710px;overflow:auto}.holders-table table{min-width:525px;width:100%}.holders-table th{position:sticky;top:0;z-index:1;font-size:11px;padding:14px 12px;text-transform:none;letter-spacing:0}.holders-table td{padding:13px 12px;font-size:14px}.holders-table .holder-rank{color:var(--muted);font-size:12px}.holder-address button,.holder-address a{font-size:13px;white-space:nowrap}.holder-address small{display:block;font-size:11px;color:var(--muted);margin-top:3px}.holder-balance{font-weight:550}.holder-share{color:var(--muted)}.holders-note{margin:20px 0}.holders-table:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 @media(max-width:1200px){.holders-grid{grid-template-columns:1fr}.holders-table{max-height:540px}}
 @media(max-width:480px){.holders-heading{padding:18px 16px 0}.holders-heading h2{font-size:20px}.holders-summary{padding:12px 16px 18px}.holders-search{padding:0 16px}.holders-status{padding:12px 16px}.holders-count{font-size:12px}.holders-intro h1{font-size:32px}}
+
+.holder-address .holder-category{display:table;max-width:100%;border:1px solid var(--line);border-radius:4px;padding:2px 6px;margin-top:5px;font-size:11px;line-height:1.45;white-space:normal;color:var(--muted)}
+.holder-address .holder-category-investors{color:#13805b;background:#13805b12;border-color:#13805b40}
+.holder-address .holder-category-sellers{color:#bd493d;background:#bd493d12;border-color:#bd493d40}
+.holder-address .holder-category-traders{color:#386fd0;background:#386fd012;border-color:#386fd040}
+[data-theme="dark"] .holder-category-investors{color:#7ddcb0}[data-theme="dark"] .holder-category-sellers{color:#ffad99}[data-theme="dark"] .holder-category-traders{color:#9cbcff}
+
+.holder-address .holder-category-miners,.holder-address .holder-category-mining_pending{color:#8a6528;background:rgba(170,128,48,.08);border-color:rgba(170,128,48,.25)}
+[data-theme="dark"] .holder-address .holder-category-miners,[data-theme="dark"] .holder-address .holder-category-mining_pending{color:#dbb76d}

@@ -128,6 +128,47 @@ def export_public_holders(reader, db):
     return {"gonka_holders": len(rows), "gonka_holders_height": snapshot['height']}
 
 
+
+def export_holder_history(reader, db):
+    """Only public graph records; no cached labels, errors, settings or private data."""
+    if not reader.execute("SELECT 1 FROM sqlite_master WHERE name='holder_native_targets'").fetchone(): return {}
+    from .gnk_holder_history import initialize as init_history, MAX_DEPTH
+    from .db import COLS
+    init_history(db)
+    targets=[]
+    for address,depth in reader.execute('SELECT address,depth FROM holder_native_targets'):
+        if not GNK.fullmatch(address) or not 0<=depth<=MAX_DEPTH: raise ValueError('Invalid public history target')
+        targets.append((address,depth))
+    db.conn.executemany('INSERT INTO holder_native_targets VALUES(?,?)',targets)
+    checked=set()
+    for height,verified in reader.execute('SELECT height,checked_at FROM holder_native_blocks'):
+        if type(height) is not int or height<1 or (verified is not None and (type(verified) is not int or verified<1)): raise ValueError('Invalid public history block')
+        db.conn.execute('INSERT INTO holder_native_blocks VALUES(?,?,0,NULL)',(height,verified))
+        if verified: checked.add(height)
+    meta_keys={'event','attributes','mining_participant','destination','request','epoch','evidence','attribution'}
+    attr_keys={'sender','recipient','amount','msg_index','participant'}
+    for identity,height,value in reader.execute('SELECT id,height,value FROM holder_native_events'):
+        e=json.loads(value)
+        if height not in checked or e['chain']!='gonka' or e['asset']!='GNK' or e['id']!=identity or e['height']!=height or int(e['amount_raw'])<0:
+            raise ValueError('Invalid verified native event')
+        clean={k:e[k] for k in COLS};clean['trace_order']=e.get('trace_order',e['idx'])
+        clean['meta']={k:v for k,v in e['meta'].items() if k in meta_keys}
+        if 'attributes' in clean['meta']: clean['meta']['attributes']={k:v for k,v in clean['meta']['attributes'].items() if k in attr_keys}
+        db.conn.execute('INSERT INTO holder_native_events VALUES(?,?,?)',(identity,height,json.dumps(clean,sort_keys=True)))
+    # Discovery cursors and queued blocks are exported together from the same read transaction.
+    for address,depth in targets:
+        row=reader.execute('SELECT value FROM gonka_address_sync WHERE address=?',(address,)).fetchone()
+        if row:
+            state={k:v for k,v in json.loads(row[0]).items() if k in SYNC_FIELDS}
+            state.update(next_check=0,error=None)
+            db.conn.execute('INSERT OR REPLACE INTO gonka_address_sync VALUES(?,?)',(address,json.dumps(state)))
+    db.conn.commit()
+    db.put('holder_history:version',1)
+    return {key:db.conn.execute('SELECT count(*) FROM '+table).fetchone()[0] for key,table in HISTORY_TABLES.items()}
+
+HISTORY_TABLES={'gonka_history_targets':'holder_native_targets','gonka_history_blocks':'holder_native_blocks','gonka_history_events':'holder_native_events'}
+
+
 def export_seed(source, destination):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
@@ -174,6 +215,7 @@ def export_seed(source, destination):
                 db.put("flow:status", {"indexed_height":end})
                 export_provenance(reader,db)
                 holder_manifest = export_public_holders(reader,db)
+                holder_manifest.update(export_holder_history(reader,db))
                 data = analysis(db)
                 if not data["ready"] or not data["coverage"]["complete"] or not progress(db)["complete"]:
                     raise ValueError("Seed history has gaps")
@@ -195,7 +237,7 @@ def export_seed(source, destination):
                             "gonka_burn_links":db.conn.execute("SELECT COUNT(*) FROM gonka_burn_links").fetchone()[0],
                             "gonka_incoming":db.conn.execute("SELECT COUNT(*) FROM gonka_incoming").fetchone()[0],
                             "gonka_balances":db.conn.execute("SELECT COUNT(*) FROM gonka_address_balances").fetchone()[0],
-                            "gonka_scope":"Only native senders and recipients linked to included WGNK mints/burns; explorer coverage is not chain-complete proof"}
+                            "gonka_scope":"Verified bridge provenance plus public holder transfer graph; targeted history is not chain-complete proof"}
             finally:
                 db.close()
             archive = destination / "wgnk.sqlite3.gz"
@@ -235,6 +277,9 @@ def restore_seed(target, archive=DEFAULT_ARCHIVE):
                 raise ValueError("Seed integrity check failed")
             if conn.execute("SELECT COUNT(*) FROM events WHERE chain!='ethereum'").fetchone()[0]:
                 raise ValueError("Seed contains an out-of-scope chain")
+            for key,table in HISTORY_TABLES.items():
+                if key in manifest and conn.execute('SELECT count(*) FROM '+table).fetchone()[0]!=manifest[key]:
+                    raise ValueError('Native history seed disagrees with manifest')
             holder_snapshot, holder_rows = public_holder_seed(conn)
             if (len(holder_rows) != manifest.get('gonka_holders', 0)
                     or (holder_snapshot and holder_snapshot['height'] != manifest.get('gonka_holders_height'))):

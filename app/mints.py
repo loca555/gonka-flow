@@ -175,6 +175,8 @@ class MintIndexer:
         self.provenance=ProvenanceCollector(self)
         from .public_holders import NativeHolders
         self.holders=NativeHolders(self)
+        from .gnk_holder_history import HolderHistory
+        self.holder_history=HolderHistory(self)
 
     def status(self,key,**values):
         self.db.put(key,{**self.db.get(key,{}),**values})
@@ -198,7 +200,8 @@ class MintIndexer:
                 await asyncio.sleep(delay)
 
     def start(self):
-        self.tasks=[asyncio.create_task(self.loop("public_holders:GNK:status",self.holders.run,60),name="gonka_holder_census"),
+        self.tasks=[asyncio.create_task(self.loop("holder_history:status",self.holder_history.run,10),name="gonka_holder_history"),
+                    asyncio.create_task(self.loop("public_holders:GNK:status",self.holders.run,60),name="gonka_holder_census"),
                     asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),
                     asyncio.create_task(self.loop("mints:history",self.history,2),name="wgnk_mints_history"),
                     asyncio.create_task(self.loop("flow:status",self.flows.run,15),name="wgnk_market_flow"),

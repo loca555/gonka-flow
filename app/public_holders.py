@@ -1,8 +1,10 @@
 """Public holder snapshots: exact balances, threshold 10,000, no private labels."""
 import time
+import json
 from datetime import datetime
 from .config import ZERO
-from .holders import GNK_ADDRESS, metadata
+from .holders import GNK_ADDRESS, ETH_ADDRESS, metadata
+from .holder_groups import category
 from .flows import market_packet, market_rows, history_end, balances
 from .timezones import TIME_ZONE
 
@@ -16,6 +18,8 @@ CREATE TABLE IF NOT EXISTS public_gnk_holder_stage(address TEXT PRIMARY KEY, bal
 
 def initialize(db):
     db.conn.executescript(SCHEMA)
+    from .gnk_holder_history import initialize as initialize_history
+    initialize_history(db)
 
 def listing(db, asset, query='', limit=25, offset=0):
     result = dict(asset=asset, minimum=MINIMUM, ready=False, items=[], total=None,
@@ -30,14 +34,31 @@ def listing(db, asset, query='', limit=25, offset=0):
             return result
         if not packet and history_end(db, start, snapshot['height']) != snapshot['height']:
             return result
-        ledger, minted, burned = balances(market_rows(db, start, snapshot, packet))
+        rows = market_rows(db, start, snapshot, packet)
+        ledger, minted, burned = balances(rows)
         supply = int(snapshot['supply_raw'])
         if (any(raw < 0 for raw in ledger.values()) or ledger.get(ZERO, 0) != 0
                 or sum(ledger.values()) != supply or minted - burned != supply):
             return result
         pools = {p['address'] for p in snapshot['pools']}
-        items = [dict(address=a, balance_raw=str(raw), pool=a in pools)
-                 for a, raw in ledger.items() if raw >= MINIMUM_RAW]
+        activity = {}
+        for event in rows:
+            if (event['kind'] not in ('buy', 'sell') or event['pool'] not in pools
+                    or not ETH_ADDRESS.fullmatch(event['actor'] or '') or event['actor'] == ZERO
+                    or json.loads(event['meta']).get('attribution') != 'initiator_net'):
+                continue
+            volume = activity.setdefault(event['actor'], {'buy': 0, 'sell': 0})
+            volume[event['kind']] += int(event['amount_raw'])
+        items = []
+        for address, raw in ledger.items():
+            if raw < MINIMUM_RAW:
+                continue
+            volume = activity.get(address, {'buy': 0, 'sell': 0})
+            items.append(dict(address=address, balance_raw=str(raw), pool=address in pools,
+                              category='pool' if address in pools else category(volume['buy'], volume['sell']),
+                              bought_raw=str(volume['buy']), sold_raw=str(volume['sell'])))
+        result['classification'] = dict(period='all_history', threshold='strictly_more_than_90_percent',
+                                        scope='verified_WGNK_swaps', height=snapshot['height'])
         result['snapshot'] = {k: snapshot[k] for k in ('height', 'ts', 'hash')}
     else:
         snapshot = db.get('public_holders:GNK')
@@ -46,7 +67,12 @@ def listing(db, asset, query='', limit=25, offset=0):
         result['collector'] = db.get('public_holders:GNK:status', {})
         if not snapshot:
             return result
-        items = [dict(r) for r in db.conn.execute('SELECT address,balance_raw FROM public_gnk_holders')]
+        classifications=db.get('holder_history:classification',{})
+        labels=classifications.get('items',{})
+        items = [dict(**dict(r), **labels.get(r['address'],dict(category='unknown',classification_note='Проверяем историю переводов GNK и операции на стороне WGNK.')))
+                 for r in db.conn.execute('SELECT address,balance_raw FROM public_gnk_holders')]
+        result['classification']={k:v for k,v in classifications.items() if k!='items'}
+        result['history_progress']=db.get('holder_history:progress')
         supply = int(snapshot['supply_raw'])
         result['snapshot'] = snapshot
     items.sort(key=lambda r: (-int(r['balance_raw']), r['address']))
