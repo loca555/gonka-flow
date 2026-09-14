@@ -8,6 +8,7 @@ from hashlib import sha256
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
+from datetime import date as calendar_date
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -155,12 +156,13 @@ def create_app(settings=None):
                                        snapshot_hash=snapshot_hash.lower()))
 
     @app.get("/api/mints/leaders")
-    async def mint_leaders(request:Request):
+    async def mint_leaders(request:Request,start_date:calendar_date | None=Query(None)):
+        start_date=start_date.isoformat() if start_date else None
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        key=("trade_leaders",)
+        key=("trade_leaders",start_date)
         if len(cache)>1000: cache.clear()
         if key not in cache or time.time()-cache[key][0]>8:
-            cache[key]=(time.time(),trade_leaders(request.app.state.db))
+            cache[key]=(time.time(),trade_leaders(request.app.state.db,start_date=start_date))
         return cache[key][1]
 
     @app.get("/api/mints/address/{address}")

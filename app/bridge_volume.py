@@ -82,6 +82,18 @@ def bridge_daily(rows, through):
                            "method": "subtract_verified_startup_liquidity_from_same_day_bridge_inflow"}}
 
 
+def bridge_since(bridge, start_date):
+    """Filter verified whole days after the full-history startup adjustment."""
+    if not start_date or not bridge or not bridge["ready"]:
+        return bridge
+    days = [day for day in bridge["daily"] if day["date"] >= start_date]
+    totals = {key: sum(int(day[key]) for day in days) for key in FIELDS}
+    adjustment = {**bridge["adjustment"], "amount_raw": str(totals["pool_funding_raw"])}
+    if not totals["pool_funding_raw"]:
+        adjustment["deposits"] = []
+    return {**bridge, "daily": days, "totals": public_volume(totals), "adjustment": adjustment}
+
+
 def bridge_price_bands(bridge, winners, step):
     """Assign each day's entire bridge volume once, using the common trade winner."""
     if not bridge or not bridge["ready"]:

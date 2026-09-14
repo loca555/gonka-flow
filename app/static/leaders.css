@@ -48,3 +48,10 @@
 .price-bridge-stats{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
 .price-bridge-stats>span{margin-bottom:4px}.price-bridge-stats>div{display:flex;justify-content:space-between;gap:14px;align-items:baseline;line-height:1.65}
 .price-bridge-stats b{font-size:13px;font-weight:550;font-variant-numeric:tabular-nums;white-space:nowrap}.bridge-in{color:var(--trade-buy)}.bridge-out{color:var(--trade-sell)}
+
+.leader-period-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:18px 0}
+.leader-period-controls label{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:14px;color:var(--muted)}
+.leader-period-controls input{min-width:150px;font-variant-numeric:tabular-nums;cursor:pointer}
+.leader-period-controls small{flex-basis:100%;color:var(--muted);font-size:12px}
+.leader-period-controls button:disabled{opacity:.45;cursor:default}
+@media(max-width:480px){.leader-period-controls label{width:100%;justify-content:space-between}.leader-period-controls input{min-width:0;max-width:65%}}

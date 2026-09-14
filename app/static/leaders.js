@@ -1,6 +1,26 @@
 /* Gross attributed swap volume, not holder balances, profit or beneficial ownership. */
 (()=>{
- const ranking={data:null,loading:false,request:0,priceStep:'5',sort:{buy:'volume_desc',sell:'volume_desc'}};
+ const ranking={data:null,loading:false,request:0,startDate:'',priceStep:'5',sort:{buy:'volume_desc',sell:'volume_desc'}};
+ const dateInput=el('leaders-start-date'),dateStorageKey='gonka-leaders-start-date';
+ try{dateInput.value=localStorage.getItem(dateStorageKey)||'';}catch{}
+ ranking.startDate=dateInput.value;
+ const periodLabel=value=>value?'С '+value.split('-').reverse().join('.'):'Вся история';
+ function showPeriod(){
+  el('leaders-period').textContent=periodLabel(ranking.startDate);
+  el('leaders-period-reset').disabled=!ranking.startDate&&!dateInput.value;
+ }
+ function applyPeriod(value){
+  dateInput.value=value;
+  if(value===ranking.startDate){showPeriod();if(!ranking.data?.ready)refresh();return;}
+  ranking.startDate=value;
+  try{if(value)localStorage.setItem(dateStorageKey,value);else localStorage.removeItem(dateStorageKey);}catch{}
+  showPeriod();refresh(true);
+ }
+ el('leaders-period-form').addEventListener('submit',event=>{event.preventDefault();if(dateInput.reportValidity())applyPeriod(dateInput.value);});
+ el('leaders-period-reset').addEventListener('click',()=>applyPeriod(''));
+ dateInput.addEventListener('input',()=>{el('leaders-period-reset').disabled=!ranking.startDate&&!dateInput.value;});
+ dateInput.addEventListener('click',()=>{try{dateInput.showPicker?.();}catch{}});
+ showPeriod();
  const sides=[{key:'buy',list:'buyers',title:'Крупнейшие покупатели',verb:'Куплено',label:'Покупки'},
               {key:'sell',list:'sellers',title:'Крупнейшие продавцы',verb:'Продано',label:'Продажи'}];
  el('leaders-content').innerHTML='<div class="leader-price-controls"><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><p class="leader-days-note">Один день — один диапазон с наибольшим общим объёмом покупок и продаж. Дни без сделок не учитываются · время Кипра.</p><details id="leaders-bridge-note" class="leader-bridge-note"></details><div class="leaders-grid">'+sides.map(side=>
@@ -58,7 +78,7 @@
    if(peak){
     const average=BigInt(total.quote_raw)*1000000000000000n/BigInt(total.volume_raw);
     setLiveHTML(summary,'<div><span>Больше всего объёма</span><strong>'+GonkaChart.priceRange(peak.from_price_raw,peak.to_price_raw)+' <small>USDT</small></strong><small>'+GonkaChart.formatShare(peak.volume_raw,total.volume_raw)+' объёма · '+amount(peak.volume)+' WGNK</small></div>'+
-     '<div><span>Средневзвешенная цена</span><strong>'+GonkaChart.formatPrice(average)+' <small>USDT</small></strong><small>за 1 WGNK · вся история</small></div>');
+     '<div><span>Средневзвешенная цена</span><strong>'+GonkaChart.formatPrice(average)+' <small>USDT</small></strong><small>за 1 WGNK · '+esc(periodLabel(data.start_date).toLowerCase())+'</small></div>');
    }
   }
  }
@@ -88,7 +108,7 @@
     '<td class="numeric" title="'+esc(row.quote)+' USDT">'+esc(amount(row.quote))+'</td>'+
     '<td class="numeric price-value" title="Средневзвешенная цена за 1 WGNK">'+esc(price(row.average_price))+'</td>'+
     '<td class="numeric" title="'+count(row.transactions)+' транзакций">'+count(row.swaps)+'</td></tr>';
-  }).join(''):'<tr><td colspan="6" class="empty">Пока нет сделок с подтверждённой привязкой к адресу.</td></tr>');
+  }).join(''):'<tr><td colspan="6" class="empty">Пока нет сделок с подтверждённой привязкой к адресу за выбранный период.</td></tr>');
   scroll.scrollTop=top;scroll.scrollLeft=left;
  }
  function render(data){
@@ -107,13 +127,19 @@
   el('leaders-excluded').textContent='Не вошли в рейтинг: покупки '+amount(data.excluded.buy.volume)+' WGNK ('+count(data.excluded.buy.swaps)+
    ' исполнений) и продажи '+amount(data.excluded.sell.volume)+' WGNK ('+count(data.excluded.sell.swaps)+' исполнений) — адрес участника не подтверждён.';
  }
- async function refresh(){
-  if(ranking.loading)return;
-  const id=++ranking.request,controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
+ async function refresh(periodChanged=false){
+  if(ranking.loading&&!periodChanged)return;
+  ranking.abort?.abort();
+  if(periodChanged){
+   ranking.data=null;el('leaders-content').hidden=true;el('leaders-excluded').hidden=true;
+   for(const side of sides)el('leaders-'+side.key+'-table').parentElement.scrollTop=0;
+  }
+  const id=++ranking.request,controller=ranking.abort=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
   ranking.loading=true;
   if(!ranking.data){el('leaders-view').setAttribute('aria-busy','true');el('leaders-status').textContent='Считаем крупнейших покупателей и продавцов…';}
   try{
-   const response=await fetch('/api/mints/leaders',{signal:controller.signal});
+   const query=ranking.startDate?'?'+new URLSearchParams({start_date:ranking.startDate}):'';
+   const response=await fetch('/api/mints/leaders'+query,{signal:controller.signal});
    if(!response.ok)throw new Error('HTTP '+response.status);
    const data=await response.json();if(id!==ranking.request)return;
    if(ranking.data?.ready&&!data.ready){el('leaders-status').textContent='Сервис восстанавливает снимок. Последний проверенный рейтинг сохранён; повторим автоматически.';return;}

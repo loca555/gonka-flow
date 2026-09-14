@@ -1,17 +1,19 @@
 """Address leaderboards and price distributions from the same verified swap snapshot."""
 import re
+from datetime import date, datetime, time
 from .config import ZERO
 from .db import tokens
 from .flows import analysis, price_raw
-from .timezones import local_day
-from .bridge_volume import bridge_price_bands
+from .timezones import CYPRUS, local_day
+from .bridge_volume import bridge_price_bands, bridge_since
 
 
-def trade_leaders(db):
+def trade_leaders(db, start_date=None):
+    since = int(datetime.combine(date.fromisoformat(start_date), time.min, CYPRUS).timestamp()) if start_date else None
     data = analysis(db, side="all", limit=None, include_bridge=True)
     result = {key: data[key] for key in ("ready", "now", "timezone", "snapshot", "coverage", "status", "pools")}
     result.update(buyers=[], sellers=[], summary=None, excluded=None, price_distribution=None, price_days=None, price_bridge=None, bridge=None,
-                  attribution="initiator_net", period="all_history",
+                  attribution="initiator_net", period="since_date" if start_date else "all_history", start_date=start_date, since=since,
                   scope="All addresses in tracked pools; gross swap volume attributed by transaction-wide WGNK net-flow direction")
     if not data["ready"]:
         return result
@@ -20,6 +22,8 @@ def trade_leaders(db):
     day_bins = {step: {} for step in price_bins}
     excluded = {side: {"volume_raw": 0, "quote_raw": 0, "swaps": 0} for side in groups}
     for event in data["trades"]:
+        if since is not None and event["ts"] < since:
+            continue
         side, address = event["kind"], event["actor"]
         quantity, quote = int(event["amount_raw"]), int(event["quote_raw"])
         if event["attribution"] != "initiator_net" or not re.fullmatch("0x[0-9a-f]{40}", address or "") or address == ZERO:
@@ -53,7 +57,7 @@ def trade_leaders(db):
     # Recompute at each step: merging 5-cent winners would give wrong 10-cent days.
     # Equal volumes choose the lower band, independently of event ordering.
     price_days, price_bridge = {}, {}
-    bridge = data.get("bridge")
+    bridge = bridge_since(data.get("bridge"), start_date)
     if bridge:
         result["bridge"] = {key: value for key, value in bridge.items() if key != "daily"}
     for step, days in day_bins.items():
