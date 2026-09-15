@@ -107,10 +107,14 @@
 
 .address-tooltip-sides .address-day-price{grid-column:1/-1;text-align:right;margin-top:2px}.address-tooltip-sides .address-day-price b{font-size:12px}
 
-/* +/-2% liquidity band lines on the market chart (own scales, dashed). */
-.market-band-wgnk{fill:none;stroke:var(--up,#167f73);stroke-width:1.6;stroke-dasharray:5 4;opacity:.85}
-.market-band-usdt{fill:none;stroke:var(--warn,#c28632);stroke-width:1.6;stroke-dasharray:2 4;opacity:.85}
-.market-tooltip-band{display:flex;flex-direction:column;gap:1px;border-top:1px dashed var(--line,#d9e1ea);margin-top:4px;padding-top:4px}
+/* +/-2% liquidity band lines: halo underlay keeps them visible over bars. */
+.market-band-wgnk{fill:none;stroke:var(--up,#167f73);stroke-width:2.2;stroke-dasharray:7 4}
+.market-band-usdt{fill:none;stroke:var(--warn,#c28632);stroke-width:2.2;stroke-dasharray:2 5}
+.market-band-wgnk-halo{fill:none;stroke:var(--bg,#f5f7fa);stroke-width:5;opacity:.75}
+.market-band-usdt-halo{fill:none;stroke:var(--bg,#f5f7fa);stroke-width:5;opacity:.75}
+.chart-band-now{font-size:11px;fill:var(--muted,#526477)}
+.market-tooltip-band{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line,#d9e1ea);margin-top:5px;padding-top:5px}
+.market-tooltip-band b{font-size:13px}
 .band-key{font-size:11px;color:var(--muted,#526477)}
 .band-key.wgnk::before{content:"";display:inline-block;width:14px;height:0;border-top:2px dashed var(--up,#167f73);margin-right:4px;vertical-align:middle}
 .band-key.usdt::before{content:"";display:inline-block;width:14px;height:0;border-top:2px dotted var(--warn,#c28632);margin-right:4px;vertical-align:middle}

@@ -158,8 +158,12 @@ window.GonkaChart=(()=>{
    segment=[];
   };
   rows.forEach((r,i)=>{if(r.price===null)draw();else segment.push(i);});draw();
-  if(uPath.length>1)svg+='<path class="market-band-usdt" d="'+uPath.join(" ")+'"/>';
-  if(wPath.length>1)svg+='<path class="market-band-wgnk" d="'+wPath.join(" ")+'"/>';
+  if(uPath.length>1){svg+='<path class="market-band-usdt-halo" d="'+uPath.join(" ")+'"/><path class="market-band-usdt" d="'+uPath.join(" ")+'"/>';}
+  if(wPath.length>1){svg+='<path class="market-band-wgnk-halo" d="'+wPath.join(" ")+'"/><path class="market-band-wgnk" d="'+wPath.join(" ")+'"/>';}
+  if(bandByDate&&(wPath.length>1||uPath.length>1)){
+   const last=bandByDate.get(rows[rows.length-1].date);
+   if(last)svg+='<text class="chart-band-now" x="'+(W-right)+'" y="'+(W<500?52:32)+'" text-anchor="end">±2%: '+escape(exact(BigInt(last.wgnk_raw),9))+' WGNK · '+escape(exact(BigInt(last.usdt_raw),6))+' USDT</text>';
+  }
   const ticks=Math.min(rows.length,W<500?4:7);
   for(let i=0;i<ticks;i++){
    const index=ticks===1?0:Math.round(i*(rows.length-1)/(ticks-1));
