@@ -446,5 +446,5 @@ window.GonkaChart=(()=>{
    if(event.key==='Home')show(0);if(event.key==='End')show(rows.length-1);if(event.key==='Escape')hide();
   });
  }
- return {render,renderMarket,renderAddress,renderGroups,renderPriceBands,priceRange,formatShare,exact,formatPrice};
+ return {render,renderMarket,renderLiquidity,renderAddress,renderGroups,renderPriceBands,priceRange,formatShare,exact,formatPrice};
 })();
