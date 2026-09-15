@@ -183,8 +183,11 @@ def aggregate(db):
     def powder_of(address):
         return sum(max(0, v[0]) for v in stable.get(address, {}).values())
 
+    # Exchange and hub senders are distribution infrastructure even when they
+    # trade; their balances must not count as personal dry powder.
+    own_buyers = buyers - excluded
     buy_rows = []
-    for address in buyers:
+    for address in own_buyers:
         own = powder_of(address)
         # A funder's dry-powder contribution is capped by what it actually sent
         # to this buyer: a whale's one-off transfer must not add its whole balance.
@@ -200,12 +203,13 @@ def aggregate(db):
     escrow_raw = int((db.get("escrow") or {}).get("data", {}).get("amount", 0))
     buy_own = sum(int(r["own_raw"]) for r in buy_rows)
     buy_chain = sum(int(r["chain_raw"]) for r in buy_rows)
+    buy_rows = sorted(buy_rows, key=lambda r: -(int(r["own_raw"]) + int(r["chain_raw"])))
     sell_wgnk = sum(int(r["wgnk_raw"]) for r in sell_rows)
     sell_gnk = sum(int(r["gnk_raw"]) for r in sell_rows)
     heights = {h for by_address in stable.values() for _, h in by_address.values()}
     return {"ready": True, "height": snapshot["height"], "ts": snapshot.get("ts"),
             "stable_height": max(heights) if heights else None,
-            "buyers": sorted(buy_rows, key=lambda r: -(int(r["own_raw"]) + int(r["chain_raw"]))),
+            "buyers": buy_rows,
             "sellers": sorted(sell_rows, key=lambda r: -(int(r["wgnk_raw"]) + int(r["gnk_raw"]))),
             "exchanges": sorted(EXCHANGES.items()),
             "totals": {"buy_own_raw": str(buy_own), "buy_chain_raw": str(buy_chain),

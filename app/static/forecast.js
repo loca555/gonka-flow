@@ -34,8 +34,8 @@
   el('powder-buy').innerHTML='<h3>Порох покупателей</h3><div class="total">'+usd(t.buy_own_raw)+
    ' <span class="unit">USDT-экв.</span></div><p class="unit">собственный + '+usd(t.buy_chain_raw)+' в цепочках финансирования</p>'+
    '<ul class="powder-list">'+(buyers||'<li><small>Нет адресов над порогом.</small></li>')+'</ul>';
-  el('powder-sell').innerHTML='<h3>Запасы продавцов</h3><div class="total">'+wgnk(t.sell_wgnk)+
-   ' <span class="unit">WGNK</span></div><p class="unit">+ '+wgnk(t.sell_gnk)+' GNK у мост-источников · эскроу '+wgnk(t.escrow_raw)+' GNK</p>'+
+  el('powder-sell').innerHTML='<h3>Запасы продавцов</h3><div class="total">'+wgnk(t.sell_wgnk_raw)+
+   ' <span class="unit">WGNK</span></div><p class="unit">+ '+wgnk(t.sell_gnk_raw)+' GNK у мост-источников · эскроу '+wgnk(t.escrow_raw)+' GNK</p>'+
    '<ul class="powder-list">'+(sellers||'<li><small>Нет адресов над порогом.</small></li>')+'</ul>';
  }
  async function askModel(){
