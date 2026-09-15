@@ -67,10 +67,16 @@ def progress(db):
                 source='indexed discovery; targeted native block/results verification')
 
 class HolderHistory:
+    # Recomputing labels is the heaviest routine job; on a shared free CPU it must
+    # run only after verification actually added blocks, and never more often than
+    # this. HOLDERS_LABELS_ENABLED=false idles the whole loop.
+    CLASSIFY_MIN_INTERVAL = 600
+
     def __init__(self,owner):
         self.owner,self.db=owner,owner.db
         initialize(self.db)
         self.last_estimate=0
+        self.verified_signature=None
         self.history_turn=False
         if not self.db.get('holder_history:version'):
             # Existing incoming-only caches need a new pass to discover outgoing txs.
@@ -80,6 +86,18 @@ class HolderHistory:
                     self.db.conn.execute('UPDATE gonka_address_sync SET value=? WHERE address=?',(json.dumps(state),row[0]))
                 self.db.conn.execute('INSERT OR IGNORE INTO holder_native_blocks(height) SELECT DISTINCT height FROM gonka_incoming')
             self.db.put('holder_history:version',1)
+
+    async def maybe_classify(self):
+        if time.monotonic()-self.last_estimate < self.CLASSIFY_MIN_INTERVAL:
+            return
+        rows=self.db.conn.execute(
+            'SELECT count(*),count(checked_at),coalesce(max(checked_at),0) FROM holder_native_blocks').fetchone()
+        signature=tuple(rows)
+        if self.verified_signature is not None and signature==self.verified_signature:
+            return
+        await self.classify()
+        self.verified_signature=signature
+        self.last_estimate=time.monotonic()
 
     async def balance(self):
         snapshot=self.db.get('public_holders:GNK')
@@ -140,9 +158,9 @@ class HolderHistory:
     async def run(self):
         collector=self.owner.provenance
         if collector.modules is None: return 5
-        if time.monotonic()-self.last_estimate>=30:
-            await self.classify()
-            self.last_estimate=time.monotonic()
+        if not getattr(self.owner.cfg,'holders_labels_enabled',True):
+            return 600
+        await self.maybe_classify()
         now=int(time.time())
         self.history_turn=not self.history_turn
         direction='ASC' if self.history_turn else 'DESC'
@@ -153,7 +171,7 @@ class HolderHistory:
         pending=[r[0] for r in self.db.conn.execute(
             'SELECT height FROM holder_native_blocks WHERE checked_at IS NULL AND retry_at<=? ORDER BY height '+direction+' LIMIT 400',(now,))]
         pending.sort(key=lambda h:(h not in root_blocks,h if direction=='ASC' else -h))
-        rows=pending[:10]
+        rows=pending[:5]
         for offset in range(0,len(rows),5):
             heights=rows[offset:offset+5]
             try:
@@ -185,7 +203,4 @@ class HolderHistory:
                         self.db.conn.execute('UPDATE holder_native_blocks SET retry_at=?,error=? WHERE height=?',(now+600,str(error)[:200],height))
         await self.balance()
         self.db.put('holder_history:progress',progress(self.db))
-        if time.monotonic()-self.last_estimate>=30:
-            await self.classify()
-            self.last_estimate=time.monotonic()
-        return 1 if rows else 10
+        return 3 if rows else 20
