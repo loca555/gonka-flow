@@ -38,28 +38,46 @@
    ' <span class="unit">WGNK</span></div><p class="unit">+ '+wgnk(t.sell_gnk_raw)+' GNK у мост-источников · эскроу '+wgnk(t.escrow_raw)+' GNK</p>'+
    '<ul class="powder-list">'+(sellers||'<li><small>Нет адресов над порогом.</small></li>')+'</ul>';
  }
+ const llm={busy:false};
  async function askModel(){
+  if(llm.busy){el('forecast-llm-status').textContent='Запрос уже выполняется…';return;}
   const key=el('forecast-llm-key').value.trim();
   const status=el('forecast-llm-status');
   if(!key){status.textContent='Введите ключ API.';return;}
   try{localStorage.setItem(KEY_STORAGE,key);}catch{}
-  status.textContent='Спрашиваем модель…';
   const data=state.data;
   if(!data?.ready){status.textContent='Снимок прогноза ещё не готов.';return;}
   const body=JSON.stringify({model:MODEL,temperature:0,max_tokens:800,messages:[{role:'user',content:buildPrompt(data)}]});
-  let reply=null;
-  const response=await fetch(OPENBROKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body});
-  if(!response.ok){
-   let detail='HTTP '+response.status;
-   try{const payload=await response.json();detail+=': '+(payload.error?.message||payload.error||payload.detail||'');}catch{}
-   if(response.status===429)detail+=' · лимит запросов ключа OpenBroker: подождите минуту и повторите, либо проверьте квоту/тариф ключа';
-   if(response.status===401)detail='Ключ не принят (401): проверьте, что скопировали ключ OpenBroker целиком';
-   throw new Error(detail);
-  }
-  reply=(await response.json()).choices?.[0]?.message?.content?.trim();
-  el('forecast-llm-reply').hidden=false;
-  el('forecast-llm-reply').textContent=reply||'(пустой ответ)';
-  status.textContent='Готово · прямой вызов из браузера · модель '+MODEL;
+  llm.busy=true;el('forecast-llm-ask').disabled=true;
+  try{
+   const ask=async()=>{
+    const response=await fetch(OPENBROKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body});
+    if(!response.ok){
+     let detail='HTTP '+response.status;
+     let concurrent=false;
+     try{const payload=await response.json();
+      const message=payload.error?.message||String(payload.error||payload.detail||'');
+      detail+=': '+message;concurrent=/concurrent/i.test(message);
+     }catch{}
+     if(response.status===429&&!concurrent)detail+=' · лимит запросов ключа OpenBroker: подождите минуту и повторите, либо проверьте квоту/тариф ключа';
+     if(response.status===401)detail='Ключ не принят (401): проверьте, что скопировали ключ OpenBroker целиком';
+     const error=new Error(detail);error.concurrent=concurrent;error.status=response.status;throw error;
+    }
+    return (await response.json()).choices?.[0]?.message?.content?.trim();
+   };
+   let reply;
+   try{reply=await ask();}
+   catch(first){
+    if(first.status===429&&first.concurrent){
+     status.textContent='Занято параллельным запросом, повторяем через 3 с…';
+     await new Promise(r=>setTimeout(r,3000));
+     reply=await ask();
+    }else throw first;
+   }
+   el('forecast-llm-reply').hidden=false;
+   el('forecast-llm-reply').textContent=reply||'(пустой ответ)';
+   status.textContent='Готово · прямой вызов из браузера · модель '+MODEL;
+  }finally{llm.busy=false;el('forecast-llm-ask').disabled=false;}
  }
  function buildPrompt(data){
   const rules=(data.rules||[]).map(r=>r.name+'='+r.score.toFixed(2)).join('; ');
