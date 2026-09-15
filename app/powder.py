@@ -248,7 +248,9 @@ def aggregate(db):
     sell_wgnk = sum(int(r["wgnk_raw"]) for r in sell_rows)
     sell_gnk = sum(int(r["gnk_raw"]) for r in sell_rows)
     heights = {h for by_address in stable.values() for _, h in by_address.values()}
+    covered = sum(1 for r in buy_rows if stable.get(r["address"]))
     return {"ready": True, "height": snapshot["height"], "ts": snapshot.get("ts"),
+            "balance_coverage": {"covered": covered, "qualified": len(buyers)},
             "stable_height": max(heights) if heights else None,
             "buyers": buy_rows,
             "sellers": sorted(sell_rows, key=lambda r: -(int(r["wgnk_raw"]) + int(r["gnk_raw"]))),
@@ -419,7 +421,8 @@ class PowderCollector:
             return
         rows = {r[0]: r[1] for r in self.db.conn.execute(
             "SELECT address, MAX(updated_at) FROM powder_balances GROUP BY address")}
-        order = sorted(wanted, key=lambda a: rows.get(a, 0))[:MAX_BALANCE_ADDRESSES]
+        # Tracked participants (the holders themselves) refresh before funders.
+        order = sorted(wanted, key=lambda a: (a not in tracked, rows.get(a, 0)))[:MAX_BALANCE_ADDRESSES]
         now = int(time.time())
         for address in order[:limit]:
             for name, (contract, _) in STABLES.items():

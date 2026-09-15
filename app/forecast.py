@@ -106,22 +106,27 @@ def snapshot(db):
                       "explanation": explanation})
 
     # 1. Dry powder versus seller overhang at the current price.
-    if powder.get("ready"):
+    if not powder.get("ready"):
+        add("powder", "Порох против запасов", 0, "Порох ещё не собран")
+    else:
         totals = powder["totals"]
+        coverage = powder.get("balance_coverage") or {}
+        covered, qualified = coverage.get("covered", 0), coverage.get("qualified", 0)
         powder_raw = int(totals["buy_own_raw"]) + int(totals["buy_chain_raw"])
         overhang = int(totals["sell_wgnk_raw"]) + int(totals["escrow_raw"]) + int(totals["sell_gnk_raw"])
         overhang_raw = overhang * price // 10**15  # 1e9-raw GNK x 1e12-raw price -> 1e6-raw USDT
-        ratio = powder_raw / overhang_raw if overhang_raw else None
-        if ratio is None:
+        if qualified and (covered < 3 or covered * 2 < qualified):
+            add("powder", "Порох против запасов", 0,
+                f"Балансы держателей обновляются ({covered} из {qualified}) — правило пока не голосует")
+        elif not overhang_raw:
             add("powder", "Порох против запасов", 0,
                 f"Порох {tokens(powder_raw, 6)} USDT-экв; запасы продавцов не оценены")
         else:
+            ratio = powder_raw / overhang_raw
             score = 1 if ratio >= 2 else .5 if ratio >= 1 else -.5 if ratio >= .5 else -1
             add("powder", "Порох против запасов", score,
                 f"Порох {tokens(powder_raw, 6)} USDT-экв против запасов ≈{tokens(overhang_raw, 6)} "
                 f"USDT-экв (отношение {ratio:.2f})")
-    else:
-        add("powder", "Порох против запасов", 0, "Порох ещё не собран")
 
     # 2. Net buy pressure in verified swaps.
     flows = _flow_windows(db, now)
