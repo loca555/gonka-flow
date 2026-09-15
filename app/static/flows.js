@@ -77,7 +77,7 @@
   '<p id="sales-result" class="search-result" role="status" aria-live="polite">Загружаем сделки всех адресов…</p>'+
   '<section class="metrics sales-metrics" aria-label="Итоги сделок"><article><span><span id="flow-volume-label">Оборот торгов</span> <small>WGNK</small></span><strong id="flow-sold">—</strong><dl id="flow-volume-breakdown" class="trade-breakdown" hidden></dl><p id="flow-sales-count"></p></article><article><span><span id="flow-quote-label">Оборот USDT</span> <small>USDT</small></span><strong id="flow-proceeds">—</strong><dl id="flow-quote-breakdown" class="trade-breakdown" hidden></dl><p id="flow-quote-note">Сумма USDT по покупкам и продажам, не прибыль</p></article><article><span><span id="flow-price-label">Средняя цена за 1 WGNK</span> <small>USDT</small></span><strong id="flow-price">—</strong><dl id="flow-price-breakdown" class="trade-breakdown" hidden></dl><p>Взвешено по объёму WGNK</p></article></section>'+
   '<p id="trade-explanation" class="flow-explanation">Это валовой оборот: одни и те же токены могут продаваться повторно. Цена = USDT на выходе пула / WGNK на входе, без газа и возможных комиссий маршрутизатора. Другие DEX, CEX и внебиржевые сделки не учтены. Обычные переводы не обозначаются продажами.</p>'+
-  '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="band-key wgnk">±2% · WGNK</span><span class="band-key usdt">±2% · USDT</span><span class="trade-key buy" data-chart-side="buy">Покупки</span><span class="trade-key sell" data-chart-side="sell">Продажи</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 WGNK · столбцы: покупки + продажи WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+
+  '<article class="panel sales-chart-panel"><div class="panel-title"><div><h2 id="sales-chart-title">Цена и объём торгов</h2><p>По дням · все адреса с учётом фильтров сделок</p></div><div class="market-chart-legend"><span class="price-key">Линия · цена</span><span class="trade-key buy" data-chart-side="buy">Покупки</span><span class="trade-key sell" data-chart-side="sell">Продажи</span></div></div><div id="sales-chart" class="interactive-chart"></div><div class="chart-footer"><span id="sales-chart-note">Цена: USDT за 1 WGNK · столбцы: покупки + продажи WGNK</span><span>Наведите курсор или коснитесь графика</span></div></article>'+'<article class="panel sales-chart-panel liquidity-panel"><div class="panel-title"><div><h2>Ликвидность пула 30 б.п.</h2><p>Глубина книги в диапазоне от цены закрытия дня · выберите уровни</p></div><div class="liquidity-controls"><label class="liq-key liq-k2"><input type="checkbox" data-liq-level="2" checked> ±2%</label><label class="liq-key liq-k5"><input type="checkbox" data-liq-level="5"> ±5%</label><label class="liq-key liq-k10"><input type="checkbox" data-liq-level="10"> ±10%</label><label class="liq-key liq-k20"><input type="checkbox" data-liq-level="20"> ±20%</label><select data-liq-side aria-label="Сторона ликвидности"><option value="wgnk">WGNK</option><option value="usdt">USDT</option></select></div></div><div id="liquidity-chart" class="interactive-chart"></div><div class="chart-footer"><span>Уровень ±N% — пара вокруг цены: ликвидность, которую встретит движение цены вверх и вниз</span><span>Наведите курсор для значений всех выбранных уровней</span></div></article>'+
   '<div class="section-heading sales-table-heading"><div><h2><span id="trades-table-title">Торговля</span> <span id="sales-total"></span></h2><p>Одна строка — одно исполнение Swap в пуле. Покупки и продажи показаны вместе по умолчанию.</p></div></div>'+
   '<form id="sales-volume-filter" class="volume-filter" aria-label="Фильтры сделок"><label for="sales-side">Сделки <select id="sales-side"><option value="all">Покупки и продажи</option><option value="sell">Только продажи</option><option value="buy">Только покупки</option></select></label><label for="sales-minimum">Объём от <input id="sales-minimum" type="number" min="0" max="1000000000000" step="1" value="0" inputmode="numeric" title="Минимальный объём в целых WGNK; 0 — любой объём"> <span>WGNK</span></label><button type="submit">Применить</button><button type="button" data-volume-reset disabled>Сбросить</button></form>' +
   '<div class="table-container"><table id="trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="actor" data-default="asc">Адрес / инициатор</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="sales-rows"></tbody></table></div>'+
@@ -129,9 +129,8 @@
   ui("sales-chart-title").textContent="Цена и объём "+(data.side==="all"?"торгов":data.side==="buy"?"покупок":"продаж");
   document.querySelectorAll("[data-chart-side]").forEach(key=>{key.hidden=data.side!=="all"&&key.dataset.chartSide!==data.side;});
   const market=ui("sales-chart");
-  const bandPool=(data.pools||[]).find(p=>p.fee===3000);
-  const band=data.liquidity_band&&bandPool?data.liquidity_band[bandPool.address]:null;
-  renderLiveChart(market,[data.daily,data.side,band],()=>GonkaChart.renderMarket(market,data.daily,{side:data.side,band}));
+  renderLiveChart(market,[data.daily,data.side],()=>GonkaChart.renderMarket(market,data.daily,{side:data.side}));
+  renderLiquidityChart(data);
   ui("sales-chart-note").textContent="Средневзвешенная цена: USDT за 1 WGNK · "+(data.side==="all"?"столбцы: покупки + продажи WGNK":"объём: WGNK");
  }
  function renderBreakdown(id,visible,rows){
@@ -296,6 +295,35 @@
   finally{clearTimeout(timer);if(id===flow.request){flow.loading=false;flow.foreground=false;ui("sales-search").setAttribute("aria-busy","false");renderPagination(pageMessage);}}
  }
  mount();refresh();
+ const LIQ_LEVELS_KEY='gonka-liquidity-levels',LIQ_SIDE_KEY='gonka-liquidity-side';
+ function liquiditySelection(){
+  let levels;let side;
+  try{levels=JSON.parse(localStorage.getItem(LIQ_LEVELS_KEY))||["2"];}catch{levels=["2"];}
+  try{side=localStorage.getItem(LIQ_SIDE_KEY)||"wgnk";}catch{side="wgnk";}
+  return {levels,side};
+ }
+ function syncLiquidityControls(){
+  const {levels,side}=liquiditySelection();
+  document.querySelectorAll('[data-liq-level]').forEach(box=>{box.checked=levels.includes(box.dataset.liqLevel);});
+  document.querySelector('[data-liq-side]').value=side;
+ }
+ function renderLiquidityChart(data){
+  const host=el('liquidity-chart');if(!host)return;
+  const pool=(data.pools||[]).find(p=>p.fee===3000);
+  const bands=pool&&data.liquidity_bands?data.liquidity_bands[pool.address]:null;
+  const {levels,side}=liquiditySelection();
+  renderLiveChart(host,[bands,levels,side],()=>GonkaChart.renderLiquidity(host,bands,{levels,side}));
+ }
+ document.querySelectorAll('[data-liq-level]').forEach(box=>box.addEventListener('change',()=>{
+  const levels=[...document.querySelectorAll('[data-liq-level]')].filter(b=>b.checked).map(b=>b.dataset.liqLevel);
+  try{localStorage.setItem(LIQ_LEVELS_KEY,JSON.stringify(levels));}catch{}
+  if(flow.data?.ready)renderLiquidityChart(flow.data);
+ }));
+ document.querySelector('[data-liq-side]').addEventListener('change',event=>{
+  try{localStorage.setItem(LIQ_SIDE_KEY,event.target.value);}catch{}
+  if(flow.data?.ready)renderLiquidityChart(flow.data);
+ });
+ syncLiquidityControls();
  window.addEventListener("resize",()=>{if(flow.data?.ready)renderChart(flow.data);});
  window.addEventListener("gonka:view",()=>{if(flow.data?.ready)renderChart(flow.data);});
  // Keep the tab quote current in the background, with fewer requests while hidden.

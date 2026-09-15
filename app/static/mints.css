@@ -107,13 +107,19 @@
 
 .address-tooltip-sides .address-day-price{grid-column:1/-1;text-align:right;margin-top:2px}.address-tooltip-sides .address-day-price b{font-size:12px}
 
-/* +/-2% liquidity band lines: halo underlay keeps them visible over bars. */
-.market-band-wgnk{fill:none;stroke:var(--up,#167f73);stroke-width:2.2;stroke-dasharray:7 4}
-.market-band-usdt{fill:none;stroke:var(--warn,#c28632);stroke-width:2.2;stroke-dasharray:2 5}
-.market-band-wgnk-halo{fill:none;stroke:var(--bg,#f5f7fa);stroke-width:5;opacity:.75}
-.market-band-usdt-halo{fill:none;stroke:var(--bg,#f5f7fa);stroke-width:5;opacity:.75}
-.chart-band-now{font-size:11px;fill:var(--muted,#526477)}
-.market-tooltip-band{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line,#d9e1ea);margin-top:5px;padding-top:5px}
+ /* Dedicated liquidity chart: one line per selected price band. */
+.liquidity-panel .liquidity-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.liq-key{display:inline-flex;gap:5px;align-items:center;font-size:12px;color:var(--muted,#526477);cursor:pointer}
+.liq-key::before{content:"";display:inline-block;width:16px;height:0;border-top:2.4px dashed}
+.liq-k2::before{border-color:#167f73}
+.liq-k5::before{border-color:#3b6fd4}
+.liq-k10::before{border-color:#8a5ab0}
+.liq-k20::before{border-color:#8a99a8}
+.liq-line{fill:none;stroke-width:2.4}
+.liq-l2{stroke:#167f73;stroke-dasharray:7 4}
+.liq-l5{stroke:#3b6fd4;stroke-dasharray:9 5}
+.liq-l10{stroke:#8a5ab0;stroke-dasharray:4 4}
+.liq-l20{stroke:#8a99a8;stroke-dasharray:2 4}
 .market-tooltip-band b{font-size:13px}
 .band-key{font-size:11px;color:var(--muted,#526477)}
 .band-key.wgnk::before{content:"";display:inline-block;width:14px;height:0;border-top:2px dashed var(--up,#167f73);margin-right:4px;vertical-align:middle}

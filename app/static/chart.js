@@ -104,9 +104,8 @@ window.GonkaChart=(()=>{
    if(event.key==="Escape")hide();
   });
  }
- function renderMarket(host,points,{side="all",band=null,bandFee=3000}={}){
+ function renderMarket(host,points,{side="all"}={}){
   if(!points.length){host.innerHTML='<p class="empty">Нет сделок по выбранным фильтрам.</p>';return;}
-  const bandByDate=band?new Map(band.map(p=>[p.date,p])):null;
   const lookup=new Map(points.map(p=>[p.date,p])),rows=[];
   const end=Date.parse(points[points.length-1].date+"T00:00:00Z");
   for(let ts=Date.parse(points[0].date+"T00:00:00Z");ts<=end;ts+=86400000){
@@ -138,18 +137,6 @@ window.GonkaChart=(()=>{
     base=total;
    });
   });
-  let liqWMin=null,liqWMax=null,liqUMin=null,liqUMax=null;
-  if(bandByDate)rows.forEach(r=>{const b=bandByDate.get(r.date);if(!b)return;
-   const w=BigInt(b.wgnk_raw),u=BigInt(b.usdt_raw);
-   liqWMin=liqWMin===null||w<liqWMin?w:liqWMin;liqWMax=liqWMax===null||w>liqWMax?w:liqWMax;
-   liqUMin=liqUMin===null||u<liqUMin?u:liqUMin;liqUMax=liqUMax===null||u>liqUMax?u:liqUMax;});
-  const ly=(raw,min,max)=>max===min?(top+bottom)/2:bottom-Number((raw-min)*1000000n/(max-min))/1000000*(bottom-top);
-  const wSlope=bandByDate&&liqWMax!==null&&liqWMax>0n;
-  const uSlope=bandByDate&&liqUMax!==null&&liqUMax>0n;
-  let wPath=[],uPath=[];
-  if(bandByDate)rows.forEach((r,i)=>{const b=bandByDate.get(r.date);if(!b)return;
-   wPath.push((wPath.length?"L":"M")+x(i).toFixed(2)+","+ly(BigInt(b.wgnk_raw),liqWMin,liqWMax).toFixed(2));
-   uPath.push((uPath.length?"L":"M")+x(i).toFixed(2)+","+ly(BigInt(b.usdt_raw),liqUMin,liqUMax).toFixed(2));});
   let segment=[];
   const draw=()=>{
    if(!segment.length)return;
@@ -158,12 +145,6 @@ window.GonkaChart=(()=>{
    segment=[];
   };
   rows.forEach((r,i)=>{if(r.price===null)draw();else segment.push(i);});draw();
-  if(uPath.length>1){svg+='<path class="market-band-usdt-halo" d="'+uPath.join(" ")+'"/><path class="market-band-usdt" d="'+uPath.join(" ")+'"/>';}
-  if(wPath.length>1){svg+='<path class="market-band-wgnk-halo" d="'+wPath.join(" ")+'"/><path class="market-band-wgnk" d="'+wPath.join(" ")+'"/>';}
-  if(bandByDate&&(wPath.length>1||uPath.length>1)){
-   const last=bandByDate.get(rows[rows.length-1].date);
-   if(last)svg+='<text class="chart-band-now" x="'+(W-right)+'" y="'+(W<500?52:32)+'" text-anchor="end">±2%: '+escape(exact(BigInt(last.wgnk_raw),9))+' WGNK · '+escape(exact(BigInt(last.usdt_raw),6))+' USDT</text>';
-  }
   const ticks=Math.min(rows.length,W<500?4:7);
   for(let i=0;i<ticks;i++){
    const index=ticks===1?0:Math.round(i*(rows.length-1)/(ticks-1));
@@ -181,8 +162,76 @@ window.GonkaChart=(()=>{
    const dot=cursor.querySelector("circle");dot.setAttribute("cx",px);dot.setAttribute("cy",r.price===null?bottom:y(r.price,priceHigh));dot.setAttribute("visibility",r.price===null?"hidden":"visible");
    tooltip.innerHTML='<span>'+fullDate(r.date)+'</span><strong>Цена: '+(r.price===null?"нет сделок":escape(formatPrice(r.price)))+'</strong><span>USDT за 1 WGNK · средневзвешенная</span>'+
     '<div class="market-tooltip-sides">'+kinds.map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(r[kind],9))+' WGNK</b><small>'+escape(exact(r[kind+"Quote"],6))+' USDT · '+(kind==="buy"?r.buys:r.sales).toLocaleString("ru-RU")+' исп.</small></div>').join("")+'</div>'+
-    '<strong>Объём: '+escape(exact(r.volume,9))+' <small>WGNK</small></strong><span>Исполнений: '+r.events.toLocaleString("ru-RU")+'</span>'+
-    (bandByDate&&bandByDate.get(r.date)?'<div class="market-tooltip-band"><span>Ликвидность ±2% (пул '+(bandFee/100)+' б.п.)</span><b>'+escape(exact(BigInt(bandByDate.get(r.date).wgnk_raw),9))+' WGNK</b><small>'+escape(exact(BigInt(bandByDate.get(r.date).usdt_raw),6))+' USDT · глубина книги на конец дня</small></div>':'');
+    '<strong>Объём: '+escape(exact(r.volume,9))+' <small>WGNK</small></strong><span>Исполнений: '+r.events.toLocaleString("ru-RU")+'</span>';
+   tooltip.hidden=false;
+   tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
+   tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
+  }
+  const hide=()=>{cursor.setAttribute("visibility","hidden");tooltip.hidden=true;};
+  const pointer=event=>{
+   const box=root.getBoundingClientRect(),px=(event.clientX-box.left)*W/box.width;
+   show(rows.length===1?0:Math.round((px-left)/plot*(rows.length-1)));
+  };
+  root.addEventListener("pointermove",pointer);root.addEventListener("pointerdown",pointer);
+  root.addEventListener("pointerleave",hide);root.addEventListener("focus",()=>show(selected));root.addEventListener("blur",hide);
+  root.addEventListener("keydown",event=>{
+   if(["ArrowLeft","ArrowRight","Home","End","Escape"].includes(event.key))event.preventDefault();
+   if(event.key==="ArrowLeft")show(selected-1);if(event.key==="ArrowRight")show(selected+1);
+   if(event.key==="Home")show(0);if(event.key==="End")show(rows.length-1);if(event.key==="Escape")hide();
+  });
+ }
+ function renderLiquidity(host,bands,{levels=["2"],side="wgnk",fee=3000}={}){
+  if(!bands||!Object.keys(bands).length){host.innerHTML='<p class="empty">Ликвидность пула ещё собирается: нужны сохранённые значения sqrt/liquidity сделок.</p>';return;}
+  const chosen=levels.filter(l=>bands[l]);
+  if(!chosen.length){host.innerHTML='<p class="empty">Выберите хотя бы один уровень диапазона.</p>';return;}
+  // Merge levels by date, carrying the last known depth across quiet days.
+  const byDate=new Map();
+  chosen.forEach(level=>bands[level].forEach(p=>{
+   if(!byDate.has(p.date))byDate.set(p.date,{});
+   byDate.get(p.date)[level]=p;
+  }));
+  const days=[...byDate.keys()].sort();
+  const rows=[];const carried={};
+  for(const day of days){
+   const point=byDate.get(day);
+   chosen.forEach(l=>{if(point[l])carried[l]=point[l];});
+   rows.push({date:day,...Object.fromEntries(chosen.map(l=>[l,carried[l]||null]))});
+  }
+  const field=side==="usdt"?"usdt_raw":"wgnk_raw";
+  let high=0n;
+  rows.forEach(r=>chosen.forEach(l=>{if(r[l]){const v=BigInt(r[l][field]);if(v>high)high=v;}}));
+  if(high<=0n){host.innerHTML='<p class="empty">Нет данных ликвидности для выбранной стороны.</p>';return;}
+  const W=Math.max(280,host.clientWidth),H=W<500?300:330;
+  const left=W<500?56:84,right=14,top=26,bottom=H-42,plot=W-left-right;
+  const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
+  const y=v=>bottom-Number(v*1000000n/high)/1000000*(bottom-top);
+  let svg='<svg class="liquidity-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Ликвидность пула '+(fee/100)+' б.п. в диапазонах от цены. Стрелки выбирают день.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="15">'+(side==="usdt"?"USDT в диапазоне":"WGNK в диапазоне")+' · пул '+(fee/100)+' б.п.</text>';
+  for(let i=0;i<=4;i++){
+   const py=bottom-i*(bottom-top)/4;
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(high*BigInt(i)/4n,side==="usdt"?6:9))+'</text>';
+  }
+  chosen.forEach(level=>{
+   const path=[];
+   rows.forEach((r,i)=>{if(r[level])path.push((path.length?"L":"M")+x(i).toFixed(2)+","+y(BigInt(r[level][field])).toFixed(2));});
+   if(path.length)svg+='<path class="liq-line liq-l'+level+'" data-level="'+level+'" d="'+path.join(" ")+'"/>';
+  });
+  const ticks=Math.min(rows.length,W<500?4:7);
+  for(let i=0;i<ticks;i++){
+   const index=ticks===1?0:Math.round(i*(rows.length-1)/(ticks-1));
+   svg+='<text x="'+x(index)+'" y="'+(bottom+25)+'" text-anchor="'+(i===0?"start":i===ticks-1?"end":"middle")+'">'+label(rows[index].date)+'</text>';
+  }
+  svg+='<g class="chart-cursor" visibility="hidden"><line class="chart-crosshair" y1="'+top+'" y2="'+bottom+'"/></g><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip liquidity-chart-tooltip" role="status" hidden></div>';
+  host.innerHTML=svg;
+  const root=host.querySelector("svg"),cursor=host.querySelector(".chart-cursor"),tooltip=host.querySelector(".chart-tooltip");
+  let selected=rows.length-1;
+  function show(index){
+   selected=Math.max(0,Math.min(rows.length-1,index));
+   const r=rows[selected],px=x(selected);
+   cursor.setAttribute("visibility","visible");
+   const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
+   tooltip.innerHTML='<span>'+fullDate(r.date)+'</span>'+
+    chosen.map(l=>r[l]?'<div class="market-tooltip-band"><span>Диапазон ±'+l+'%</span><b>'+escape(exact(BigInt(r[l].wgnk_raw),9))+' WGNK</b><small>'+escape(exact(BigInt(r[l].usdt_raw),6))+' USDT</small></div>':'').join("");
    tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
