@@ -53,12 +53,24 @@
   {type:'function',function:{name:'bridge_feed',description:'Последние операции моста: выпуск WGNK в Ethereum (минты) и вывод в Gonka (бёрны) с суммами и временем.',
    parameters:{type:'object',properties:{limit:{type:'integer',minimum:1,maximum:100}},required:[]}}}];
 
+ async function getJSON(url){
+  let response=await fetch(url);
+  let text=await response.text();
+  if(!response.ok||text.trim().startsWith('<')){
+   // Render serves an HTML page while the instance restarts; retry once after a pause.
+   await new Promise(done=>setTimeout(done,4000));
+   response=await fetch(url);
+   text=await response.text();
+  }
+  try{return JSON.parse(text);}
+  catch{throw new Error('сайт отвечал страницой перезапуска вместо JSON (HTTP '+response.status+') — подождите минуту и повторите');}
+ }
  async function runTool(call){
   const args={};
   try{Object.assign(args,JSON.parse(call.function.arguments||'{}'));}catch{}
   switch(call.function.name){
    case 'forecast_snapshot':{
-    const f=await (await fetch('/api/mints/forecast')).json();
+    const f=await getJSON('/api/mints/forecast');
     const powder=f.powder||{};
     return JSON.stringify({price_usdt:f.price_raw?Number(f.price_raw)/1e12:null,
      verdict:f.verdict,rules:(f.rules||[]).map(r=>({name:r.name,score:r.score,weight:r.weight,explanation:r.explanation})),
@@ -68,9 +80,10 @@
    }
    case 'daily_history':{
     const days=Math.min(120,Math.max(1,args.days||30));
-    const f=await (await fetch('/api/mints/flows?side=all&limit=1')).json();
+    const f=await getJSON('/api/mints/flows?side=all&limit=1');
     const pool30=(f.pools||[]).find(p=>p.fee===3000);
-    const band=(f.liquidity_band&&pool30?f.liquidity_band[pool30.address]:null)||[];
+    const bands=f.liquidity_bands&&pool30?f.liquidity_bands[pool30.address]:null;
+    const band=(bands&&bands['2'])||[];
     const byDate=new Map(band.map(b=>[b.date,b]));
     return JSON.stringify((f.daily||[]).slice(-days).map(d=>{
      const b=byDate.get(d.date)||{};
@@ -83,7 +96,7 @@
    case 'trader_leaders':{
     const side=args.side==='sell'?'sell':'buy';
     const limit=Math.min(50,Math.max(1,args.limit||15));
-    const l=await (await fetch('/api/mints/leaders?grouped=true')).json();
+    const l=await getJSON('/api/mints/leaders?grouped=true');
     return JSON.stringify((l[side==='buy'?'buyers':'sellers']||[]).slice(0,limit).map(r=>({
      address:r.group?r.group.addresses:r.address,volume_wgnk:+(Number(r.volume_raw)/1e9).toFixed(0),
      quote_usdt:+(Number(r.quote_raw)/1e6).toFixed(0),swaps:r.swaps,
@@ -91,7 +104,7 @@
    }
    case 'bridge_feed':{
     const limit=Math.min(100,Math.max(1,args.limit||30));
-    const b=await (await fetch('/api/mints/bridge?minimum=1000&limit='+limit)).json();
+    const b=await getJSON('/api/mints/bridge?minimum=1000&limit='+limit);
     return JSON.stringify((b.items||[]).map(e=>({kind:e.kind==='bridge_mint'?'mint(WGNK в Ethereum)':'burn(вывод в Gonka)',
      address:e.address,amount_wgnk:+(Number(e.amount_raw)/1e9).toFixed(0),
      time:new Date(e.ts*1000).toISOString().slice(0,16).replace('T',' ')})));
@@ -126,7 +139,9 @@
    if(response.status===401)detail='Ключ не принят (401): проверьте, что скопировали ключ OpenBroker целиком';
    const error=new Error(detail);error.concurrent=concurrent;error.status=response.status;throw error;
   }
-  const choice=(await response.json()).choices?.[0];
+  let payload;const body=await response.text();
+  try{payload=JSON.parse(body);}catch{throw new Error('модель ответила не JSON (HTTP '+response.status+')');}
+  const choice=payload.choices?.[0];
   return {content:(choice?.message?.content||'').trim(),tool_calls:choice?.message?.tool_calls||null};
  }
  async function askModel(){
@@ -162,8 +177,8 @@
    if(!content){
     // Provider may not support tool calls: one rich request without tools.
     status.textContent='Инструменты не поддержаны, спрашиваем одним запросом…';
-    const f=await (await fetch('/api/mints/forecast')).json();
-    const flows=await (await fetch('/api/mints/flows?side=all&limit=1')).json();
+    const f=await getJSON('/api/mints/forecast');
+    const flows=await getJSON('/api/mints/flows?side=all&limit=1');
     const rich=JSON.stringify({verdict:f.verdict,rules:(f.rules||[]).map(r=>[r.name,r.score,r.explanation]),
      powder:f.powder&&{totals:f.powder.totals,coverage:f.powder.balance_coverage,
       buyers:(f.powder.buyers||[]).slice(0,10),sellers:(f.powder.sellers||[]).slice(0,10)},
