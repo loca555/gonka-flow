@@ -1,6 +1,7 @@
 /* Gross attributed swap volume, not holder balances, profit or beneficial ownership. */
 (()=>{
- const ranking={data:null,loading:false,request:0,startDate:'',priceStep:'5',sort:{buy:'volume_desc',sell:'volume_desc'}};
+ const ranking={data:null,loading:false,request:0,startDate:'',priceStep:'5',grouped:true,sort:{buy:'volume_desc',sell:'volume_desc'}};
+ try{ranking.grouped=localStorage.getItem('gonka-leaders-grouped')!=='0';}catch{}
  const dateInput=el('leaders-start-date'),dateStorageKey='gonka-leaders-start-date';
  try{dateInput.value=localStorage.getItem(dateStorageKey)||'';}catch{}
  ranking.startDate=dateInput.value;
@@ -23,7 +24,7 @@
  showPeriod();
  const sides=[{key:'buy',list:'buyers',title:'Крупнейшие покупатели',verb:'Куплено',label:'Покупки'},
               {key:'sell',list:'sellers',title:'Крупнейшие продавцы',verb:'Продано',label:'Продажи'}];
- el('leaders-content').innerHTML='<div class="leader-price-controls"><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><p class="leader-days-note">Один день — один диапазон с наибольшим общим объёмом покупок и продаж. Дни без сделок не учитываются · время Кипра.</p><details id="leaders-bridge-note" class="leader-bridge-note"></details><div class="leaders-grid">'+sides.map(side=>
+ el('leaders-content').innerHTML='<div class="leader-price-controls"><label class="leader-group-toggle"><input type="checkbox" id="leaders-grouped"'+(ranking.grouped?' checked':'')+'> Объединять вероятные группы адресов</label><p>Объём WGNK по цене исполнения</p><label for="leaders-price-step">Шаг цены <select id="leaders-price-step"><option value="5">0,05 USDT</option><option value="10">0,10 USDT</option></select></label></div><p class="leader-days-note">Один день — один диапазон с наибольшим общим объёмом покупок и продаж. Дни без сделок не учитываются · время Кипра.</p><details id="leaders-bridge-note" class="leader-bridge-note"></details><div class="leaders-grid">'+sides.map(side=>
   '<section class="panel leader-panel '+side.key+'" aria-labelledby="leaders-'+side.key+'-title">'+
   '<div class="leader-heading"><h2 id="leaders-'+side.key+'-title">'+side.title+'</h2><span id="leaders-'+side.key+'-count"></span></div>'+
   '<div class="leader-total"><strong id="leaders-'+side.key+'-total">—</strong><span>WGNK</span><small>Оборот адресов в рейтинге</small></div>'+
@@ -85,6 +86,11 @@
  el('leaders-price-step').addEventListener('change',event=>{
   ranking.priceStep=event.target.value;renderCharts(ranking.data);
  });
+ el('leaders-grouped').addEventListener('change',event=>{
+  ranking.grouped=event.target.checked;
+  try{localStorage.setItem('gonka-leaders-grouped',ranking.grouped?'1':'0');}catch{}
+  refresh(true);
+ });
  const chartResize=new ResizeObserver(()=>renderCharts(ranking.data));
  for(const side of sides)chartResize.observe(el('leaders-'+side.key+'-chart'));
  function renderTable(side,data,reset=false){
@@ -102,8 +108,13 @@
   const maximum=BigInt(data[side.list][0]?.volume_raw||'0');
   setLiveHTML(el('leaders-'+side.key+'-rows'),rows.length?rows.map(row=>{
    const width=maximum?Number(BigInt(row.volume_raw)*10000n/maximum)/100:0;
+   const links=(row.group?.evidence||[]).map(e=>esc(e.label)).filter((v,i,a)=>a.indexOf(v)===i).join(', ');
+   const cell=row.group
+    ?'<details class="leader-group"><summary><strong>Группа · '+count(row.group.addresses.length)+' адресов</strong><small> '+(links||'связанные адресы')+'</small></summary>'+
+      '<ul>'+row.group.addresses.map(a=>'<li><button class="address-button" data-flow-address="'+esc(a)+'" title="'+esc(a)+'">'+esc(short(a,8))+'</button></li>').join('')+'</ul></details>'
+    :'<button class="address-button" data-flow-address="'+esc(row.address)+'" title="'+esc(row.address)+'">'+esc(short(row.address,8))+'</button>';
    return '<tr data-address="'+esc(row.address)+'"><td class="leader-rank">'+count(row.rank)+'</td>'+
-    '<td><button class="address-button" data-flow-address="'+esc(row.address)+'" title="'+esc(row.address)+'">'+esc(short(row.address,8))+'</button></td>'+
+    '<td>'+cell+'</td>'+
     '<td class="numeric leader-volume" data-raw="'+esc(row.volume_raw)+'" title="'+esc(row.volume)+' WGNK"><strong>'+esc(amount(row.volume))+'</strong><span class="leader-volume-bar" style="width:'+width+'%" aria-hidden="true"></span></td>'+
     '<td class="numeric" title="'+esc(row.quote)+' USDT">'+esc(amount(row.quote))+'</td>'+
     '<td class="numeric price-value" title="Средневзвешенная цена за 1 WGNK">'+esc(price(row.average_price))+'</td>'+
@@ -138,7 +149,10 @@
   ranking.loading=true;
   if(!ranking.data){el('leaders-view').setAttribute('aria-busy','true');el('leaders-status').textContent='Считаем крупнейших покупателей и продавцов…';}
   try{
-   const query=ranking.startDate?'?'+new URLSearchParams({start_date:ranking.startDate}):'';
+   const params={};
+   if(ranking.startDate)params.start_date=ranking.startDate;
+   if(!ranking.grouped)params.grouped='false';
+   const query=Object.keys(params).length?'?'+new URLSearchParams(params):'';
    const response=await fetch('/api/mints/leaders'+query,{signal:controller.signal});
    if(!response.ok)throw new Error('HTTP '+response.status);
    const data=await response.json();if(id!==ranking.request)return;

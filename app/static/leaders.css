@@ -55,3 +55,12 @@
 .leader-period-controls small{flex-basis:100%;color:var(--muted);font-size:12px}
 .leader-period-controls button:disabled{opacity:.45;cursor:default}
 @media(max-width:480px){.leader-period-controls label{width:100%;justify-content:space-between}.leader-period-controls input{min-width:0;max-width:65%}}
+
+/* Probable operator groups: one expandable row per group of related addresses. */
+.leader-group-toggle{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted,#526477);cursor:pointer}
+.leader-group summary{cursor:pointer;list-style:none;display:flex;flex-direction:column;gap:2px;padding:2px 0}
+.leader-group summary::-webkit-details-marker{display:none}
+.leader-group summary strong{font-size:13px}
+.leader-group summary small{color:var(--muted,#526477);font-size:11px}
+.leader-group ul{margin:4px 0 0;padding-left:2px;list-style:none;display:flex;flex-direction:column;gap:2px}
+.leader-group li{display:inline-flex}

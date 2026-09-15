@@ -168,6 +168,7 @@ def export_holder_history(reader, db):
     return {key:db.conn.execute('SELECT count(*) FROM '+table).fetchone()[0] for key,table in HISTORY_TABLES.items()}
 
 HISTORY_TABLES={'gonka_history_targets':'holder_native_targets','gonka_history_blocks':'holder_native_blocks','gonka_history_events':'holder_native_events'}
+POWDER_TABLES={name:name for name in ("powder_transfers","powder_done","powder_balances","powder_snapshots")}
 
 
 def export_seed(source, destination):
@@ -206,6 +207,15 @@ def export_seed(source, destination):
                     lo, hi = max(start, row["lo"]), min(end, row["hi"])
                     if lo <= hi:
                         db._range(row["chain"], lo, hi)
+                # Public dry-podder state so restarts do not rebuild stable history.
+                powder_manifest = {}
+                for table in ("powder_transfers", "powder_done", "powder_balances", "powder_snapshots"):
+                    copied = 0
+                    for row in reader.execute("SELECT * FROM " + table):
+                        marks = ",".join("?" for _ in row)
+                        db.conn.execute("INSERT OR IGNORE INTO " + table + " VALUES(" + marks + ")", list(row))
+                        copied += 1
+                    powder_manifest[table] = copied
                 db.conn.commit()
                 db.put("mints:deployment", {k:deployment[k] for k in ("height","hash","ts")})
                 db.put("mints:status", {"finalized_height":end, "latest_height":end,
@@ -231,7 +241,7 @@ def export_seed(source, destination):
                              for r in db.conn.execute("SELECT * FROM events WHERE kind='bridge_mint'")}
                 if mint_rows != event_mints:
                     raise ValueError("Seed mint and market archives disagree")
-                manifest = {**holder_manifest, "format":1, "network":"ethereum", "height":end, "ts":snapshot["ts"],
+                manifest = {**holder_manifest, **powder_manifest, "format":1, "network":"ethereum", "height":end, "ts":snapshot["ts"],
                             "events":db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
                             "mints":db.conn.execute("SELECT COUNT(*) FROM wgnk_mints").fetchone()[0],
                             "gonka_links":db.conn.execute("SELECT COUNT(*) FROM gonka_mint_links").fetchone()[0],
@@ -281,6 +291,9 @@ def restore_seed(target, archive=DEFAULT_ARCHIVE):
             for key,table in HISTORY_TABLES.items():
                 if key in manifest and conn.execute('SELECT count(*) FROM '+table).fetchone()[0]!=manifest[key]:
                     raise ValueError('Native history seed disagrees with manifest')
+            for key,table in POWDER_TABLES.items():
+                if key in manifest and conn.execute('SELECT count(*) FROM '+table).fetchone()[0]!=manifest[key]:
+                    raise ValueError('Dry powder seed disagrees with manifest')
             holder_snapshot, holder_rows = public_holder_seed(conn)
             if (len(holder_rows) != manifest.get('gonka_holders', 0)
                     or (holder_snapshot and holder_snapshot['height'] != manifest.get('gonka_holders_height'))):

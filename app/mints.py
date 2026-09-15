@@ -31,6 +31,8 @@ def initialize(db):
     """)
     from .provenance import initialize as initialize_provenance
     initialize_provenance(db)
+    from .powder import initialize as initialize_powder
+    initialize_powder(db)
 
 
 def validate_mint(e):
@@ -177,6 +179,8 @@ class MintIndexer:
         self.holders=NativeHolders(self)
         from .gnk_holder_history import HolderHistory
         self.holder_history=HolderHistory(self)
+        from .powder import PowderCollector
+        self.powder=PowderCollector(self)
 
     def status(self,key,**values):
         self.db.put(key,{**self.db.get(key,{}),**values})
@@ -205,6 +209,7 @@ class MintIndexer:
                     asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),
                     asyncio.create_task(self.loop("mints:history",self.history,2),name="wgnk_mints_history"),
                     asyncio.create_task(self.loop("flow:status",self.flows.run,15),name="wgnk_market_flow"),
+                    asyncio.create_task(self.loop("powder:status",self.powder.run,10),name="stable_powder"),
                     asyncio.create_task(self.loop("provenance:status",self.provenance.links,20),name="gonka_bridge_links"),
                     asyncio.create_task(self.loop("provenance:burns",self.provenance.burns,20),name="gonka_burn_links"),
                     asyncio.create_task(self.loop("provenance:incoming",self.provenance.incoming,5),name="gonka_targeted_incoming"),

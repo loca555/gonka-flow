@@ -18,7 +18,7 @@ class IpfsExportTests(unittest.TestCase):
             self.assertEqual(build(second), manifest)
             paths = sorted(p.relative_to(first).as_posix() for p in first.rglob('*') if p.is_file())
             self.assertEqual(set(paths), set(manifest['files']) | {'ipfs-build.json'})
-            self.assertEqual(len(paths), 18)
+            self.assertEqual(len(paths), 20)
             for name in paths:
                 content = (first / name).read_bytes()
                 self.assertEqual(content, (second / name).read_bytes())
@@ -65,6 +65,8 @@ class PublicApiCorsTests(unittest.TestCase):
                            'Access-Control-Request-Method': 'GET'}
                 self.assertEqual(client.options('/api/mints', headers=headers).status_code, 200)
                 headers['Access-Control-Request-Method'] = 'POST'
+                self.assertEqual(client.options('/api/mints', headers=headers).status_code, 200)
+                headers['Access-Control-Request-Method'] = 'PUT'
                 self.assertEqual(client.options('/api/mints', headers=headers).status_code, 400)
                 for _ in range(181):
                     response = client.get('/api/mints?minimum=0', headers={'Origin': 'https://flow.gonkamarket.eth.limo'})

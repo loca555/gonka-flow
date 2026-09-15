@@ -27,7 +27,7 @@ services:
       - key: ETH_RPC_URLS
         value: https://ethereum.public.blockpi.network/v1/rpc/public,https://eth.drpc.org,https://rpc.mevblocker.io
       - key: ETH_ARCHIVE_RPC_URLS
-        value: https://eth.drpc.org,https://rpc.mevblocker.io,https://ethereum.public.blockpi.network/v1/rpc/public
+        value: https://rpc.mevblocker.io,https://ethereum.public.blockpi.network/v1/rpc/public,https://eth.drpc.org
       - key: ETH_RPC_INTERVAL
         value: "1.0"
       - key: ETH_HISTORY_BATCH

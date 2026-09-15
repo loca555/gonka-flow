@@ -110,7 +110,7 @@ class LeaderPeriodTests(unittest.TestCase):
     def test_api_validates_dates_and_caches_each_period_separately(self):
         with tempfile.TemporaryDirectory() as temp:
             cfg=Settings(mode="mints",data_dir=Path(temp),indexer_enabled=False,history_from="")
-            with TestClient(create_app(cfg)) as client, patch("app.main.trade_leaders",side_effect=lambda db,start_date=None:{"start_date":start_date}) as calculate:
+            with TestClient(create_app(cfg)) as client, patch("app.main.trade_leaders",side_effect=lambda db,start_date=None,grouped=True:{"start_date":start_date,"grouped":grouped}) as calculate:
                 for day in (None,"2026-09-01","2026-09-02","2026-09-01",None):
                     response=client.get("/api/mints/leaders",params={"start_date":day} if day else {})
                     self.assertEqual(response.status_code,200)

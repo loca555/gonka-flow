@@ -21,6 +21,7 @@ from .holders import holders_list,address_page,ETH_ADDRESS,GNK_ADDRESS
 from .mints import MintIndexer, listing as mint_listing, public_event as mint_event, TOKEN as MINT_TOKEN
 from .flows import analysis as flow_analysis, bridge_listing, trade_page
 from .leaders import trade_leaders
+from .forecast import snapshot as forecast_snapshot, model_prompt, OPENBROKER, MODEL
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
 from .provenance import overview as provenance_overview, incoming_history, GNK, links_for
@@ -116,7 +117,8 @@ def create_app(settings=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            + ("connect-src 'self' http://127.0.0.1:8791 http://127.0.0.1:8793 http://127.0.0.1:8794; " if local_otc(request) else "connect-src 'self'; ")
+            + ("connect-src 'self' http://127.0.0.1:8791 http://127.0.0.1:8793 http://127.0.0.1:8794 https://api.openbroker.gonka.gg; " if local_otc(request)
+               else "connect-src 'self' https://api.openbroker.gonka.gg; ")
             + "img-src 'self' data:; object-src 'none'; frame-ancestors 'none'")
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
@@ -125,9 +127,9 @@ def create_app(settings=None):
         return response
 
     # Public read-only data is also consumed by the IPFS frontend on gateway origins.
-    # Register outside headers_and_limits so API errors retain CORS headers too.
+    # POST serves only the optional LLM key transit, which stores nothing.
     app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                       allow_methods=["GET"], allow_credentials=False)
+                       allow_methods=["GET", "POST"], allow_credentials=False)
 
     @app.get("/")
     async def index(request: Request):
@@ -202,14 +204,55 @@ def create_app(settings=None):
         return cache[key][1]
 
     @app.get("/api/mints/leaders")
-    async def mint_leaders(request:Request,start_date:calendar_date | None=Query(None)):
+    async def mint_leaders(request:Request,start_date:calendar_date|None=Query(None),
+                           grouped:bool=Query(True)):
         start_date=start_date.isoformat() if start_date else None
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        key=("trade_leaders",start_date)
+        key=("trade_leaders",start_date,grouped)
         if len(cache)>1000: cache.clear()
         if key not in cache or time.time()-cache[key][0]>8:
-            cache[key]=(time.time(),trade_leaders(request.app.state.db,start_date=start_date))
+            data=trade_leaders(request.app.state.db,start_date=start_date,grouped=grouped)
+            cache[key]=(time.time(),data)
+            return data
         return cache[key][1]
+
+    @app.get("/api/mints/forecast")
+    async def mint_forecast(request:Request):
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        key=("forecast",)
+        if key not in cache or time.time()-cache[key][0]>60:
+            cache[key]=(time.time(),forecast_snapshot(request.app.state.db))
+        return cache[key][1]
+
+    @app.post("/api/mints/forecast/llm")
+    async def mint_forecast_llm(request:Request):
+        """Key transit only: the browser-held API key passes straight through to
+        the model provider and is never stored, cached or logged here."""
+        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        key=request.headers.get("x-llm-key","").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_\-\.]{8,128}",key):
+            raise HTTPException(400,"Нужен ключ API в заголовке x-llm-key")
+        data=forecast_snapshot(request.app.state.db)
+        if not data.get("ready"):
+            raise HTTPException(503,"Снимок прогноза ещё не готов")
+        client=request.app.state.indexer.net.client
+        try:
+            response=await client.post(OPENBROKER,json={
+                "model":MODEL,"temperature":0,
+                "messages":[{"role":"user","content":model_prompt(data)}]},
+                headers={"Authorization":"Bearer "+key},timeout=30)
+            response.raise_for_status()
+            payload=response.json()
+            reply=(payload.get("choices") or [{}])[0].get("message",{}).get("content","").strip()
+            if not reply:
+                raise ValueError("пустой ответ модели")
+            return {"reply":reply[:2000],"model":payload.get("model",MODEL),
+                    "transit":True,"note":"Ключ прошёл через сервер без сохранения и логирования"}
+        except HTTPException:
+            raise
+        except Exception as error:
+            kind=type(error).__name__
+            raise HTTPException(502,"Модель недоступна ("+kind+"); ключ не сохранён")
 
     @app.get("/api/mints/address/{address}")
     async def mint_address(request:Request,address:str,sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN)):

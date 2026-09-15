@@ -48,7 +48,7 @@ def rpc_result(response):
     elif code == -32601 or "method not found" in message or "method is not supported" in message:
         category, reason = "unsupported", "RPC не поддерживает этот метод"
     elif any(s in message for s in ("too many results", "query returned more", "response size",
-                                   "maximum block range", "limited to a", "block range limit",
+                                   "maximum block range", "limited to a", "block range", "block range limit",
                                    "block range is too", "exceeds max", "exceed the maximum block",
                                    "please limit the query", "range should be less")):
         category, reason = "range", "слишком большой диапазон или ответ getLogs"

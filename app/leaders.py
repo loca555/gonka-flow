@@ -8,12 +8,13 @@ from .timezones import CYPRUS, local_day
 from .bridge_volume import bridge_price_bands, bridge_since
 
 
-def trade_leaders(db, start_date=None):
+def trade_leaders(db, start_date=None, grouped=True):
     since = int(datetime.combine(date.fromisoformat(start_date), time.min, CYPRUS).timestamp()) if start_date else None
     data = analysis(db, side="all", limit=None, include_bridge=True)
     result = {key: data[key] for key in ("ready", "now", "timezone", "snapshot", "coverage", "status", "pools")}
     result.update(buyers=[], sellers=[], summary=None, excluded=None, price_distribution=None, price_days=None, price_bridge=None, bridge=None,
                   attribution="initiator_net_tx_net_initiator_only", period="since_date" if start_date else "all_history", start_date=start_date, since=since,
+                  grouped=bool(grouped), groups=[],
                   scope="All addresses in tracked pools; gross swap volume attributed by transaction-wide WGNK net flow (recipient/payer), falling back to the executing initiator")
     if not data["ready"]:
         return result
@@ -82,10 +83,12 @@ def trade_leaders(db, start_date=None):
         rows = sorted(groups[side].values(), key=lambda row: (-row["volume_raw"], row["address"]))
         result[name] = [{**quantities(row), "address": row["address"], "rank": rank,
                          "transactions": len(row["txs"]), "first_ts": row["first_ts"], "last_ts": row["last_ts"],
-                         "average_price": tokens(price_raw(row["quote_raw"], row["volume_raw"]), 12)}
+                         "average_price": tokens(price_raw(row["quote_raw"], row["volume_raw"]), 12), "group": None}
                         for rank, row in enumerate(rows, 1)]
         total = {key: sum(row[key] for row in rows) for key in ("volume_raw", "quote_raw", "swaps")}
         summary[side] = {**quantities(total), "addresses": len(rows)}
+    if grouped and db is not None:
+        merge_groups(db, result, summary)
     result.update(summary=summary, price_days=price_days, price_bridge=price_bridge, excluded={side: quantities(row) for side, row in excluded.items()},
                   price_distribution={str(step): {
                       side: [{"from_price_raw": str(index * step * 10**10),
@@ -94,3 +97,45 @@ def trade_leaders(db, start_date=None):
                              for index, bucket in sorted(buckets.items())]
                       for side, buckets in sides.items()} for step, sides in price_bins.items()})
     return result
+
+
+def merge_groups(db, result, summary):
+    """Combine rows of one probable group into a single expandable row per side."""
+    from .clusters import cached
+    pools = [p["address"] for p in result.get("pools") or []]
+    rated = {row["address"] for name in ("buyers", "sellers") for row in result[name]}
+    data = cached(db, rated, pools)
+    result["groups"] = data["groups"]
+    if not data["address_group"]:
+        return
+    by_key = {group["key"]: group for group in data["groups"]}
+    for name, side in (("buyers", "buy"), ("sellers", "sell")):
+        plain = {row["address"]: row for row in result[name]}
+        merged, seen = [], set()
+        for address, row in plain.items():
+            key = data["address_group"].get(address)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            members = [plain[a] for a in by_key[key]["addresses"] if a in plain]
+            if len(members) < 2:
+                continue
+            volume = sum(int(m["volume_raw"]) for m in members)
+            quote = sum(int(m["quote_raw"]) for m in members)
+            merged.append({"address": members[0]["address"], "group": {
+                "addresses": [m["address"] for m in members],
+                "evidence": by_key[key]["evidence"]},
+                "volume_raw": str(volume), "volume": tokens(volume),
+                "quote_raw": str(quote), "quote": tokens(quote, 6),
+                "swaps": sum(m["swaps"] for m in members),
+                "transactions": sum(m["transactions"] for m in members),
+                "first_ts": min(m["first_ts"] for m in members),
+                "last_ts": max(m["last_ts"] for m in members),
+                "average_price": tokens(price_raw(quote, volume), 12),
+                "members": sorted(members, key=lambda m: -int(m["volume_raw"]))})
+        kept = [row for row in result[name] if row["address"] not in data["address_group"]]
+        rows = sorted(merged + kept, key=lambda row: (-int(row["volume_raw"]), row["address"]))
+        for rank, row in enumerate(rows, 1):
+            row["rank"] = rank
+        result[name] = rows
+        summary[side]["groups"] = len(merged)
