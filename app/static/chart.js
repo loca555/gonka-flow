@@ -180,7 +180,7 @@ window.GonkaChart=(()=>{
    if(event.key==="Home")show(0);if(event.key==="End")show(rows.length-1);if(event.key==="Escape")hide();
   });
  }
- function renderLiquidity(host,bands,{levels=["2"],side="wgnk",fee=3000}={}){
+ function renderLiquidity(host,bands,{levels=["2"],fee=3000}={}){
   if(!bands||!Object.keys(bands).length){host.innerHTML='<p class="empty">Ликвидность пула ещё собирается: нужны сохранённые значения sqrt/liquidity сделок.</p>';return;}
   const chosen=levels.filter(l=>bands[l]);
   if(!chosen.length){host.innerHTML='<p class="empty">Выберите хотя бы один уровень диапазона.</p>';return;}
@@ -197,24 +197,33 @@ window.GonkaChart=(()=>{
    chosen.forEach(l=>{if(point[l])carried[l]=point[l];});
    rows.push({date:day,...Object.fromEntries(chosen.map(l=>[l,carried[l]||null]))});
   }
-  const field=side==="usdt"?"usdt_raw":"wgnk_raw";
-  let high=0n;
-  rows.forEach(r=>chosen.forEach(l=>{if(r[l]){const v=BigInt(r[l][field]);if(v>high)high=v;}}));
-  if(high<=0n){host.innerHTML='<p class="empty">Нет данных ликвидности для выбранной стороны.</p>';return;}
+  // Each level is a pair: +N% is WGNK sitting above the price, -N% is USDT below it.
+  let highUp=0n,highDown=0n;
+  rows.forEach(r=>chosen.forEach(l=>{if(r[l]){
+   const w=BigInt(r[l].wgnk_raw),u=BigInt(r[l].usdt_raw);
+   if(w>highUp)highUp=w;if(u>highDown)highDown=u;
+  }}));
+  if(highUp<=0n&&highDown<=0n){host.innerHTML='<p class="empty">Нет данных ликвидности.</p>';return;}
   const W=Math.max(280,host.clientWidth),H=W<500?300:330;
-  const left=W<500?56:84,right=14,top=26,bottom=H-42,plot=W-left-right;
+  const left=W<500?56:84,right=W<500?50:64,top=26,bottom=H-42,plot=W-left-right;
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
-  const y=v=>bottom-Number(v*1000000n/high)/1000000*(bottom-top);
-  let svg='<svg class="liquidity-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Ликвидность пула '+(fee/100)+' б.п. в диапазонах от цены. Стрелки выбирают день.">';
-  svg+='<text class="chart-unit" x="'+left+'" y="15">'+(side==="usdt"?"USDT в диапазоне":"WGNK в диапазоне")+' · пул '+(fee/100)+' б.п.</text>';
+  const yUp=v=>highUp>0n?bottom-Number(v*1000000n/highUp)/1000000*(bottom-top):bottom;
+  const yDown=v=>highDown>0n?bottom-Number(v*1000000n/highDown)/1000000*(bottom-top):bottom;
+  let svg='<svg class="liquidity-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Ликвидность пула '+(fee/100)+' б.п.: WGNK над ценой, шкала слева, и USDT под ценой, шкала справа. Стрелки выбирают день.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="15">+N% · WGNK над ценой · слева</text><text class="chart-unit" x="'+(W-right)+'" y="15" text-anchor="end">−N% · USDT под ценой · справа · пул '+(fee/100)+' б.п.</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
-   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(high*BigInt(i)/4n,side==="usdt"?6:9))+'</text>';
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(highUp*BigInt(i)/4n,9))+'</text><text class="liq-down-axis" x="'+(W-right+8)+'" y="'+(py+4)+'">'+escape(axis(highDown*BigInt(i)/4n,6))+'</text>';
   }
   chosen.forEach(level=>{
-   const path=[];
-   rows.forEach((r,i)=>{if(r[level])path.push((path.length?"L":"M")+x(i).toFixed(2)+","+y(BigInt(r[level][field])).toFixed(2));});
-   if(path.length)svg+='<path class="liq-line liq-l'+level+'" data-level="'+level+'" d="'+path.join(" ")+'"/>';
+   const up=[],down=[];
+   rows.forEach((r,i)=>{
+    if(!r[level])return;
+    up.push((up.length?"L":"M")+x(i).toFixed(2)+","+yUp(BigInt(r[level].wgnk_raw)).toFixed(2));
+    down.push((down.length?"L":"M")+x(i).toFixed(2)+","+yDown(BigInt(r[level].usdt_raw)).toFixed(2));
+   });
+   if(up.length)svg+='<path class="liq-line liq-l'+level+'" data-level="'+level+'" data-side="up" d="'+up.join(" ")+'"/>';
+   if(down.length)svg+='<path class="liq-line liq-down liq-l'+level+'" data-level="'+level+'" data-side="down" d="'+down.join(" ")+'"/>';
   });
   const ticks=Math.min(rows.length,W<500?4:7);
   for(let i=0;i<ticks;i++){
@@ -231,7 +240,7 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
    tooltip.innerHTML='<span>'+fullDate(r.date)+'</span>'+
-    chosen.map(l=>r[l]?'<div class="market-tooltip-band"><span>Диапазон ±'+l+'%</span><b>'+escape(exact(BigInt(r[l].wgnk_raw),9))+' WGNK</b><small>'+escape(exact(BigInt(r[l].usdt_raw),6))+' USDT</small></div>':'').join("");
+    chosen.map(l=>r[l]?'<div class="market-tooltip-band"><span>Диапазон ±'+l+'%</span><b>+'+l+'% · '+escape(exact(BigInt(r[l].wgnk_raw),9))+' WGNK</b><small>−'+l+'% · '+escape(exact(BigInt(r[l].usdt_raw),6))+' USDT</small></div>':'').join("");
    tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";

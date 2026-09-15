@@ -110,16 +110,23 @@
  /* Dedicated liquidity chart: one line per selected price band. */
 .liquidity-panel .liquidity-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .liq-key{display:inline-flex;gap:5px;align-items:center;font-size:12px;color:var(--muted,#526477);cursor:pointer}
-.liq-key::before{content:"";display:inline-block;width:16px;height:0;border-top:2.4px dashed}
+.liq-key::before{content:"";display:inline-block;width:16px;height:0;border-top:2.4px solid}
+.liq-key::after{content:"";display:inline-block;width:12px;height:0;border-top:2.4px dashed currentColor;opacity:.75}
+.liq-k2, .liq-k2::after{color:#167f73}
+.liq-k5, .liq-k5::after{color:#3b6fd4}
+.liq-k10, .liq-k10::after{color:#8a5ab0}
+.liq-k20, .liq-k20::after{color:#8a99a8}
 .liq-k2::before{border-color:#167f73}
 .liq-k5::before{border-color:#3b6fd4}
 .liq-k10::before{border-color:#8a5ab0}
 .liq-k20::before{border-color:#8a99a8}
-.liq-line{fill:none;stroke-width:2.4}
-.liq-l2{stroke:#167f73;stroke-dasharray:7 4}
-.liq-l5{stroke:#3b6fd4;stroke-dasharray:9 5}
-.liq-l10{stroke:#8a5ab0;stroke-dasharray:4 4}
-.liq-l20{stroke:#8a99a8;stroke-dasharray:2 4}
+.liq-line{fill:none;stroke-width:2.2}
+.liq-line.liq-down{stroke-dasharray:6 4;stroke-width:1.9}
+.liq-l2{stroke:#167f73}
+.liq-l5{stroke:#3b6fd4}
+.liq-l10{stroke:#8a5ab0}
+.liq-l20{stroke:#8a99a8}
+.liq-down-axis{fill:var(--muted,#526477)}
 .market-tooltip-band b{font-size:13px}
 .band-key{font-size:11px;color:var(--muted,#526477)}
 .band-key.wgnk::before{content:"";display:inline-block;width:14px;height:0;border-top:2px dashed var(--up,#167f73);margin-right:4px;vertical-align:middle}
