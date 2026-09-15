@@ -50,7 +50,13 @@
   let reply=null,mode='';
   try{
    const response=await fetch(OPENBROKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body});
-   if(!response.ok)throw new Error('HTTP '+response.status);
+   if(!response.ok){
+    let detail='HTTP '+response.status;
+    try{const payload=await response.json();detail+=': '+(payload.error?.message||payload.error||payload.detail||'');}catch{}
+    if(response.status===429)detail+=' · лимит запросов ключа OpenBroker: подождите минуту и повторите, либо проверьте квоту/тариф ключа';
+    if(response.status===401)detail='Ключ не принят (401): проверьте, что скопировали ключ OpenBroker целиком';
+    throw new Error(detail);
+   }
    reply=(await response.json()).choices?.[0]?.message?.content?.trim();mode='прямой вызов из браузера';
   }catch(directError){
    if(directError instanceof TypeError||/Failed to fetch|NetworkError/i.test(String(directError))){
