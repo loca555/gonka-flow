@@ -67,29 +67,43 @@ def initialize(db):
     db.conn.executescript(SCHEMA)
 
 
-def tracked_addresses(db):
-    """Addresses whose verified WGNK swaps reached the tracking thresholds."""
-    rows = db.conn.execute("""
-        SELECT actor, SUM(CAST(quote_raw AS INTEGER)) q, SUM(CAST(amount_raw AS INTEGER)) v
-        FROM events WHERE chain='ethereum' AND finalized=1 AND kind IN ('buy','sell')
-        GROUP BY actor HAVING q >= ? OR v >= ?""", (TRACK_QUOTE_RAW, TRACK_AMOUNT_RAW)).fetchall()
-    return {r["actor"]: {"quote_raw": r["q"], "volume_raw": r["v"]} for r in rows
-            if r["actor"] and r["actor"] != ZERO}
+CONFIRMED_ATTR = ("initiator_net", "tx_net")
+# A buyer must still hold this share of net confirmed purchases; round-trip
+# arbitrage and MEV retention is ~0 and drops out.
+RETENTION_SHARE_NUM, RETENTION_SHARE_DEN = 1, 2
+# Dust below this stable amount contributes nothing to the powder.
+POWDER_ROW_RAW = 1000 * 10**6
 
 
-def side_split(db):
-    """Buy vs sell totals per address, from the same verified swaps."""
+def _confirmed(db):
+    """Per-address confirmed buy/sell totals; executor round-trips excluded."""
     result = defaultdict(lambda: {"buy_quote_raw": 0, "sell_quote_raw": 0,
                                   "buy_raw": 0, "sell_raw": 0})
     for r in db.conn.execute("""
             SELECT actor, kind, SUM(CAST(quote_raw AS INTEGER)) q, SUM(CAST(amount_raw AS INTEGER)) v
             FROM events WHERE chain='ethereum' AND finalized=1 AND kind IN ('buy','sell')
+            AND json_extract(meta,'$.attribution') IN ('initiator_net','tx_net')
             GROUP BY actor, kind"""):
         row = result[r["actor"]]
         side = "buy" if r["kind"] == "buy" else "sell"
         row[side + "_quote_raw"] = r["q"]
         row[side + "_raw"] = r["v"]
     return result
+
+
+def tracked_addresses(db):
+    """Confirmed participants whose swaps reached the tracking thresholds."""
+    rows = _confirmed(db)
+    return {actor: {"quote_raw": s["buy_quote_raw"] + s["sell_quote_raw"],
+                    "volume_raw": s["buy_raw"] + s["sell_raw"]}
+            for actor, s in rows.items()
+            if actor and actor != ZERO
+            and (s["buy_quote_raw"] + s["sell_quote_raw"] >= TRACK_QUOTE_RAW
+                 or s["buy_raw"] + s["sell_raw"] >= TRACK_AMOUNT_RAW)}
+
+
+def side_split(db):
+    return _confirmed(db)
 
 
 def hubs(db):
@@ -140,11 +154,14 @@ def wgnk_ledger(db):
 
 
 def bridge_map(db):
-    """eth_address -> linked gonka address from verified mint links."""
-    links = {}
-    for row in db.conn.execute("SELECT value FROM gonka_mint_links"):
-        link = json.loads(row[0])
-        links[link["eth_address"]] = link["gnk_address"]
+    """eth_address -> every verified gonka counterparty, mints and burns alike;
+    buyers accumulate on the burn side, sellers on the mint side."""
+    links = defaultdict(set)
+    for table in ("gonka_mint_links", "gonka_burn_links"):
+        for row in db.conn.execute(f"SELECT value FROM {table}"):
+            link = json.loads(row[0])
+            if link.get("eth_address") and link.get("gnk_address"):
+                links[link["eth_address"]].add(link["gnk_address"])
     return links
 
 
@@ -169,8 +186,30 @@ def aggregate(db):
         return {"ready": False, "reason": "snapshot_not_verified"}
     links, native = bridge_map(db), native_gnk(db)
     excluded = excluded_senders(db)
-    buyers = {a for a, s in sides.items()
-              if s["buy_quote_raw"] >= TRACK_QUOTE_RAW or s["buy_raw"] >= TRACK_AMOUNT_RAW}
+    # Burns move bought WGNK into the buyer's own Gonka custody; that is
+    # holding too. Mints are not subtracted: imported coins still kept are
+    # holdings, and flippers are already excluded by the positive net filter.
+    burned_out = defaultdict(int)
+    for r in db.conn.execute("SELECT src,CAST(amount_raw AS INTEGER) v FROM events "
+                             "WHERE chain='ethereum' AND finalized=1 AND kind='bridge_burn'"):
+        burned_out[r["src"]] += r["v"]
+
+    def holdings(address):
+        """WGNK on the address plus tokens bridged out into own custody."""
+        return ledger.get(address, 0) + burned_out.get(address, 0)
+
+    # Dry powder belongs to buyers who HOLD Gonka: confirmed purchases only,
+    # net accumulation positive, and at least half of the net purchase still
+    # held in either network. Arbitrageurs and MEV round-trips drop out.
+    buyers = set()
+    for a, s in sides.items():
+        if not (s["buy_quote_raw"] >= TRACK_QUOTE_RAW or s["buy_raw"] >= TRACK_AMOUNT_RAW):
+            continue
+        net = s["buy_raw"] - s["sell_raw"]
+        if net <= 0:
+            continue
+        if holdings(a) * RETENTION_SHARE_DEN >= net * RETENTION_SHARE_NUM:
+            buyers.add(a)
     sellers = {a for a, s in sides.items()
                if s["sell_quote_raw"] >= TRACK_QUOTE_RAW or s["sell_raw"] >= TRACK_AMOUNT_RAW}
     overloaded = {(("0x" + topic[-40:]) if topic.startswith("0x") else topic)
@@ -198,9 +237,11 @@ def aggregate(db):
                          "funders": [{"address": src, "sent_raw": str(sent), "balance_raw": str(capped)}
                                      for src, sent, capped in sorted(rows, key=lambda r: -r[2])[:12]]})
     sell_rows = [{"address": address, "wgnk_raw": str(ledger.get(address, 0)),
-                  "gnk_raw": str(native.get(links.get(address, ""), 0))}
+                  "gnk_raw": str(sum(native.get(g, 0) for g in links.get(address, ())))}
                  for address in sellers]
     escrow_raw = int((db.get("escrow") or {}).get("data", {}).get("amount", 0))
+    buy_rows = [r for r in buy_rows
+                if int(r["own_raw"]) + int(r["chain_raw"]) >= POWDER_ROW_RAW]
     buy_own = sum(int(r["own_raw"]) for r in buy_rows)
     buy_chain = sum(int(r["chain_raw"]) for r in buy_rows)
     buy_rows = sorted(buy_rows, key=lambda r: -(int(r["own_raw"]) + int(r["chain_raw"])))
@@ -219,9 +260,13 @@ def aggregate(db):
             "thresholds": {"track_quote": tokens(TRACK_QUOTE_RAW, 6),
                            "track_amount": tokens(TRACK_AMOUNT_RAW),
                            "funding": tokens(FUND_RAW, 6)},
-            "note": ("Стейблкоины USDT/USDC на адресах покупателей и их цепочках финансирования "
-                     "против запасов WGNK/GNK продавцов и эскроу моста. Переводы из публичных "
-                     "кошельков бирж исключены. Связи по переводам — вероятность, не владелец.")}
+            "note": ("Покупатели — подтверждённые сделки (исполнители-круговики MEV и арбитраж "
+                     "не учитываются) с положительным чистым накоплением, удерживающие не менее "
+                     "половины купленного: баланс WGNK плюс чистый вывод через мост в своё "
+                     "хранение. Порох — стейблкоины USDT/USDC на адресах покупателей и их прямых "
+                     "финансистов; пыль до 1 000 USDT, кошельки бирж и инфраструктура исключены. "
+                     "Запасы продавцов — WGNK/GNK и эскроу моста. Связи по переводам — "
+                     "вероятность, не владелец.")}
 
 
 def save_snapshot(db, picture):

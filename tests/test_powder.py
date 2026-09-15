@@ -75,14 +75,14 @@ class PowderTests(unittest.TestCase):
         self.assertIn("0x" + "7" * 40, hubs(self.db))
 
     def test_snapshots_keep_history_and_throttle(self):
-        balance(self.db, A, usdt=5 * 10**6)
+        balance(self.db, A, usdt=5_000 * 10**6)  # above the dust filter
         picture = aggregate(self.db)
         save_snapshot(self.db, picture)
         save_snapshot(self.db, picture)  # immediate repeat is ignored
         rows = self.db.conn.execute("SELECT COUNT(*) FROM powder_snapshots").fetchone()[0]
         self.assertEqual(rows, 1)
         self.assertEqual(int(self.db.conn.execute(
-            "SELECT buy_own_raw FROM powder_snapshots").fetchone()[0]), 5 * 10**6)
+            "SELECT buy_own_raw FROM powder_snapshots").fetchone()[0]), 5_000 * 10**6)
 
     def test_seller_reserves_use_wgnk_ledger(self):
         balance(self.db, B, usdt=0)
