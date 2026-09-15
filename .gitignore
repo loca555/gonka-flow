@@ -6,6 +6,13 @@ data/
 *.log
 test-results/
 .tools/
+otc/node_modules/
+otc/artifacts/
+otc/.local/
+otc/.local-offers/
+otc/.local-wallet/
+otc/.local-levels/
+otc/.local-wallet-levels/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm

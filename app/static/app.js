@@ -45,6 +45,7 @@ function eventRows(items,cols=7){
   const raw=e.meta.attribution;
   if(raw==="initiator_only") secondary+=" · только инициатор";
   if(raw==="initiator_net") secondary+=" · движение подтверждено";
+  if(raw==="tx_net") secondary+=" · участник подтверждён потоком";
   return '<tr><td>'+clock(e.ts)+'<small>'+date(e.ts).split(",")[0]+'</small></td><td>'+badge(e.kind)+'<small>'+esc(secondary)+'</small></td><td>'+addr(source)+'</td><td>'+addr(e.dst)+'</td><td class="right">'+nf(e.amount,4)+' <span class="muted">'+e.asset+'</span>'+(Number(e.quote_amount)?'<small>'+nf(e.quote_amount,2)+' '+esc(e.quote_asset)+'</small>':"")+'</td><td class="right"><span class="'+(e.finalized?"confirmed":"unconfirmed")+'">'+(e.finalized?"✓ Финальный":"◌ Предварит.")+'</span><small>#'+nf(e.height,0)+'</small></td><td><button class="tx-link" data-event="'+esc(e.id)+'" title="Подробности события" aria-label="Подробности события">↗</button></td></tr>';
  }).join("");
 }

@@ -13,6 +13,9 @@ def address_history(rows, address, snapshot, expected_balance):
     Trade filters and table sorting must never alter this all-history timeline.
     """
     pools = {p["address"] for p in snapshot["pools"]}
+    # Same participant rule as the address trade feed: confirmed counterparty or
+    # executing initiator; only receipt-less swaps are unusable.
+    attributed = ("initiator_net", "tx_net", "initiator_only")
     days = defaultdict(lambda: {"delta_raw": 0, "bought_raw": 0, "sold_raw": 0,
                                 "buys_count": 0, "sales_count": 0,
                                 "buy_quote_raw": 0, "sale_quote_raw": 0})
@@ -22,7 +25,7 @@ def address_history(rows, address, snapshot, expected_balance):
         outgoing = kind in ("transfer", "bridge_burn") and event["src"] == address
         trade = (kind in ("buy", "sell") and event["actor"] == address
                  and event["pool"] in pools
-                 and json.loads(event["meta"]).get("attribution") == "initiator_net")
+                 and json.loads(event["meta"]).get("attribution") in attributed)
         if not (incoming or outgoing or trade):
             continue
         quantity = int(event["amount_raw"])

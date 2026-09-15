@@ -6,6 +6,7 @@ services:
     environment:
       INDEXER_ENABLED: ${INDEXER_ENABLED:-true}
       APP_MODE: ${APP_MODE:-mints}
+      OTC_LOCAL_ENABLED: "true"
       LOOKBACK_HOURS: ${LOOKBACK_HOURS:-24}
       GONKA_START_HEIGHT: ${GONKA_START_HEIGHT:-0}
       ETH_START_HEIGHT: ${ETH_START_HEIGHT:-0}

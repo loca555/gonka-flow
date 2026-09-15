@@ -40,6 +40,11 @@ class Settings:
     native_batch: int = field(default_factory=lambda: max(1, min(16, int(os.getenv("NATIVE_BATCH", "6")))))
     indexer_enabled: bool = field(default_factory=lambda: os.getenv("INDEXER_ENABLED", "true").lower() == "true")
     seed_enabled: bool = field(default_factory=lambda: os.getenv("LOAD_SEED_ARCHIVE", "false").lower() == "true")
+    otc_local_enabled: bool = field(default_factory=lambda: os.getenv("OTC_LOCAL_ENABLED", "false").lower() == "true")
+    keep_alive_url: str = field(default_factory=lambda: (os.getenv("KEEP_ALIVE_URL")
+        or os.getenv("RENDER_EXTERNAL_URL") or "").strip().rstrip("/"))
+    keep_alive_seconds: int = field(default_factory=lambda: max(60, int(os.getenv("KEEP_ALIVE_SECONDS", "240"))))
+    keep_alive_enabled: bool = field(default_factory=lambda: os.getenv("KEEP_ALIVE_ENABLED", "true").lower() == "true")
 
     def __post_init__(self):
         if self.mode not in ("full", "mints"):

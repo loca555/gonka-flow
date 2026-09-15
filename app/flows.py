@@ -18,6 +18,10 @@ def price_raw(quote, quantity, quote_decimals=6):
     """USDT/WGNK at 12 decimal places, explicitly rounded down."""
     return int(quote)*10**21//(int(quantity)*10**quote_decimals) if int(quantity)>0 else 0
 
+# The swap belongs to the address confirmed by a whole-transaction WGNK net flow:
+# either the initiator itself, or the recipient/payer found in the same receipt.
+CONFIRMED = ("initiator_net", "tx_net")
+
 def history_end(db,start,head):
     end=start-1
     for row in db.conn.execute("SELECT lo,hi FROM ranges WHERE chain='ethereum' ORDER BY lo"):
@@ -78,7 +82,7 @@ def minter_totals(rows,pools):
             r["last_mint_ts"]=max(r["last_mint_ts"],e["ts"])
     for e in rows:
         if e["kind"]!="sell" or e["pool"] not in pools or e["actor"] not in recipients: continue
-        if json.loads(e["meta"]).get("attribution")!="initiator_net": continue
+        if json.loads(e["meta"]).get("attribution") not in CONFIRMED: continue
         r=recipients[e["actor"]]
         r["sales_raw"]+=int(e["amount_raw"]);r["quote_raw"]+=int(e["quote_raw"]);r["sales_count"]+=1
     return recipients
@@ -283,7 +287,7 @@ def selected_trades(market_trades,pools,hours,q,side,sort,now,minimum=0):
         if hours and e["ts"]<now-hours*3600: continue
         if q:
             if re.fullmatch("0x[0-9a-f]{40}",q):
-                if e["actor"]!=q or meta.get("attribution")!="initiator_net": continue
+                if e["actor"]!=q or meta.get("attribution") not in (*CONFIRMED, "initiator_only"): continue
             elif q not in e["tx_hash"]: continue
         selected.append({**e,"meta":meta})
     # Sort the full filtered history before pagination; prices compare exact ratios.

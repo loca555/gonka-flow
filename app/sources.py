@@ -144,8 +144,8 @@ class Sources:
                 continue
             now = time.monotonic()
             slot = max(now, self.native_next.get(base, now))
-            # Shared with REST/single queries: at most one HTTP request per 4 s on this archive host.
-            self.native_next[base] = slot + 4
+            # Shared with REST/single queries: at most one HTTP request per 2 s on this archive host.
+            self.native_next[base] = slot + 2
             await asyncio.sleep(max(0, slot-now))
             if self.native_cooldown.get(base, 0) > time.monotonic():
                 errors.append(host + ": пауза RPC")

@@ -13,8 +13,8 @@ def trade_leaders(db, start_date=None):
     data = analysis(db, side="all", limit=None, include_bridge=True)
     result = {key: data[key] for key in ("ready", "now", "timezone", "snapshot", "coverage", "status", "pools")}
     result.update(buyers=[], sellers=[], summary=None, excluded=None, price_distribution=None, price_days=None, price_bridge=None, bridge=None,
-                  attribution="initiator_net", period="since_date" if start_date else "all_history", start_date=start_date, since=since,
-                  scope="All addresses in tracked pools; gross swap volume attributed by transaction-wide WGNK net-flow direction")
+                  attribution="initiator_net_tx_net_initiator_only", period="since_date" if start_date else "all_history", start_date=start_date, since=since,
+                  scope="All addresses in tracked pools; gross swap volume attributed by transaction-wide WGNK net flow (recipient/payer), falling back to the executing initiator")
     if not data["ready"]:
         return result
     groups = {side: {} for side in ("buy", "sell")}
@@ -26,7 +26,11 @@ def trade_leaders(db, start_date=None):
             continue
         side, address = event["kind"], event["actor"]
         quantity, quote = int(event["amount_raw"]), int(event["quote_raw"])
-        if event["attribution"] != "initiator_net" or not re.fullmatch("0x[0-9a-f]{40}", address or "") or address == ZERO:
+        # tx_net/initiator_only swaps carry the confirmed counterparty or, failing
+        # that, the executing initiator (router, intent settler, round-trip bot).
+        # Only swaps without any address or receipt evidence stay outside.
+        if (event.get("attribution") == "pool_only"
+                or not re.fullmatch("0x[0-9a-f]{40}", address or "") or address == ZERO):
             row = excluded[side]
         else:
             row = groups[side].setdefault(address, {"address": address, "volume_raw": 0,

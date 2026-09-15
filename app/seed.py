@@ -22,7 +22,8 @@ from .codec import kh
 from .redemptions import save_burn_link
 
 META_FIELDS = {"contract", "topic", "epoch", "sender", "recipient", "initiator",
-               "initiator_net_raw", "attribution", "quote_decimals", "transaction_index"}
+               "initiator_net_raw", "attribution", "attributed", "attributed_net_raw",
+               "quote_decimals", "transaction_index"}
 DEFAULT_ARCHIVE = Path(__file__).parent / "seed-data" / "wgnk.sqlite3.gz"
 
 LINK_FIELDS = set("tx_hash log_index eth_address eth_height eth_ts request_id epoch_id amount_raw gnk_address gnk_tx_hash gnk_height gnk_ts gnk_block_hash event_index native_request_id verified_at verification".split())

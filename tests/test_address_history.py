@@ -79,7 +79,7 @@ class AddressHistoryTests(unittest.TestCase):
         for key in ("bought_raw", "sold_raw", "buys_count", "sales_count", "buy_quote_raw", "sale_quote_raw"):
             self.assertEqual(sum(int(p[key]) for p in history["points"]), int(data["summary"][key]))
         self.assertEqual(data["summary"]["buys_count"], 1)
-        self.assertEqual(data["summary"]["sales_count"], 1)
+        self.assertEqual(data["summary"]["sales_count"], 2)  # Confirmed + initiator-only execution.
         # A transfer-only day and quiet days must not disappear from the line.
         self.assertEqual(history["points"][1]["bought_raw"], "0")
         self.assertEqual(history["points"][4]["sales_count"], 0)
@@ -92,7 +92,8 @@ class AddressHistoryTests(unittest.TestCase):
         day = next(p for p in history['points'] if p['date'] == '2026-07-02')
         self.assertEqual(day['buy_quote_raw'], '3000000')
         self.assertEqual(int(day['buy_quote_raw']) * 10**15 // int(day['bought_raw']), 60_000_000_000)
-        self.assertEqual(day['sale_quote_raw'], '1000000')
+        # Confirmed sale plus the initiator-only execution, both quote-summed.
+        self.assertEqual(day['sale_quote_raw'], '2000000')
         self.assertEqual(history['points'][0]['buy_quote_raw'], '0')
 
     def test_timeline_is_independent_of_table_sort_pagination_and_trade_filters(self):

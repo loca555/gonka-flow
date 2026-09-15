@@ -95,11 +95,13 @@ class FlowTests(unittest.TestCase):
         self.db.put("flow:snapshot",None)
         self.assertIsNone(analysis(self.db)["latest_trade"])
 
-    def test_address_sales_require_confirmed_token_outflow(self):
+    def test_address_feed_includes_executor_rows_but_minter_sales_stay_confirmed(self):
         self.db.conn.execute("UPDATE events SET meta=? WHERE kind='sell' AND height=7",(json.dumps({"attribution":"initiator_only"}),))
         self.db.conn.commit()
         self.assertEqual(analysis(self.db)["summary"]["sold"],"40")
-        self.assertEqual(analysis(self.db,q=A)["summary"]["sold"],"30")
+        # The address feed keeps the unconfirmed row for its initiator, with the
+        # attribution label marking it; confirmed minter sales exclude it.
+        self.assertEqual(analysis(self.db,q=A)["summary"]["sold"],"40")
         self.assertEqual(analysis(self.db)["minters"][0]["sold"],"30")
         self.assertEqual(analysis(self.db,limit=1,offset=1)["sales"][0]["height"],3)
 
@@ -159,7 +161,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual([e["kind"] for e in analysis(self.db,q=A,side="all",sort="kind_asc")["trades"]],["buy","sell","sell"])
         self.db.conn.execute("UPDATE events SET meta=? WHERE kind='buy'",(json.dumps({"attribution":"initiator_only"}),))
         self.db.conn.commit()
-        self.assertEqual(analysis(self.db,q=A,side="all")["total"],2)
+        self.assertEqual(analysis(self.db,q=A,side="all")["total"],3)
         self.assertEqual(analysis(self.db,q="0x"+"f"*40,side="all")["total"],0)
 
     def test_partial_history_does_not_support_a_newer_snapshot(self):

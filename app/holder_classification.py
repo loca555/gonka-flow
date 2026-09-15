@@ -37,11 +37,12 @@ def estimate(roots, native, ethereum, mints, burns, pools, modules=(), native_co
         balances[('gonka',a)]=opening
         if a in roots and opening: colors[('gonka',a)].add(a)
     # Match transfers to single-direction swaps within a pool/transaction.
+    from .flows import CONFIRMED
     trade=defaultdict(lambda:dict(buy=0,sell=0,incoming=0,outgoing=0,lp=False))
     for e in ethereum:
         t=trade[(e['tx_hash'],e['pool'])]
         meta=e['meta'] if isinstance(e['meta'],dict) else json.loads(e['meta'])
-        if e['kind'] in ('buy','sell') and meta.get('attribution')=='initiator_net': t[e['kind']]+=int(e['amount_raw'])
+        if e['kind'] in ('buy','sell') and meta.get('attribution') in CONFIRMED: t[e['kind']]+=int(e['amount_raw'])
         if e['kind'] in ('liquidity_add','liquidity_remove'): t['lp']=True
         if e['kind']=='transfer':
             if e['src'] in pools: trade[(e['tx_hash'],e['src'])]['outgoing']+=int(e['amount_raw'])

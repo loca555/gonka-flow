@@ -41,11 +41,12 @@ def listing(db, asset, query='', limit=25, offset=0):
                 or sum(ledger.values()) != supply or minted - burned != supply):
             return result
         pools = {p['address'] for p in snapshot['pools']}
+        from .flows import CONFIRMED
         activity = {}
         for event in rows:
             if (event['kind'] not in ('buy', 'sell') or event['pool'] not in pools
                     or not ETH_ADDRESS.fullmatch(event['actor'] or '') or event['actor'] == ZERO
-                    or json.loads(event['meta']).get('attribution') != 'initiator_net'):
+                    or json.loads(event['meta']).get('attribution') not in CONFIRMED):
                 continue
             volume = activity.setdefault(event['actor'], {'buy': 0, 'sell': 0})
             volume[event['kind']] += int(event['amount_raw'])

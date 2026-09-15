@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import re
+from collections import defaultdict
 from datetime import datetime
 from Crypto.Hash import keccak
 from .config import TOKEN, ZERO, ESCROW
@@ -232,15 +233,36 @@ def parse_eth_log(log, block, pools, receipt=None, finalized=True):
         if receipt:
             origin = receipt["from"].lower()
             net = 0
+            nets = defaultdict(int)
+            excluded = {ZERO, *pools}
             for item in receipt["logs"]:
                 t = [x.lower() for x in item["topics"]]
                 if item["address"].lower() == TOKEN and t and t[0] == TRANSFER:
                     qty = words(item["data"])[0]
-                    net += qty * ((address(t[2]) == origin) - (address(t[1]) == origin))
+                    source, target = address(t[1]), address(t[2])
+                    net += qty * ((target == origin) - (source == origin))
+                    if source not in excluded:
+                        nets[source] -= qty
+                    if target not in excluded:
+                        nets[target] += qty
             common["actor"] = origin
-            common["meta"].update(initiator=origin, initiator_net_raw=str(net),
-                                  attribution="initiator_net" if ((kind == "buy" and net > 0)
-                                  or (kind == "sell" and net < 0)) else "initiator_only")
+            common["meta"].update(initiator=origin, initiator_net_raw=str(net))
+            if (kind == "buy" and net > 0) or (kind == "sell" and net < 0):
+                common["meta"]["attribution"] = "initiator_net"
+            else:
+                # The initiator only executed the swap (router, intent settler or
+                # round-trip). Attribute to the address whose whole-transaction
+                # WGNK net flow matches the direction: that address is the
+                # confirmed buyer/seller, even when it never signed the transaction.
+                wanted = {a: n for a, n in nets.items()
+                          if a != origin and ((kind == "buy" and n > 0) or (kind == "sell" and n < 0))}
+                if wanted:
+                    best = max(sorted(wanted), key=lambda a: (abs(wanted[a]), a))
+                    common["actor"] = best
+                    common["meta"].update(attributed=best, attributed_net_raw=str(wanted[best]),
+                                          attribution="tx_net")
+                else:
+                    common["meta"]["attribution"] = "initiator_only"
         return blank("ethereum", block, tx, idx, kind, abs(token_amount),
                      src=address(topics[1]), dst=address(topics[2]), **common)
     if topic in (LP_MINT, LP_BURN):

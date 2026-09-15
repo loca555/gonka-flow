@@ -123,9 +123,9 @@
    (stale?' · свежие данные временно недоступны, показан сохранённый снимок':'');
   for(const side of sides)renderTable(side,data);
   renderCharts(data);
-  el('leaders-excluded').hidden=false;
+  el('leaders-excluded').hidden=BigInt(data.excluded.buy.volume_raw)+BigInt(data.excluded.sell.volume_raw)===0n;
   el('leaders-excluded').textContent='Не вошли в рейтинг: покупки '+amount(data.excluded.buy.volume)+' WGNK ('+count(data.excluded.buy.swaps)+
-   ' исполнений) и продажи '+amount(data.excluded.sell.volume)+' WGNK ('+count(data.excluded.sell.swaps)+' исполнений) — адрес участника не подтверждён.';
+   ' исполнений) и продажи '+amount(data.excluded.sell.volume)+' WGNK ('+count(data.excluded.sell.swaps)+' исполнений) — адрес участника не установлен. Прочие сделки отнесены участнику по чистому потоку WGNK в транзакции, при отсутствии — инициатору.';
  }
  async function refresh(periodChanged=false){
   if(ranking.loading&&!periodChanged)return;

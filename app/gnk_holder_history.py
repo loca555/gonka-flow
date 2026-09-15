@@ -145,25 +145,44 @@ class HolderHistory:
             self.last_estimate=time.monotonic()
         now=int(time.time())
         self.history_turn=not self.history_turn
-        order='ASC' if self.history_turn else 'DESC'
-        rows=self.db.conn.execute('SELECT height FROM holder_native_blocks WHERE checked_at IS NULL AND retry_at<=? ORDER BY height '+order+' LIMIT 3',(now,)).fetchall()
-        for row in rows:
-            height=row[0]
+        direction='ASC' if self.history_turn else 'DESC'
+        # Blocks carrying a public holder's own transfers come first: visible
+        # classifications must not wait behind deep counterparty discovery.
+        root_blocks={r[0] for r in self.db.conn.execute(
+            'SELECT DISTINCT height FROM gonka_incoming WHERE address IN (SELECT address FROM public_gnk_holders)')}
+        pending=[r[0] for r in self.db.conn.execute(
+            'SELECT height FROM holder_native_blocks WHERE checked_at IS NULL AND retry_at<=? ORDER BY height '+direction+' LIMIT 400',(now,))]
+        pending.sort(key=lambda h:(h not in root_blocks,h if direction=='ASC' else -h))
+        rows=pending[:10]
+        for offset in range(0,len(rows),5):
+            heights=rows[offset:offset+5]
             try:
-                block,reply=await collector.native_block(height)
-                header,events=parse_native(block,reply,collector.modules)
-                with self.db.conn:
-                    for order,event in enumerate(events):
-                        event["trace_order"]=order
-                        value=json.dumps(event,sort_keys=True)
-                        old=self.db.conn.execute('SELECT value FROM holder_native_events WHERE id=?',(event['id'],)).fetchone()
-                        if old and old[0]!=value: raise ValueError('Native holder history changed')
-                        self.db.conn.execute('INSERT OR IGNORE INTO holder_native_events VALUES(?,?,?)',(event['id'],height,value))
-                    self.db.conn.execute('UPDATE holder_native_blocks SET checked_at=?,error=NULL WHERE height=?',(now,height))
-                self.db.revision+=1
+                # One batched JSON-RPC packet per five blocks instead of five round trips.
+                await collector.native_blocks(heights)
+            except asyncio.CancelledError:
+                raise
             except Exception as error:
                 with self.db.conn:
-                    self.db.conn.execute('UPDATE holder_native_blocks SET retry_at=?,error=? WHERE height=?',(now+600,str(error)[:200],height))
+                    self.db.conn.execute(
+                        'UPDATE holder_native_blocks SET retry_at=?,error=? WHERE height IN ('+','.join('?'*len(heights))+')',
+                        (now+600,str(error)[:200],*heights))
+                continue
+            for height in heights:
+                try:
+                    block,reply=collector.blocks[height]
+                    header,events=parse_native(block,reply,collector.modules)
+                    with self.db.conn:
+                        for index,event in enumerate(events):
+                            event["trace_order"]=index
+                            value=json.dumps(event,sort_keys=True)
+                            old=self.db.conn.execute('SELECT value FROM holder_native_events WHERE id=?',(event['id'],)).fetchone()
+                            if old and old[0]!=value: raise ValueError('Native holder history changed')
+                            self.db.conn.execute('INSERT OR IGNORE INTO holder_native_events VALUES(?,?,?)',(event['id'],height,value))
+                        self.db.conn.execute('UPDATE holder_native_blocks SET checked_at=?,error=NULL WHERE height=?',(now,height))
+                    self.db.revision+=1
+                except Exception as error:
+                    with self.db.conn:
+                        self.db.conn.execute('UPDATE holder_native_blocks SET retry_at=?,error=? WHERE height=?',(now+600,str(error)[:200],height))
         await self.balance()
         self.db.put('holder_history:progress',progress(self.db))
         if time.monotonic()-self.last_estimate>=30:

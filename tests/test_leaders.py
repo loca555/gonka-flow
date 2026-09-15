@@ -49,17 +49,20 @@ class LeaderTests(unittest.TestCase):
         self.assertEqual(data["summary"]["buy"]["volume"], "70")
         self.assertEqual(data["summary"]["buy"]["addresses"], 2)
 
-    def test_unattributed_and_missing_actor_excluded_and_totals_reconcile(self):
+    def test_only_swaps_without_participant_address_or_receipt_are_excluded(self):
         rows = [
             trade("buy", A, 10, 20), trade("sell", B, 30, 40),
             trade("buy", C, 50, 60, attribution="initiator_only"),
+            trade("buy", C, 15, 20, attribution="tx_net"),
             trade("sell", C, 70, 80, attribution="pool_only"),
             trade("buy", "", 90, 100), trade("sell", "0x"+"0"*40, 110, 120),
         ]
         data = self.compute(rows)
-        self.assertEqual([r["address"] for r in data["buyers"]], [A])
+        self.assertEqual([r["address"] for r in data["buyers"]], [C, A])
+        self.assertEqual(data["summary"]["buy"]["volume_raw"], "75")
         self.assertEqual([r["address"] for r in data["sellers"]], [B])
-        self.assertEqual(data["excluded"]["buy"]["volume_raw"], "140")
+        self.assertEqual(data["excluded"]["buy"]["volume_raw"], "90")
+        self.assertEqual(data["excluded"]["buy"]["swaps"], 1)
         self.assertEqual(data["excluded"]["sell"]["volume_raw"], "180")
         for side in ("buy", "sell"):
             for key, event_key in (("volume_raw","amount_raw"), ("quote_raw","quote_raw")):

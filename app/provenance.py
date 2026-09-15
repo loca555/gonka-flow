@@ -439,7 +439,7 @@ class ProvenanceCollector:
             base=endpoint.removesuffix('/chain-rpc')
             now=time.monotonic()
             if self.net.native_cooldown.get(base,0)>now:continue
-            slot=max(now,self.net.native_next.get(base,now));self.net.native_next[base]=slot+4
+            slot=max(now,self.net.native_next.get(base,now));self.net.native_next[base]=slot+2
             await asyncio.sleep(max(0,slot-now))
             try:
                 response=await self.net.client.post(endpoint+'/',json=payload)

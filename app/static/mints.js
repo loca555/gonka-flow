@@ -94,8 +94,10 @@ function configureVolumeFilter(id,onChange){
 }
 function showView(){
  if(location.hash==="#mints")history.replaceState(null,"",location.pathname+"#bridge");
- const view=location.hash==="#holders"?"holders":location.hash==="#leaders"?"leaders":location.hash==="#minters"?"minters":["#bridge","#method"].includes(location.hash)?"bridge":"trading";
- const panels={bridge:"mints-view",trading:"trading-view",minters:"minters-view",leaders:"leaders-view",holders:"holders-view"};
+ const otc=location.hash==="#otc"&&document.body.dataset.otcEnabled==="true"&&["localhost","127.0.0.1"].includes(location.hostname);
+ const view=otc?"otc":location.hash==="#holders"?"holders":location.hash==="#leaders"?"leaders":location.hash==="#minters"?"minters":["#bridge","#method"].includes(location.hash)?"bridge":"trading";
+ document.body.classList.toggle("otc-active",otc);
+ const panels={bridge:"mints-view",trading:"trading-view",minters:"minters-view",leaders:"leaders-view",holders:"holders-view",otc:"otc-view"};
  Object.entries(panels).forEach(([name,id])=>{el(id).hidden=name!==view;});
  document.querySelectorAll("[data-view]").forEach(link=>{
   const active=link.dataset.view===view;
@@ -197,7 +199,7 @@ document.addEventListener("click",async e=>{
  const detail=e.target.closest("[data-tx]");
  if(detail)details(detail.dataset.tx,Number(detail.dataset.log));
 });
-history.replaceState(null,"",location.pathname+(["#method","#bridge","#trading","#mints","#minters","#leaders","#holders"].includes(location.hash)?location.hash:"#trading"));
+history.replaceState(null,"",location.pathname+(["#method","#bridge","#trading","#mints","#minters","#leaders","#holders","#otc"].includes(location.hash)?location.hash:"#trading"));
 document.querySelectorAll("[data-chart-type]").forEach(button=>button.addEventListener("click",()=>{
  state.chartType=button.dataset.chartType;
  document.querySelectorAll("[data-chart-type]").forEach(b=>b.setAttribute("aria-pressed",String(b===button)));

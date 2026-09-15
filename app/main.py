@@ -44,18 +44,48 @@ def create_app(settings=None):
     cache, hits = {}, defaultdict(deque)
     index_html = versioned_page("mints.html" if cfg.mode == "mints" else "index.html")
 
+    def local_otc(request):
+        return cfg.otc_local_enabled and request.url.hostname in ("localhost", "127.0.0.1")
+
+    async def ping_self():
+        """Free hosting discards the runtime database after idle sleeps, forcing a
+        full history reload on the next visit. A periodic self-request keeps the
+        single instance warm; it is opt-out via KEEP_ALIVE_ENABLED=false."""
+        import logging
+        import httpx
+        log = logging.getLogger("gonka-flow.keepalive")
+        url = cfg.keep_alive_url.rstrip("/") + "/healthz"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
+            while True:
+                try:
+                    response = await client.get(url)
+                    if response.status_code != 200:
+                        log.debug("keep-alive %s -> HTTP %s", url, response.status_code)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    log.debug("keep-alive %s failed: %s", url, str(error)[:120])
+                await asyncio.sleep(cfg.keep_alive_seconds)
+
     @asynccontextmanager
     async def lifespan(app):
         if cfg.mode == "mints" and cfg.seed_enabled:
             restore_seed(cfg.data_dir / "gonka-flow.sqlite3")
         db = Database(cfg.data_dir / "gonka-flow.sqlite3")
+        from .attribution import migrate
+        migrate(db)
         indexer = MintIndexer(cfg, db) if cfg.mode == "mints" else Indexer(cfg, db)
         app.state.db, app.state.indexer = db, indexer
+        keep_alive = (asyncio.create_task(ping_self(), name="keep_alive")
+                      if cfg.keep_alive_enabled and cfg.keep_alive_url else None)
         if cfg.indexer_enabled:
             indexer.start()
         try:
             yield
         finally:
+            if keep_alive:
+                keep_alive.cancel()
+                await asyncio.gather(keep_alive, return_exceptions=True)
             await indexer.stop()
             db.close()
 
@@ -86,7 +116,8 @@ def create_app(settings=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'")
+            + ("connect-src 'self' http://127.0.0.1:8791 http://127.0.0.1:8793 http://127.0.0.1:8794; " if local_otc(request) else "connect-src 'self'; ")
+            + "img-src 'self' data:; object-src 'none'; frame-ancestors 'none'")
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         elif request.url.path.startswith("/static/") and Path(request.url.path).suffix in (".js", ".css", ".html"):
@@ -99,8 +130,9 @@ def create_app(settings=None):
                        allow_methods=["GET"], allow_credentials=False)
 
     @app.get("/")
-    async def index():
-        return HTMLResponse(index_html, headers={"Cache-Control":"no-cache"})
+    async def index(request: Request):
+        html = index_html.replace('data-otc-enabled="false"', 'data-otc-enabled="true"') if local_otc(request) else index_html
+        return HTMLResponse(html, headers={"Cache-Control":"no-cache"})
 
     @app.get("/healthz")
     async def health():
