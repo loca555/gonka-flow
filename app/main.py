@@ -238,7 +238,7 @@ def create_app(settings=None):
         client=request.app.state.indexer.net.client
         try:
             response=await client.post(OPENBROKER,json={
-                "model":MODEL,"temperature":0,
+                "model":MODEL,"temperature":0,"max_tokens":800,
                 "messages":[{"role":"user","content":model_prompt(data)}]},
                 headers={"Authorization":"Bearer "+key},timeout=30)
             response.raise_for_status()

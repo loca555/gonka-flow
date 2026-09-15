@@ -46,7 +46,7 @@
   status.textContent='Спрашиваем модель…';
   const data=state.data;
   if(!data?.ready){status.textContent='Снимок прогноза ещё не готов.';return;}
-  const body=JSON.stringify({model:MODEL,temperature:0,messages:[{role:'user',content:buildPrompt(data)}]});
+  const body=JSON.stringify({model:MODEL,temperature:0,max_tokens:800,messages:[{role:'user',content:buildPrompt(data)}]});
   let reply=null,mode='';
   try{
    const response=await fetch(OPENBROKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body});
