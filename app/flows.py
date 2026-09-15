@@ -21,6 +21,12 @@ def price_raw(quote, quantity, quote_decimals=6):
 # The swap belongs to the address confirmed by a whole-transaction WGNK net flow:
 # either the initiator itself, or the recipient/payer found in the same receipt.
 CONFIRMED = ("initiator_net", "tx_net")
+# Exact integer sqrt multipliers for the +/-2% band: sqrt(0.98), sqrt(1.02)
+# scaled by 10**31, from math.isqrt at import time.
+from math import isqrt as _isqrt
+BAND_SCALE = 10**31
+SQRT_098 = _isqrt(98 * BAND_SCALE**2 // 100)
+SQRT_102 = _isqrt(102 * BAND_SCALE**2 // 100)
 
 def history_end(db,start,head):
     end=start-1
@@ -421,6 +427,35 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
         total["raw"]+=int(e["amount_raw"]);total["quote"]+=int(e["quote_raw"]);total["count"]+=1
     pooled=sum(int(p["balance_raw"]) for p in pools.values())
     supply=int(snapshot["supply_raw"])
+    # Depth of book: Uniswap V3 active liquidity within +/-2% of the day's
+    # closing price, split into WGNK and USDT sides. sqrtX96/liquidity come
+    # from the Swap events themselves (verified on-chain values).
+    band={}
+    for event in rows:
+        if event["kind"] not in ("buy","sell"):
+            continue
+        meta=event["meta"] if isinstance(event["meta"],dict) else json.loads(event["meta"])
+        if "liquidity_raw" not in meta or "sqrt_price_raw" not in meta:
+            continue
+        pool=band.setdefault(event["pool"],{})
+        pool[local_day(event["ts"])]=(int(meta["sqrt_price_raw"]),int(meta["liquidity_raw"]),
+                                      int(event["quote_raw"])*10**15//int(event["amount_raw"]))
+    band_series={}
+    for address,days in band.items():
+        points=[]
+        for day in sorted(days):
+            sqrt_raw,liquidity,price=days[day]
+            if not sqrt_raw or not liquidity:
+                continue
+            low=sqrt_raw*SQRT_098//BAND_SCALE
+            high=sqrt_raw*SQRT_102//BAND_SCALE
+            span=high-low
+            wgnk_raw=liquidity*span*2**96//(low*high or 1)
+            usdt_raw=liquidity*span//2**96
+            points.append({"date":day,"price_raw":str(price),
+                           "wgnk_raw":str(wgnk_raw),"usdt_raw":str(usdt_raw)})
+        if points:
+            band_series[address]=points
     liquidity_added=sum(int(e["amount_raw"]) for e in rows if e["kind"]=="liquidity_add" and e["pool"] in pools)
     daily=defaultdict(lambda:{"raw":0,"quote_raw":0,"events":0,"sold_raw":0,"bought_raw":0,
                               "sale_quote_raw":0,"buy_quote_raw":0,"sales_count":0,"buys_count":0})
@@ -448,7 +483,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
         "average_price":tokens(price_raw(quote,sold),12) if sold else None,
         "transactions":len({e["tx_hash"] for e in selected}),"swaps":len(selected),
         "liquidity_added":tokens(liquidity_added),"all_sales":len(all_sales)},
-        pools=list(pools.values()),trades=page,
+        pools=list(pools.values()),trades=page,liquidity_band=band_series,
         sales=page if side=="sell" else [],total=len(selected),limit=page_limit,
         has_more=offset+page_limit<len(selected),minters=minters,
         daily=[{"date":day,**{key:str(value) if key.endswith("raw") else value for key,value in d.items()},

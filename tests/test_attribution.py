@@ -35,7 +35,10 @@ def eth_log(block, tx, idx, address, topics, data_words):
 def swap_log(block, tx, idx, kind, quantity, quote, pool=POOL):
     token = -quantity if kind == "buy" else quantity
     paid = quote if kind == "buy" else -quote
-    return eth_log(block, tx, idx, pool, [SWAP, topic(E), topic(P)], [word(token), word(paid)])
+    # Real Swap logs carry five data words: amount0, amount1, sqrtPriceX96,
+    # liquidity and tick; the parser stores the third and fourth.
+    return eth_log(block, tx, idx, pool, [SWAP, topic(E), topic(P)],
+                   [word(token), word(paid), word(2**96), word(27_156_627_246_362), word(0)])
 
 
 def transfer_log(block, tx, idx, source, target, quantity):

@@ -229,7 +229,8 @@ def parse_eth_log(log, block, pools, receipt=None, finalized=True):
         kind = "sell" if token_amount > 0 else "buy"
         common["quote_raw"] = str(abs(quote_amount))
         common["meta"].update(sender=address(topics[1]), recipient=address(topics[2]),
-                              attribution="pool_only")
+                              attribution="pool_only",
+                              sqrt_price_raw=str(w[2]), liquidity_raw=str(w[3]))
         if receipt:
             origin = receipt["from"].lower()
             net = 0
