@@ -127,9 +127,9 @@ def create_app(settings=None):
         return response
 
     # Public read-only data is also consumed by the IPFS frontend on gateway origins.
-    # POST serves only the optional LLM key transit, which stores nothing.
+    # Register outside headers_and_limits so API errors retain CORS headers too.
     app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                       allow_methods=["GET", "POST"], allow_credentials=False)
+                       allow_methods=["GET"], allow_credentials=False)
 
     @app.get("/")
     async def index(request: Request):
@@ -223,36 +223,6 @@ def create_app(settings=None):
         if key not in cache or time.time()-cache[key][0]>60:
             cache[key]=(time.time(),forecast_snapshot(request.app.state.db))
         return cache[key][1]
-
-    @app.post("/api/mints/forecast/llm")
-    async def mint_forecast_llm(request:Request):
-        """Key transit only: the browser-held API key passes straight through to
-        the model provider and is never stored, cached or logged here."""
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        key=request.headers.get("x-llm-key","").strip()
-        if not re.fullmatch(r"[A-Za-z0-9_\-\.]{8,128}",key):
-            raise HTTPException(400,"Нужен ключ API в заголовке x-llm-key")
-        data=forecast_snapshot(request.app.state.db)
-        if not data.get("ready"):
-            raise HTTPException(503,"Снимок прогноза ещё не готов")
-        client=request.app.state.indexer.net.client
-        try:
-            response=await client.post(OPENBROKER,json={
-                "model":MODEL,"temperature":0,"max_tokens":800,
-                "messages":[{"role":"user","content":model_prompt(data)}]},
-                headers={"Authorization":"Bearer "+key},timeout=30)
-            response.raise_for_status()
-            payload=response.json()
-            reply=(payload.get("choices") or [{}])[0].get("message",{}).get("content","").strip()
-            if not reply:
-                raise ValueError("пустой ответ модели")
-            return {"reply":reply[:2000],"model":payload.get("model",MODEL),
-                    "transit":True,"note":"Ключ прошёл через сервер без сохранения и логирования"}
-        except HTTPException:
-            raise
-        except Exception as error:
-            kind=type(error).__name__
-            raise HTTPException(502,"Модель недоступна ("+kind+"); ключ не сохранён")
 
     @app.get("/api/mints/address/{address}")
     async def mint_address(request:Request,address:str,sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN)):

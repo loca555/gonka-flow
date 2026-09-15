@@ -47,26 +47,19 @@
   const data=state.data;
   if(!data?.ready){status.textContent='Снимок прогноза ещё не готов.';return;}
   const body=JSON.stringify({model:MODEL,temperature:0,max_tokens:800,messages:[{role:'user',content:buildPrompt(data)}]});
-  let reply=null,mode='';
-  try{
-   const response=await fetch(OPENBROKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body});
-   if(!response.ok){
-    let detail='HTTP '+response.status;
-    try{const payload=await response.json();detail+=': '+(payload.error?.message||payload.error||payload.detail||'');}catch{}
-    if(response.status===429)detail+=' · лимит запросов ключа OpenBroker: подождите минуту и повторите, либо проверьте квоту/тариф ключа';
-    if(response.status===401)detail='Ключ не принят (401): проверьте, что скопировали ключ OpenBroker целиком';
-    throw new Error(detail);
-   }
-   reply=(await response.json()).choices?.[0]?.message?.content?.trim();mode='прямой вызов из браузера';
-  }catch(directError){
-   if(directError instanceof TypeError||/Failed to fetch|NetworkError/i.test(String(directError))){
-    const response=await fetch('/api/mints/forecast/llm',{method:'POST',headers:{'Content-Type':'application/json','x-llm-key':key}});
-    if(!response.ok)throw new Error((await response.json()).detail||('HTTP '+response.status));
-    reply=(await response.json()).reply;mode='транзит через сервер без сохранения ключа';
-   }else throw directError;
+  let reply=null;
+  const response=await fetch(OPENBROKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body});
+  if(!response.ok){
+   let detail='HTTP '+response.status;
+   try{const payload=await response.json();detail+=': '+(payload.error?.message||payload.error||payload.detail||'');}catch{}
+   if(response.status===429)detail+=' · лимит запросов ключа OpenBroker: подождите минуту и повторите, либо проверьте квоту/тариф ключа';
+   if(response.status===401)detail='Ключ не принят (401): проверьте, что скопировали ключ OpenBroker целиком';
+   throw new Error(detail);
   }
+  reply=(await response.json()).choices?.[0]?.message?.content?.trim();
+  el('forecast-llm-reply').hidden=false;
   el('forecast-llm-reply').textContent=reply||'(пустой ответ)';
-  status.textContent='Готово · '+mode+' · модель '+MODEL;
+  status.textContent='Готово · прямой вызов из браузера · модель '+MODEL;
  }
  function buildPrompt(data){
   const rules=(data.rules||[]).map(r=>r.name+'='+r.score.toFixed(2)).join('; ');
