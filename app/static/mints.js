@@ -125,10 +125,17 @@ function renderMetrics(d){
 }
 function renderChart(d){
  if(el("mints-view").hidden)return;
- const chart=el("mint-chart"),options={points:d.daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
+ // 2026-06-09: deployment-wave drop of 3,268,769 WGNK; as a single bar it
+ // dwarfs the daily rhythm, so it is ignored on this chart by request.
+ const anomaly="2026-06-09";
+ const daily=d.daily.filter(x=>x.date!==anomaly);
+ const chart=el("mint-chart"),options={points:daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
   complete:d.coverage.complete,type:state.chartType||"line",title:"Чеканка WGNK по дням",countLabel:"Выпусков"};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
- el("chart-window").textContent=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным";
+ let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным";
+ if(daily.length!==d.daily.length)
+  window_note+=" · 09.06.2026 исключён из графика: аномальный выброс 3 268 769 WGNK разминочного выпуска";
+ el("chart-window").textContent=window_note;
 }
 function renderRecipients(d){
  setLiveHTML(el("recipient-list"),d.recipients.length?d.recipients.map((r,i)=>
