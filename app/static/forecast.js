@@ -4,9 +4,10 @@
 (()=>{
  const state={data:null,loading:false,request:0,abort:null};
  const KEY_STORAGE='gonka-forecast-llm-key';
+ const MODEL_STORAGE='gonka-forecast-llm-model';
  const OPENBROKER='https://api.openbroker.gonka.gg/v1/chat/completions';
  const MODEL='deepseek-ai/DeepSeek-V4-Flash-0731';
- const MAX_TOKENS=4000;
+ const MAX_TOKENS=33000;
  const MAX_TOOL_ROUNDS=6;
  const direction={up:'▲ рост',down:'▼ падение',flat:'— нейтрально'};
  const usd=raw=>(Number(raw)/1e6).toLocaleString('ru-RU',{maximumFractionDigits:0});
@@ -27,12 +28,13 @@
  function renderPowder(data){
   const powder=data.powder;
   if(!powder?.ready){el('powder-buy').innerHTML=el('powder-sell').innerHTML='<p class="empty">Порох ещё собирается…</p>';return;}
+  const main=n=>n>1?' <small title="Вероятная группа одного участника; показан основной адрес">· основной из '+n+'</small>':'';
   const buyers=(powder.buyers||[]).slice(0,8).map(row=>
    '<li><button class="address-button" data-flow-address="'+esc(row.address)+'" title="'+esc(row.address)+'">'+esc(short(row.address,8))+'</button>'+
-   '<span><strong>'+usd(row.own_raw)+'</strong> USDT'+(Number(row.chain_raw)>0?' <small>+ цепочки '+usd(row.chain_raw)+'</small>':'')+'</span></li>').join('');
+   '<span><strong>'+usd(row.own_raw)+'</strong> USDT'+(Number(row.chain_raw)>0?' <small>+ цепочки '+usd(row.chain_raw)+'</small>':'')+main(row.group_size||1)+'</span></li>').join('');
   const sellers=(powder.sellers||[]).slice(0,8).map(row=>
    '<li><button class="address-button" data-flow-address="'+esc(row.address)+'" title="'+esc(row.address)+'">'+esc(short(row.address,8))+'</button>'+
-   '<span><strong>'+wgnk(row.wgnk_raw)+'</strong> WGNK'+(Number(row.gnk_raw)>0?' <small>+ GNK '+wgnk(row.gnk_raw)+'</small>':'')+'</span></li>').join('');
+   '<span><strong>'+wgnk(row.wgnk_raw)+'</strong> WGNK'+(Number(row.gnk_raw)>0?' <small>+ GNK '+wgnk(row.gnk_raw)+'</small>':'')+main(row.group_size||1)+'</span></li>').join('');
   const t=powder.totals;
   el('powder-buy').innerHTML='<h3>Порох покупателей</h3><div class="total">'+usd(t.buy_own_raw)+
    ' <span class="unit">USDT-экв.</span></div><p class="unit">собственный + '+usd(t.buy_chain_raw)+' в цепочках финансирования</p>'+
@@ -126,23 +128,40 @@
   'Стиль: плотный фактический, каждое утверждение с числом из полученных данных, никаких выдуманных чисел и адресов, никаких советов покупать или продавать, без дисклеймеров про не-финансовый-совет (это саммари данных). Объём 350-700 слов.'].join(' ');
 
  const llm={busy:false};
+ function currentModel(){
+  const select=el('forecast-llm-model');
+  return select&&select.value?select.value:MODEL;
+ }
  async function callModel(key,messages,tools){
-  const response=await fetch(OPENBROKER,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-   body:JSON.stringify({model:MODEL,temperature:0,max_tokens:MAX_TOKENS,messages,
-    tools:tools||undefined,tool_choice:tools?'auto':undefined})});
-  if(!response.ok){
+  const base={model:currentModel(),temperature:0,max_tokens:MAX_TOKENS,messages,
+   tools:tools||undefined,tool_choice:tools?'auto':undefined};
+  // Мышление high у всех агентов, провайдер один (OpenBroker): неизвестное
+  // поле даёт 400 — пробуем известные формы параметра, затем обычный запрос.
+  const attempts=[{...base,reasoning:{effort:'high'}},{...base,reasoning_effort:'high'},base];
+  let lastError=null;
+  for(const body of attempts){
+   const response=await fetch(OPENBROKER,{method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify(body)});
+   if(response.ok){
+    let payload;const text=await response.text();
+    try{payload=JSON.parse(text);}catch{throw new Error('модель ответила не JSON');}
+    const choice=payload.choices?.[0];
+    const content=(choice?.message?.content||'').trim();
+    if(!content&&choice?.finish_reason==='length')
+     throw new Error('модель исчерпала лимит вывода на размышление — повторите запрос');
+    return {content,tool_calls:choice?.message?.tool_calls||null};
+   }
    let detail='HTTP '+response.status;let concurrent=false;
    try{const payload=await response.json();
     const message=payload.error?.message||String(payload.error||payload.detail||'');
     detail+=': '+message;concurrent=/concurrent/i.test(message);}catch{}
+   if(response.status===400){lastError=new Error(detail);continue;}
    if(response.status===429&&!concurrent)detail+=' · лимит запросов ключа OpenBroker: подождите минуту и повторите, либо проверьте квоту/тариф ключа';
    if(response.status===401)detail='Ключ не принят (401): проверьте, что скопировали ключ OpenBroker целиком';
    const error=new Error(detail);error.concurrent=concurrent;error.status=response.status;throw error;
   }
-  let payload;const body=await response.text();
-  try{payload=JSON.parse(body);}catch{throw new Error('модель ответила не JSON (HTTP '+response.status+')');}
-  const choice=payload.choices?.[0];
-  return {content:(choice?.message?.content||'').trim(),tool_calls:choice?.message?.tool_calls||null};
+  throw lastError||new Error('модель не ответила');
  }
  async function askModel(){
   if(llm.busy){el('forecast-llm-status').textContent='Запрос уже выполняется…';return;}
@@ -188,7 +207,7 @@
    }
    el('forecast-llm-reply').hidden=false;
    el('forecast-llm-reply').innerHTML=formatSummary(content||'(пустой ответ)');
-   status.textContent='Готово · прямой вызов из браузера · модель '+MODEL+
+   status.textContent='Готово · прямой вызов из браузера · модель '+currentModel()+
     (toolNotes.length?' · данные: '+toolNotes.join(', '):'');
   }finally{llm.busy=false;el('forecast-llm-ask').disabled=false;}
  }
@@ -201,6 +220,9 @@
  el('forecast-llm-ask').addEventListener('click',()=>askModel().catch(error=>{el('forecast-llm-status').textContent='Ошибка: '+error.message;}));
  el('forecast-llm-key').addEventListener('keydown',event=>{if(event.key==='Enter')el('forecast-llm-ask').click();});
  try{el('forecast-llm-key').value=localStorage.getItem(KEY_STORAGE)||'';}catch{}
+ try{el('forecast-llm-model').value=localStorage.getItem(MODEL_STORAGE)||MODEL;}catch{}
+ el('forecast-llm-model').addEventListener('change',event=>{
+  try{localStorage.setItem(MODEL_STORAGE,event.target.value);}catch{}});
  window.addEventListener('gonka:view',()=>{if(!el('forecast-view').hidden)refresh();});
  setInterval(()=>{if(!document.hidden&&!el('forecast-view').hidden)refresh();},60000);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!el('forecast-view').hidden)refresh();});

@@ -175,17 +175,12 @@ def native_gnk(db):
     return native
 
 
-def aggregate(db):
-    """The whole powder picture at the latest verified balances."""
-    tracked = tracked_addresses(db)
-    if not tracked:
-        return {"ready": False, "reason": "no_tracked_addresses"}
+def qualified_split(db):
+    """Per-address qualified buyers (still holding) and sellers, with the ledger."""
     sides = side_split(db)
     ledger, snapshot = wgnk_ledger(db)
     if ledger is None:
-        return {"ready": False, "reason": "snapshot_not_verified"}
-    links, native = bridge_map(db), native_gnk(db)
-    excluded = excluded_senders(db)
+        return None
     # Burns move bought WGNK into the buyer's own Gonka custody; that is
     # holding too. Mints are not subtracted: imported coins still kept are
     # holdings, and flippers are already excluded by the positive net filter.
@@ -193,11 +188,6 @@ def aggregate(db):
     for r in db.conn.execute("SELECT src,CAST(amount_raw AS INTEGER) v FROM events "
                              "WHERE chain='ethereum' AND finalized=1 AND kind='bridge_burn'"):
         burned_out[r["src"]] += r["v"]
-
-    def holdings(address):
-        """WGNK on the address plus tokens bridged out into own custody."""
-        return ledger.get(address, 0) + burned_out.get(address, 0)
-
     # Dry powder belongs to buyers who HOLD Gonka: confirmed purchases only,
     # net accumulation positive, and at least half of the net purchase still
     # held in either network. Arbitrageurs and MEV round-trips drop out.
@@ -208,10 +198,52 @@ def aggregate(db):
         net = s["buy_raw"] - s["sell_raw"]
         if net <= 0:
             continue
-        if holdings(a) * RETENTION_SHARE_DEN >= net * RETENTION_SHARE_NUM:
+        if (ledger.get(a, 0) + burned_out.get(a, 0)) * RETENTION_SHARE_DEN >= net * RETENTION_SHARE_NUM:
             buyers.add(a)
     sellers = {a for a, s in sides.items()
                if s["sell_quote_raw"] >= TRACK_QUOTE_RAW or s["sell_raw"] >= TRACK_AMOUNT_RAW}
+    return {"sides": sides, "ledger": ledger, "snapshot": snapshot,
+            "burned_out": burned_out, "buyers": buyers, "sellers": sellers}
+
+
+def participant_mains(db, qualified):
+    """Collapse probable one-participant groups to the main address per side:
+    the member with the largest confirmed quote volume. One address per
+    participant keeps the analysis and the RPC balance load small."""
+    from .clusters import cached
+    from .config import SEED_POOLS
+    sides, buyers, sellers = qualified["sides"], qualified["buyers"], qualified["sellers"]
+    rated = buyers | sellers
+    data = (cached(db, sorted(rated), SEED_POOLS) if len(rated) > 1
+            else {"groups": [], "address_group": {}})
+
+    def collapse(side_set, score):
+        groups = defaultdict(list)
+        for a in side_set:
+            groups[data["address_group"].get(a, a)].append(a)
+        mains, sizes = set(), {}
+        for members in groups.values():
+            main = max(members, key=lambda a: (score(a), a))
+            mains.add(main)
+            sizes[main] = len(members)
+        return mains, sizes
+    buyer_mains, buyer_sizes = collapse(buyers, lambda a: sides[a]["buy_quote_raw"])
+    seller_mains, seller_sizes = collapse(sellers, lambda a: sides[a]["sell_quote_raw"])
+    return buyer_mains, buyer_sizes, seller_mains, seller_sizes
+
+
+def aggregate(db, qualified=None):
+    """The whole powder picture at the latest verified balances."""
+    tracked = tracked_addresses(db)
+    if not tracked:
+        return {"ready": False, "reason": "no_tracked_addresses"}
+    qualified = qualified or qualified_split(db)
+    if qualified is None:
+        return {"ready": False, "reason": "snapshot_not_verified"}
+    sides, ledger, snapshot = qualified["sides"], qualified["ledger"], qualified["snapshot"]
+    links, native = bridge_map(db), native_gnk(db)
+    excluded = excluded_senders(db)
+    buyers, buyer_sizes, sellers, seller_sizes = participant_mains(db, qualified)
     overloaded = {(("0x" + topic[-40:]) if topic.startswith("0x") else topic)
                   for topic in (db.get("powder:skipped") or {})}
     funding = funders(db, buyers)
@@ -234,11 +266,14 @@ def aggregate(db):
                 for src in funding[address] if src not in excluded]
         buy_rows.append({"address": address, "own_raw": str(own),
                          "chain_raw": str(sum(row[2] for row in rows)),
+                         "group_size": buyer_sizes.get(address, 1),
                          "funders": [{"address": src, "sent_raw": str(sent), "balance_raw": str(capped)}
                                      for src, sent, capped in sorted(rows, key=lambda r: -r[2])[:12]]})
     sell_rows = [{"address": address, "wgnk_raw": str(ledger.get(address, 0)),
                   "gnk_raw": str(sum(native.get(g, 0) for g in links.get(address, ())))}
                  for address in sellers]
+    for r in sell_rows:
+        r["group_size"] = seller_sizes.get(r["address"], 1)
     escrow_raw = int((db.get("escrow") or {}).get("data", {}).get("amount", 0))
     buy_rows = [r for r in buy_rows
                 if int(r["own_raw"]) + int(r["chain_raw"]) >= POWDER_ROW_RAW]
@@ -265,9 +300,11 @@ def aggregate(db):
             "note": ("Покупатели — подтверждённые сделки (исполнители-круговики MEV и арбитраж "
                      "не учитываются) с положительным чистым накоплением, удерживающие не менее "
                      "половины купленного: баланс WGNK плюс чистый вывод через мост в своё "
-                     "хранение. Порох — стейблкоины USDT/USDC на адресах покупателей и их прямых "
-                     "финансистов; пыль до 1 000 USDT, кошельки бирж и инфраструктура исключены. "
-                     "Запасы продавцов — WGNK/GNK и эскроу моста. Связи по переводам — "
+                     "хранение. Порох — стейблкоины USDT/USDC на основных адресах покупателей "
+                     "и их прямых финансистов; пыль до 1 000 USDT, кошельки бирж и инфраструктура "
+                     "исключены. Запасы продавцов — WGNK/GNK и эскроу моста. Для каждого участника "
+                     "считается только основной адрес вероятной группы — это снижает нагрузку на "
+                     "RPC; остальные адреса группы не суммируются. Связи по переводам — "
                      "вероятность, не владелец.")}
 
 
@@ -412,8 +449,18 @@ class PowderCollector:
     async def refresh_balances(self, limit=6):
         tracked = set(tracked_addresses(self.db))
         excluded = excluded_senders(self.db)
-        wanted = set(tracked)
-        for dst, srcs in funders(self.db, tracked).items():
+        qualified = qualified_split(self.db)
+        # Balance calls are the RPC-heavy part: refresh main participant
+        # addresses and their funders only, never the whole tracked set.
+        if qualified:
+            buyer_mains, _, seller_mains, _ = participant_mains(self.db, qualified)
+            base = buyer_mains | seller_mains
+        else:
+            base = set()
+        if not base:
+            base = set(tracked)
+        wanted = set(base)
+        for dst, srcs in funders(self.db, base).items():
             wanted |= {src for src in srcs if src not in excluded}
         wanted -= excluded
         head = self.db.get("mints:status", {}).get("finalized_height")
@@ -422,7 +469,7 @@ class PowderCollector:
         rows = {r[0]: r[1] for r in self.db.conn.execute(
             "SELECT address, MAX(updated_at) FROM powder_balances GROUP BY address")}
         # Tracked participants (the holders themselves) refresh before funders.
-        order = sorted(wanted, key=lambda a: (a not in tracked, rows.get(a, 0)))[:MAX_BALANCE_ADDRESSES]
+        order = sorted(wanted, key=lambda a: (a not in base, a not in tracked, rows.get(a, 0)))[:MAX_BALANCE_ADDRESSES]
         now = int(time.time())
         for address in order[:limit]:
             for name, (contract, _) in STABLES.items():

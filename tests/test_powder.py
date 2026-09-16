@@ -84,6 +84,25 @@ class PowderTests(unittest.TestCase):
         self.assertEqual(int(self.db.conn.execute(
             "SELECT buy_own_raw FROM powder_snapshots").fetchone()[0]), 5_000 * 10**6)
 
+    def test_group_collapses_to_main_address(self):
+        # C is a smaller buyer funded by A with a direct WGNK transfer: one
+        # probable participant, only the main address (A) is analysed.
+        c = "0x" + "4" * 40
+        rows = [event(13, "buy", 3000, actor=c, pool=POOL, quote_raw=str(1200 * 10**6),
+                      quote_asset="USDT", meta={"attribution": "initiator_net"}),
+                event(14, "transfer", 1500, A, c)]
+        self.db.save_batch("ethereum", 13, 14, rows, [block(13), block(14)])
+        self.db.put("flow:snapshot", {"height": 14, "ts": block(14)["ts"], "supply_raw": str(8000 * UNIT),
+                                      "ledger_verified": True,
+                                      "pools": [{"address": POOL, "fee": 3000, "balance_raw": "0"}]})
+        balance(self.db, A, usdt=2_000 * 10**6)
+        picture = aggregate(self.db)
+        buyers = [r["address"] for r in picture["buyers"]]
+        self.assertEqual(buyers, [A])
+        self.assertEqual(picture["buyers"][0]["group_size"], 2)
+        self.assertEqual(picture["balance_coverage"]["qualified"], 1)
+        self.assertEqual(picture["balance_coverage"]["covered"], 1)
+
     def test_seller_reserves_use_wgnk_ledger(self):
         balance(self.db, B, usdt=0)
         picture = aggregate(self.db)
