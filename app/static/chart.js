@@ -240,7 +240,9 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
    tooltip.innerHTML='<span>'+fullDate(r.date)+'</span>'+
-    chosen.map(l=>r[l]?'<div class="market-tooltip-band"><span>Диапазон ±'+l+'%</span><b>+'+l+'% · '+escape(exact(BigInt(r[l].wgnk_raw),9))+' WGNK</b><small>−'+l+'% · '+escape(exact(BigInt(r[l].usdt_raw),6))+' USDT</small></div>':'').join("");
+    chosen.map(l=>r[l]?'<div class="market-tooltip-band liq-b'+l+'"><span>±'+l+'%</span>'+
+     '<b>+ '+escape(exact(BigInt(r[l].wgnk_raw),9))+' <em>WGNK</em></b>'+
+     '<b>− '+escape(exact(BigInt(r[l].usdt_raw),6))+' <em>USDT</em></b></div>':'').join("");
    tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
