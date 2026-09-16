@@ -45,7 +45,7 @@ class Settings:
         or os.getenv("RENDER_EXTERNAL_URL") or "").strip().rstrip("/"))
     keep_alive_seconds: int = field(default_factory=lambda: max(60, int(os.getenv("KEEP_ALIVE_SECONDS", "240"))))
     keep_alive_enabled: bool = field(default_factory=lambda: os.getenv("KEEP_ALIVE_ENABLED", "true").lower() == "true")
-    holders_labels_enabled: bool = field(default_factory=lambda: os.getenv("HOLDERS_LABELS_ENABLED", "true").lower() == "true")
+    holders_labels_enabled: bool = field(default_factory=lambda: os.getenv("HOLDERS_LABELS_ENABLED", "false").lower() == "true")
     powder_enabled: bool = field(default_factory=lambda: os.getenv("POWDER_ENABLED", "true").lower() == "true")
 
     def __post_init__(self):

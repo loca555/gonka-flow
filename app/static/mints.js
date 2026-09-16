@@ -20,7 +20,7 @@ const date=ts=>new Date(ts*1000).toLocaleDateString("ru-RU",{timeZone:"Asia/Nico
 const clock=ts=>new Date(ts*1000).toLocaleTimeString("ru-RU",{timeZone:"Asia/Nicosia",hour:"2-digit",minute:"2-digit",second:"2-digit"});
 const txUrl=h=>"https://etherscan.io/tx/"+encodeURIComponent(h);
 const blockUrl=h=>"https://etherscan.io/block/"+encodeURIComponent(h);
-const state={minimum:0,sort:"time_desc",offset:0,request:0,data:null,bridge:null};
+const state={minimum:10000,sort:"time_desc",offset:0,request:0,data:null,bridge:null};
 const liveMarkup=new WeakMap(),liveCharts=new WeakMap();
 function setLiveHTML(host,html){
  const previous=liveMarkup.get(host);
@@ -95,9 +95,9 @@ function configureVolumeFilter(id,onChange){
 function showView(){
  if(location.hash==="#mints")history.replaceState(null,"",location.pathname+"#bridge");
  const otc=location.hash==="#otc"&&document.body.dataset.otcEnabled==="true"&&["localhost","127.0.0.1"].includes(location.hostname);
- const view=otc?"otc":location.hash==="#holders"?"holders":location.hash==="#forecast"?"forecast":location.hash==="#leaders"?"leaders":location.hash==="#minters"?"minters":["#bridge","#method"].includes(location.hash)?"bridge":"trading";
+ const view=otc?"otc":location.hash==="#holders"?"holders":location.hash==="#leaders"?"leaders":location.hash==="#minters"?"minters":["#bridge","#method"].includes(location.hash)?"bridge":"trading";
  document.body.classList.toggle("otc-active",otc);
- const panels={bridge:"mints-view",trading:"trading-view",minters:"minters-view",leaders:"leaders-view",forecast:"forecast-view",holders:"holders-view",otc:"otc-view"};
+ const panels={bridge:"mints-view",trading:"trading-view",minters:"minters-view",leaders:"leaders-view",holders:"holders-view",otc:"otc-view"};
  Object.entries(panels).forEach(([name,id])=>{el(id).hidden=name!==view;});
  document.querySelectorAll("[data-view]").forEach(link=>{
   const active=link.dataset.view===view;
@@ -199,7 +199,7 @@ document.addEventListener("click",async e=>{
  const detail=e.target.closest("[data-tx]");
  if(detail)details(detail.dataset.tx,Number(detail.dataset.log));
 });
-history.replaceState(null,"",location.pathname+(["#method","#bridge","#trading","#mints","#minters","#leaders","#forecast","#holders","#otc"].includes(location.hash)?location.hash:"#trading"));
+history.replaceState(null,"",location.pathname+(["#method","#bridge","#trading","#mints","#minters","#leaders","#holders","#otc"].includes(location.hash)?location.hash:"#trading"));
 document.querySelectorAll("[data-chart-type]").forEach(button=>button.addEventListener("click",()=>{
  state.chartType=button.dataset.chartType;
  document.querySelectorAll("[data-chart-type]").forEach(b=>b.setAttribute("aria-pressed",String(b===button)));

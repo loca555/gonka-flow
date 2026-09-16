@@ -442,9 +442,9 @@ class PowderCollector:
                     self.db.conn.execute("INSERT OR REPLACE INTO powder_done VALUES(?,?)",
                                          (address, min(cursor, lo + self.WINDOW - 1)))
                 return .5
-        await self.refresh_balances()
-        save_snapshot(self.db, aggregate(self.db))
-        return 120
+        # Balances and snapshots served only the removed forecast tab; the
+        # transfers scan stays because leaders clusters use funding evidence.
+        return 600
 
     async def refresh_balances(self, limit=6):
         tracked = set(tracked_addresses(self.db))

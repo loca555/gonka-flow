@@ -27,8 +27,7 @@
   const stamp=data.snapshot?'Снимок #'+number(data.snapshot.height)+' · '+date(data.snapshot.ts)+' '+clock(data.snapshot.ts):'';
   const progress=data.progress?'Проверено '+number(data.progress.seen)+' из '+number(data.progress.total)+' адресов':'';
   const paused=!data.indexer_enabled?'Сборщик остановлен':data.collector?.ok===false?'Обновление задерживается, повторим автоматически':'';
-  const trace=data.history_progress?'История GNK: проверено '+number(data.history_progress.verified_blocks)+' из '+number(data.history_progress.blocks)+' найденных блоков · '+number(data.history_progress.addresses)+' адресов · поиск цепочек продолжается'+(data.history_progress.limited?' · часть цепочек достигла ограничения обхода':''):'';
-  return [stamp,progress,trace,paused].filter(Boolean).join(' · ')||(data.ready?'Снимок проверен':'Проверяем первый снимок…');
+  return [stamp,progress,paused].filter(Boolean).join(' · ')||(data.ready?'Снимок проверен':'Проверяем первый снимок…');
  }
  function render(asset,data){
   const s=states[asset],panel=s.panel;

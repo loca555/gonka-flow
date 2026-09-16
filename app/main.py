@@ -21,7 +21,6 @@ from .holders import holders_list,address_page,ETH_ADDRESS,GNK_ADDRESS
 from .mints import MintIndexer, listing as mint_listing, public_event as mint_event, TOKEN as MINT_TOKEN
 from .flows import analysis as flow_analysis, bridge_listing, trade_page
 from .leaders import trade_leaders
-from .forecast import snapshot as forecast_snapshot, model_prompt, OPENBROKER, MODEL
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
 from .provenance import overview as provenance_overview, incoming_history, GNK, links_for
@@ -117,8 +116,8 @@ def create_app(settings=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            + ("connect-src 'self' http://127.0.0.1:8791 http://127.0.0.1:8793 http://127.0.0.1:8794 https://api.openbroker.gonka.gg; " if local_otc(request)
-               else "connect-src 'self' https://api.openbroker.gonka.gg; ")
+            + ("connect-src 'self' http://127.0.0.1:8791 http://127.0.0.1:8793 http://127.0.0.1:8794; " if local_otc(request)
+               else "connect-src 'self'; ")
             + "img-src 'self' data:; object-src 'none'; frame-ancestors 'none'")
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
@@ -214,14 +213,6 @@ def create_app(settings=None):
             data=trade_leaders(request.app.state.db,start_date=start_date,grouped=grouped)
             cache[key]=(time.time(),data)
             return data
-        return cache[key][1]
-
-    @app.get("/api/mints/forecast")
-    async def mint_forecast(request:Request):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        key=("forecast",)
-        if key not in cache or time.time()-cache[key][0]>60:
-            cache[key]=(time.time(),forecast_snapshot(request.app.state.db))
         return cache[key][1]
 
     @app.get("/api/mints/address/{address}")
