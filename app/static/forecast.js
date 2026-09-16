@@ -56,16 +56,18 @@
    parameters:{type:'object',properties:{limit:{type:'integer',minimum:1,maximum:100}},required:[]}}}];
 
  async function getJSON(url){
-  let response=await fetch(url);
-  let text=await response.text();
-  if(!response.ok||text.trim().startsWith('<')){
-   // Render serves an HTML page while the instance restarts; retry once after a pause.
-   await new Promise(done=>setTimeout(done,4000));
-   response=await fetch(url);
-   text=await response.text();
+  let response=null,text='';
+  for(let attempt=0;attempt<3;attempt++){
+   if(attempt)await new Promise(done=>setTimeout(done,attempt*3000));
+   try{
+    response=await fetch(url);
+    text=await response.text();
+    if(response.ok&&!text.trim().startsWith('<'))return JSON.parse(text);
+   }catch(error){response=null;}
   }
-  try{return JSON.parse(text);}
-  catch{throw new Error('сайт отвечал страницой перезапуска вместо JSON (HTTP '+response.status+') — подождите минуту и повторите');}
+  if(response&&!response.ok&&response.status>=500)
+   throw new Error('сайт перезапускается (HTTP '+response.status+') — подождите минуту и повторите');
+  throw new Error('данные сайта не ответили — подождите минуту и повторите');
  }
  async function runTool(call){
   const args={};
@@ -132,6 +134,18 @@
   const select=el('forecast-llm-model');
   return select&&select.value?select.value:MODEL;
  }
+ async function postModel(key,body){
+  // "Failed to fetch" is a dropped connection before any response: worth retrying.
+  let lastError=null;
+  for(const wait of [0,3000,8000]){
+   if(wait)await new Promise(done=>setTimeout(done,wait));
+   try{return await fetch(OPENBROKER,{method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify(body)});}
+   catch(error){lastError=error;}
+  }
+  throw new Error('нет связи с api.openbroker.gonka.gg — проверьте интернет и повторите запрос');
+ }
  async function callModel(key,messages,tools){
   const base={model:currentModel(),temperature:0,max_tokens:MAX_TOKENS,messages,
    tools:tools||undefined,tool_choice:tools?'auto':undefined};
@@ -140,9 +154,7 @@
   const attempts=[{...base,reasoning:{effort:'high'}},{...base,reasoning_effort:'high'},base];
   let lastError=null;
   for(const body of attempts){
-   const response=await fetch(OPENBROKER,{method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify(body)});
+   const response=await postModel(key,body);
    if(response.ok){
     let payload;const text=await response.text();
     try{payload=JSON.parse(text);}catch{throw new Error('модель ответила не JSON');}
