@@ -130,7 +130,7 @@ function renderChart(d){
  const anomaly="2026-06-09";
  const daily=d.daily.filter(x=>x.date!==anomaly);
  const chart=el("mint-chart"),options={points:daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
-  complete:d.coverage.complete,type:state.chartType||"line",title:"Чеканка WGNK по дням",countLabel:"Выпусков"};
+  complete:d.coverage.complete,type:"bars",title:"Чеканка WGNK по дням",countLabel:"Выпусков"};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
  let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным";
  if(daily.length!==d.daily.length)
@@ -207,11 +207,6 @@ document.addEventListener("click",async e=>{
  if(detail)details(detail.dataset.tx,Number(detail.dataset.log));
 });
 history.replaceState(null,"",location.pathname+(["#method","#bridge","#trading","#mints","#minters","#leaders","#holders","#otc"].includes(location.hash)?location.hash:"#trading"));
-document.querySelectorAll("[data-chart-type]").forEach(button=>button.addEventListener("click",()=>{
- state.chartType=button.dataset.chartType;
- document.querySelectorAll("[data-chart-type]").forEach(b=>b.setAttribute("aria-pressed",String(b===button)));
- if(state.data)renderChart(state.data);
-}));
 configureTableSort("mint-table",state.sort,sort=>{state.sort=sort;refresh(true);});
 window.addEventListener("hashchange",showView);
 showView();refresh();
