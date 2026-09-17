@@ -188,7 +188,8 @@ class MintIndexer:
         import httpx
         from decimal import Decimal
         try:
-            async with httpx.AsyncClient(timeout=20,headers={"accept":"application/json"}) as client:
+            async with httpx.AsyncClient(timeout=20,follow_redirects=True,
+                    headers={"accept":"application/json","user-agent":"gonka-flow/1.0"}) as client:
                 response=await client.get("https://api.coingecko.com/api/v3/coins/wrapped-gonka")
                 response.raise_for_status()
                 data=response.json()
