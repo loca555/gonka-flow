@@ -177,7 +177,7 @@
     :v>=1e3?"$"+(v/1e3).toLocaleString("ru-RU",{maximumFractionDigits:0})+" тыс"
     :"$"+v.toLocaleString("ru-RU",{maximumFractionDigits:0});
    const cap=raw=>!raw||!p?null:compact(Number(BigInt(raw)/10n**9n)*p);
-   const mcap=cap(data?.snapshot?.supply_raw),fdv=cap(data?.gnk_supply_raw);
+   const mcap=cap(data?.gnk_circulating_raw),fdv=cap(data?.gnk_supply_raw);
    mcapBox.textContent=[mcap?"MCAP "+mcap:null,fdv?"FDV "+fdv:null].filter(Boolean).join(" · ");
   }
   document.title=value.textContent==="—"?defaultTitle:value.textContent+" · WGNK — Gonka Flow";

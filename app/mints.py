@@ -182,6 +182,26 @@ class MintIndexer:
         from .powder import PowderCollector
         self.powder=PowderCollector(self)
 
+    async def coingecko(self):
+        """CoinGecko edits WGNK circulating supply (vesting-unlocked GNK);
+        the market cap follows that definition, refreshed hourly."""
+        import httpx
+        from decimal import Decimal
+        try:
+            async with httpx.AsyncClient(timeout=20,headers={"accept":"application/json"}) as client:
+                response=await client.get("https://api.coingecko.com/api/v3/coins/wrapped-gonka")
+                response.raise_for_status()
+                data=response.json()
+            circulating=(data.get("market_data") or {}).get("circulating_supply")
+            if not circulating:
+                raise ValueError("CoinGecko circulating supply is empty")
+            raw=int((Decimal(str(circulating))*10**9).to_integral_value())
+            self.db.put("coingecko:wgnk",{"circulating_raw":str(raw),"ts":int(time.time())})
+        except Exception as error:
+            self.status("coingecko:status",ok=False,error=str(error)[:200])
+            return 900
+        return 3600
+
     def status(self,key,**values):
         self.db.put(key,{**self.db.get(key,{}),**values})
 
@@ -204,7 +224,8 @@ class MintIndexer:
                 await asyncio.sleep(delay)
 
     def start(self):
-        self.tasks=[asyncio.create_task(self.loop("holder_history:status",self.holder_history.run,10),name="gonka_holder_history"),
+        self.tasks=[asyncio.create_task(self.loop("coingecko:status",self.coingecko,60),name="coingecko_circulating"),
+                    asyncio.create_task(self.loop("holder_history:status",self.holder_history.run,10),name="gonka_holder_history"),
                     asyncio.create_task(self.loop("public_holders:GNK:status",self.holders.run,60),name="gonka_holder_census"),
                     asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),
                     asyncio.create_task(self.loop("mints:history",self.history,2),name="wgnk_mints_history"),
