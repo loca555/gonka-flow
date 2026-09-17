@@ -184,23 +184,20 @@ class MintIndexer:
 
     async def coingecko(self):
         """CoinGecko edits WGNK circulating supply (vesting-unlocked GNK);
-        the market cap follows that definition, refreshed hourly."""
+        the market cap follows that definition, refreshed hourly. Failures
+        propagate: the runner loop records the exact provider error."""
         import httpx
         from decimal import Decimal
-        try:
-            async with httpx.AsyncClient(timeout=20,follow_redirects=True,
-                    headers={"accept":"application/json","user-agent":"gonka-flow/1.0"}) as client:
-                response=await client.get("https://api.coingecko.com/api/v3/coins/wrapped-gonka")
-                response.raise_for_status()
-                data=response.json()
-            circulating=(data.get("market_data") or {}).get("circulating_supply")
-            if not circulating:
-                raise ValueError("CoinGecko circulating supply is empty")
-            raw=int((Decimal(str(circulating))*10**9).to_integral_value())
-            self.db.put("coingecko:wgnk",{"circulating_raw":str(raw),"ts":int(time.time())})
-        except Exception as error:
-            self.status("coingecko:status",ok=False,error=str(error)[:200])
-            return 900
+        async with httpx.AsyncClient(timeout=20,follow_redirects=True,
+                headers={"accept":"application/json","user-agent":"gonka-flow/1.0"}) as client:
+            response=await client.get("https://api.coingecko.com/api/v3/coins/wrapped-gonka")
+            response.raise_for_status()
+            data=response.json()
+        circulating=(data.get("market_data") or {}).get("circulating_supply")
+        if not circulating:
+            raise ValueError("CoinGecko circulating supply is empty")
+        raw=int((Decimal(str(circulating))*10**9).to_integral_value())
+        self.db.put("coingecko:wgnk",{"circulating_raw":str(raw),"ts":int(time.time())})
         return 3600
 
     def status(self,key,**values):
