@@ -168,7 +168,18 @@
  function renderHeaderPrice(data,failed=false){
   const box=ui("header-price"),value=ui("header-price-value"),trade=data?.latest_trade;
   if(!box||!value)return;
-  value.textContent=trade?headerPrice(trade.price):"—";
+  value.textContent=trade?headerPrice(trade.price):"—";  value.textContent=trade?headerPrice(trade.price):"—";
+  const mcapBox=ui("header-mcap");
+  if(mcapBox){
+   const p=trade?Number(trade.price):null;
+   const compact=v=>v>=1e9?"$"+(v/1e9).toLocaleString("ru-RU",{maximumFractionDigits:2})+" млрд"
+    :v>=1e6?"$"+(v/1e6).toLocaleString("ru-RU",{maximumFractionDigits:1})+" млн"
+    :v>=1e3?"$"+(v/1e3).toLocaleString("ru-RU",{maximumFractionDigits:0})+" тыс"
+    :"$"+v.toLocaleString("ru-RU",{maximumFractionDigits:0});
+   const cap=raw=>!raw||!p?null:compact(Number(BigInt(raw)/10n**9n)*p);
+   const mcap=cap(data?.snapshot?.supply_raw),fdv=cap(data?.gnk_supply_raw);
+   mcapBox.textContent=[mcap?"MCAP "+mcap:null,fdv?"FDV "+fdv:null].filter(Boolean).join(" · ");
+  }
   document.title=value.textContent==="—"?defaultTitle:value.textContent+" · WGNK — Gonka Flow";
   value.setAttribute("aria-label","Цена за 1 WGNK, USDT: "+value.textContent);
   const stale=failed||Boolean(data?.status?.error)||(data?.snapshot&&data.now-data.snapshot.checked_at>180);

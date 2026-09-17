@@ -381,7 +381,8 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
             "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"minimum":minimum,"trades":[],"address_balance":None,"address_history":None,
             "outside_holders":None,"holder_history":None,"latest_trade":None,
-            "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools"}
+            "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools",
+            "gnk_supply_raw":(db.get("public_holders:GNK") or {}).get("supply_raw")}
     if not deployment or not target: return result
     start=deployment["height"];end=packet["snapshot"]["height"] if packet else history_end(db,start,target)
     target=max(target,end)
