@@ -364,22 +364,32 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
                   trades=[public_trade(event) for event in selected[offset:offset+limit]],pnl=address_pnl(db))
     return result
 
+def realized_pnl(buy_quote, buy_raw, sell_quote, sell_raw):
+    """PNL of the closed part of a position only: tokens sold are matched
+    against the average buy price; the open remainder is not a loss."""
+    if not buy_raw or not sell_raw:
+        return None
+    matched = min(buy_raw, sell_raw)
+    pnl = sell_quote * matched // sell_raw - buy_quote * matched // buy_raw
+    return pnl if abs(pnl) >= 100 * 10**6 else None
+
+
 def address_pnl(db):
-    """Realized USDT result per address (sales - buys), confirmed sides only.
-    Shown for two-sided addresses beyond +/-100 USDT; empty otherwise."""
-    rows=db.conn.execute("""SELECT actor,kind,quote_raw FROM events
+    """Per-address PNL of closed trades, confirmed attribution only."""
+    rows=db.conn.execute("""SELECT actor,kind,quote_raw,amount_raw FROM events
         WHERE chain='ethereum' AND finalized=1 AND kind IN ('buy','sell')
         AND json_extract(meta,'$.attribution') IN ('initiator_net','tx_net')""")
-    quotes={}
+    sides={}
     for r in rows:
-        side=quotes.setdefault(r["actor"],{"buy":0,"sell":0})
-        side[r["kind"]]+=int(r["quote_raw"])
+        side=sides.setdefault(r["actor"],{"buy_q":0,"buy_v":0,"sell_q":0,"sell_v":0})
+        key="buy" if r["kind"]=="buy" else "sell"
+        side[key+"_q"]+=int(r["quote_raw"])
+        side[key+"_v"]+=int(r["amount_raw"])
     out={}
-    for actor,s in quotes.items():
-        if s["buy"] and s["sell"]:
-            diff=s["sell"]-s["buy"]
-            if abs(diff)>=100*10**6:
-                out[actor]=str(diff)
+    for actor,s in sides.items():
+        pnl=realized_pnl(s["buy_q"],s["buy_v"],s["sell_q"],s["sell_v"])
+        if pnl is not None:
+            out[actor]=str(pnl)
     return out
 
 
