@@ -35,7 +35,7 @@
   '<div class="table-container leader-table" tabindex="0" aria-label="'+side.title+', прокручиваемый список">'+
   '<table id="leaders-'+side.key+'-table"><thead><tr><th data-sort="rank" data-default="asc">№</th><th data-sort="address" data-default="asc">Адрес</th>'+
   '<th data-sort="volume" class="numeric">'+side.verb+' · WGNK</th><th data-sort="quote" class="numeric">Сумма · USDT</th>'+
-  '<th data-sort="pnl" data-default="desc" class="numeric" title="PNL по закрытым сделкам: проданные токены × (цена продажи − средняя цена покупки), USDT. Открытый остаток не учитывается; скрыто при результате в пределах ±100 USDT">PNL · USDT</th>'+
+  '<th data-sort="pnl" data-default="desc" class="numeric" title="PNL адреса по закрытым позициям, метод FIFO: продажи закрывают самые старые покупки. Открытый остаток не учитывается; скрыто при результате в пределах ±100 USDT">PNL · USDT</th>'+
   '<th data-sort="price" class="numeric">Цена · USDT</th><th data-sort="swaps" class="numeric">Исполнений</th></tr></thead>'+
   '<tbody id="leaders-'+side.key+'-rows"></tbody></table></div></section>').join('')+'</div>';
  for(const side of sides)configureTableSort('leaders-'+side.key+'-table',ranking.sort[side.key],sort=>{
@@ -97,7 +97,7 @@
  function pnlCell(row){
   if(row.pnl_raw==null)return '<td class="numeric" title="Только покупки или только продажи, либо PNL в пределах ±100 USDT"></td>';
   const neg=row.pnl_raw.startsWith("-");
-  return '<td class="numeric" title="PNL по закрытым сделкам: проданное × (цена продажи − средняя цена покупки). Открытый остаток не учтён"><span class="'+(neg?'pnl-neg':'pnl-pos')+'">'+(neg?'−':'+')+' '+esc(amount(neg?row.pnl.slice(1):row.pnl))+'</span></td>';
+  return '<td class="numeric" title="PNL по закрытым позициям (FIFO): продажи закрывают самые старые покупки. Открытый остаток не учтён"><span class="'+(neg?'pnl-neg':'pnl-pos')+'">'+(neg?'−':'+')+' '+esc(amount(neg?row.pnl.slice(1):row.pnl))+'</span></td>';
  }
  function renderTable(side,data,reset=false){
   const table=el('leaders-'+side.key+'-table'),scroll=table.parentElement,top=reset?0:scroll.scrollTop,left=scroll.scrollLeft;

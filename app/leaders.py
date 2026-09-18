@@ -3,7 +3,7 @@ import re
 from datetime import date, datetime, time
 from .config import ZERO
 from .db import tokens
-from .flows import analysis, price_raw
+from .flows import analysis, fifo_pnl_map, price_raw
 from .timezones import CYPRUS, local_day
 from .bridge_volume import bridge_price_bands, bridge_since
 
@@ -58,15 +58,13 @@ def trade_leaders(db, start_date=None, grouped=True):
         return {"volume_raw": str(row["volume_raw"]), "volume": tokens(row["volume_raw"]),
                 "quote_raw": str(row["quote_raw"]), "quote": tokens(row["quote_raw"], 6), "swaps": row["swaps"]}
 
-    from .flows import realized_pnl
+    pnl_map = fifo_pnl_map(db, since) if db is not None else {}
     PNL_MIN_RAW = 100 * 10**6
-    def pnl_fields(buy_quote, buy_amount, sell_quote, sell_amount):
-        """PNL of closed trades in USDT; shown only for two-sided
-        addresses beyond ±100; the open remainder is not a loss."""
-        pnl = realized_pnl(buy_quote, buy_amount, sell_quote, sell_amount)
-        if pnl is None:
+    def pnl_fields(addresses):
+        total = sum(int(pnl_map.get(address, "0")) for address in addresses)
+        if not total or abs(total) < PNL_MIN_RAW:
             return {"pnl_raw": None, "pnl": None}
-        return {"pnl_raw": str(pnl), "pnl": tokens(pnl, 6)}
+        return {"pnl_raw": str(total), "pnl": tokens(total, 6)}
 
     # One calendar day belongs to one price band across both trade directions.
     # Recompute at each step: merging 5-cent winners would give wrong 10-cent days.
@@ -94,10 +92,7 @@ def trade_leaders(db, start_date=None, grouped=True):
         result[name] = [{**quantities(row), "address": row["address"], "rank": rank,
                          "transactions": len(row["txs"]), "first_ts": row["first_ts"], "last_ts": row["last_ts"],
                          "average_price": tokens(price_raw(row["quote_raw"], row["volume_raw"]), 12), "group": None,
-                         "buy_quote_raw": str(groups["buy"].get(row["address"], {}).get("quote_raw", 0)),
-                         "sell_quote_raw": str(groups["sell"].get(row["address"], {}).get("quote_raw", 0)),
-                         "buy_amount_raw": str(groups["buy"].get(row["address"], {}).get("volume_raw", 0)),
-                         "sell_amount_raw": str(groups["sell"].get(row["address"], {}).get("volume_raw", 0))}
+                         "group": None}
                         for rank, row in enumerate(rows, 1)]
         total = {key: sum(row[key] for row in rows) for key in ("volume_raw", "quote_raw", "swaps")}
         summary[side] = {**quantities(total), "addresses": len(rows)}
@@ -105,8 +100,7 @@ def trade_leaders(db, start_date=None, grouped=True):
         merge_groups(db, result, summary)
     for name in ("buyers", "sellers"):
         for row in result[name]:
-            row.update(pnl_fields(int(row.get("buy_quote_raw") or 0), int(row.get("buy_amount_raw") or 0),
-                                  int(row.get("sell_quote_raw") or 0), int(row.get("sell_amount_raw") or 0)))
+            row.update(pnl_fields(row["group"]["addresses"] if row.get("group") else [row["address"]]))
     result.update(summary=summary, price_days=price_days, price_bridge=price_bridge, excluded={side: quantities(row) for side, row in excluded.items()},
                   price_distribution={str(step): {
                       side: [{"from_price_raw": str(index * step * 10**10),
@@ -140,10 +134,6 @@ def merge_groups(db, result, summary):
                 continue
             volume = sum(int(m["volume_raw"]) for m in members)
             quote = sum(int(m["quote_raw"]) for m in members)
-            buy_quote = sum(int(m.get("buy_quote_raw") or 0) for m in members)
-            sell_quote = sum(int(m.get("sell_quote_raw") or 0) for m in members)
-            buy_amount = sum(int(m.get("buy_amount_raw") or 0) for m in members)
-            sell_amount = sum(int(m.get("sell_amount_raw") or 0) for m in members)
             merged.append({"address": members[0]["address"], "group": {
                 "addresses": [m["address"] for m in members],
                 "evidence": by_key[key]["evidence"]},
@@ -154,8 +144,6 @@ def merge_groups(db, result, summary):
                 "first_ts": min(m["first_ts"] for m in members),
                 "last_ts": max(m["last_ts"] for m in members),
                 "average_price": tokens(price_raw(quote, volume), 12),
-                "buy_quote_raw": str(buy_quote), "sell_quote_raw": str(sell_quote),
-                "buy_amount_raw": str(buy_amount), "sell_amount_raw": str(sell_amount),
                 "members": sorted(members, key=lambda m: -int(m["volume_raw"]))})
         kept = [row for row in result[name] if row["address"] not in data["address_group"]]
         rows = sorted(merged + kept, key=lambda row: (-int(row["volume_raw"]), row["address"]))

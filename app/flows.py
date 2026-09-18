@@ -364,33 +364,38 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
                   trades=[public_trade(event) for event in selected[offset:offset+limit]],pnl=address_pnl(db))
     return result
 
-def realized_pnl(buy_quote, buy_raw, sell_quote, sell_raw):
-    """PNL of the closed part of a position only: tokens sold are matched
-    against the average buy price; the open remainder is not a loss."""
-    if not buy_raw or not sell_raw:
-        return None
-    matched = min(buy_raw, sell_raw)
-    pnl = sell_quote * matched // sell_raw - buy_quote * matched // buy_raw
-    return pnl if abs(pnl) >= 100 * 10**6 else None
+def fifo_pnl_map(db, since=None):
+    """Per-address realized PNL by FIFO: each sell closes the oldest buy lots.
+    Confirmed attribution only; lots accumulate over the full history, pnl is
+    counted for sells inside the window, consumption always runs in order."""
+    rows=db.conn.execute("""SELECT actor,kind,quote_raw,amount_raw,ts FROM events
+        WHERE chain='ethereum' AND finalized=1 AND kind IN ('buy','sell')
+        AND json_extract(meta,'$.attribution') IN ('initiator_net','tx_net')
+        ORDER BY actor,ts,height,idx""")
+    books,realized={},{}
+    for r in rows:
+        actor=r["actor"];qty=int(r["amount_raw"]);cost=int(r["quote_raw"])
+        if qty<=0:continue
+        book=books.setdefault(actor,[])
+        if r["kind"]=="buy":
+            book.append([qty,cost])
+            continue
+        remaining,qty_left,pnl=qty,qty,0
+        while remaining>0 and book:
+            lot_qty,lot_cost=book[0]
+            take=min(remaining,lot_qty)
+            pnl+=(cost*take)//qty_left-(lot_cost*take)//lot_qty
+            if take==lot_qty:book.pop(0)
+            else:book[0][0]-=take
+            remaining-=take
+        if remaining==qty:continue
+        if since is None or r["ts"]>=since:
+            realized[actor]=realized.get(actor,0)+pnl
+    return {actor:str(value) for actor,value in realized.items() if abs(value)>=100*10**6}
 
 
 def address_pnl(db):
-    """Per-address PNL of closed trades, confirmed attribution only."""
-    rows=db.conn.execute("""SELECT actor,kind,quote_raw,amount_raw FROM events
-        WHERE chain='ethereum' AND finalized=1 AND kind IN ('buy','sell')
-        AND json_extract(meta,'$.attribution') IN ('initiator_net','tx_net')""")
-    sides={}
-    for r in rows:
-        side=sides.setdefault(r["actor"],{"buy_q":0,"buy_v":0,"sell_q":0,"sell_v":0})
-        key="buy" if r["kind"]=="buy" else "sell"
-        side[key+"_q"]+=int(r["quote_raw"])
-        side[key+"_v"]+=int(r["amount_raw"])
-    out={}
-    for actor,s in sides.items():
-        pnl=realized_pnl(s["buy_q"],s["buy_v"],s["sell_q"],s["sell_v"])
-        if pnl is not None:
-            out[actor]=str(pnl)
-    return out
+    return fifo_pnl_map(db)
 
 
 def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0,include_bridge=False):
