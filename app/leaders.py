@@ -58,6 +58,16 @@ def trade_leaders(db, start_date=None, grouped=True):
         return {"volume_raw": str(row["volume_raw"]), "volume": tokens(row["volume_raw"]),
                 "quote_raw": str(row["quote_raw"]), "quote": tokens(row["quote_raw"], 6), "swaps": row["swaps"]}
 
+    PNL_MIN_RAW = 100 * 10**6
+    def pnl_fields(buy_quote, sell_quote):
+        """Realized PNL in USDT; shown only for two-sided addresses beyond ±100."""
+        if not buy_quote or not sell_quote:
+            return {"pnl_raw": None, "pnl": None}
+        pnl = sell_quote - buy_quote
+        if abs(pnl) < PNL_MIN_RAW:
+            return {"pnl_raw": None, "pnl": None}
+        return {"pnl_raw": str(pnl), "pnl": tokens(pnl, 6)}
+
     # One calendar day belongs to one price band across both trade directions.
     # Recompute at each step: merging 5-cent winners would give wrong 10-cent days.
     # Equal volumes choose the lower band, independently of event ordering.
@@ -83,12 +93,17 @@ def trade_leaders(db, start_date=None, grouped=True):
         rows = sorted(groups[side].values(), key=lambda row: (-row["volume_raw"], row["address"]))
         result[name] = [{**quantities(row), "address": row["address"], "rank": rank,
                          "transactions": len(row["txs"]), "first_ts": row["first_ts"], "last_ts": row["last_ts"],
-                         "average_price": tokens(price_raw(row["quote_raw"], row["volume_raw"]), 12), "group": None}
+                         "average_price": tokens(price_raw(row["quote_raw"], row["volume_raw"]), 12), "group": None,
+                         "buy_quote_raw": str(groups["buy"].get(row["address"], {}).get("quote_raw", 0)),
+                         "sell_quote_raw": str(groups["sell"].get(row["address"], {}).get("quote_raw", 0))}
                         for rank, row in enumerate(rows, 1)]
         total = {key: sum(row[key] for row in rows) for key in ("volume_raw", "quote_raw", "swaps")}
         summary[side] = {**quantities(total), "addresses": len(rows)}
     if grouped and db is not None:
         merge_groups(db, result, summary)
+    for name in ("buyers", "sellers"):
+        for row in result[name]:
+            row.update(pnl_fields(int(row.get("buy_quote_raw") or 0), int(row.get("sell_quote_raw") or 0)))
     result.update(summary=summary, price_days=price_days, price_bridge=price_bridge, excluded={side: quantities(row) for side, row in excluded.items()},
                   price_distribution={str(step): {
                       side: [{"from_price_raw": str(index * step * 10**10),
@@ -122,6 +137,8 @@ def merge_groups(db, result, summary):
                 continue
             volume = sum(int(m["volume_raw"]) for m in members)
             quote = sum(int(m["quote_raw"]) for m in members)
+            buy_quote = sum(int(m.get("buy_quote_raw") or 0) for m in members)
+            sell_quote = sum(int(m.get("sell_quote_raw") or 0) for m in members)
             merged.append({"address": members[0]["address"], "group": {
                 "addresses": [m["address"] for m in members],
                 "evidence": by_key[key]["evidence"]},
@@ -132,6 +149,7 @@ def merge_groups(db, result, summary):
                 "first_ts": min(m["first_ts"] for m in members),
                 "last_ts": max(m["last_ts"] for m in members),
                 "average_price": tokens(price_raw(quote, volume), 12),
+                "buy_quote_raw": str(buy_quote), "sell_quote_raw": str(sell_quote),
                 "members": sorted(members, key=lambda m: -int(m["volume_raw"]))})
         kept = [row for row in result[name] if row["address"] not in data["address_group"]]
         rows = sorted(merged + kept, key=lambda row: (-int(row["volume_raw"]), row["address"]))

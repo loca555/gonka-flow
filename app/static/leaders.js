@@ -35,6 +35,7 @@
   '<div class="table-container leader-table" tabindex="0" aria-label="'+side.title+', прокручиваемый список">'+
   '<table id="leaders-'+side.key+'-table"><thead><tr><th data-sort="rank" data-default="asc">№</th><th data-sort="address" data-default="asc">Адрес</th>'+
   '<th data-sort="volume" class="numeric">'+side.verb+' · WGNK</th><th data-sort="quote" class="numeric">Сумма · USDT</th>'+
+  '<th data-sort="pnl" data-default="desc" class="numeric" title="Реализованный PNL: получено от продаж − уплачено за покупки, USDT. Только для адресов с обеими сторонами; волатильность меньше ±100 USDT скрыта">PNL · USDT</th>'+
   '<th data-sort="price" class="numeric">Цена · USDT</th><th data-sort="swaps" class="numeric">Исполнений</th></tr></thead>'+
   '<tbody id="leaders-'+side.key+'-rows"></tbody></table></div></section>').join('')+'</div>';
  for(const side of sides)configureTableSort('leaders-'+side.key+'-table',ranking.sort[side.key],sort=>{
@@ -93,10 +94,15 @@
  });
  const chartResize=new ResizeObserver(()=>renderCharts(ranking.data));
  for(const side of sides)chartResize.observe(el('leaders-'+side.key+'-chart'));
+ function pnlCell(row){
+  if(row.pnl_raw==null)return '<td class="numeric" title="Только покупки или только продажи, либо PNL в пределах ±100 USDT"></td>';
+  const neg=row.pnl_raw.startsWith("-");
+  return '<td class="numeric" title="Реализованный PNL: продажи − покупки, USDT"><span class="'+(neg?'pnl-neg':'pnl-pos')+'">'+(neg?'−':'+')+' '+esc(amount(row.pnl))+'</span></td>';
+ }
  function renderTable(side,data,reset=false){
   const table=el('leaders-'+side.key+'-table'),scroll=table.parentElement,top=reset?0:scroll.scrollTop,left=scroll.scrollLeft;
   const [field,direction]=ranking.sort[side.key].split('_'),sign=direction==='asc'?1:-1;
-  const value=row=>({rank:row.rank,address:row.address,volume:BigInt(row.volume_raw),quote:BigInt(row.quote_raw),swaps:row.swaps})[field];
+  const value=row=>({rank:row.rank,address:row.address,volume:BigInt(row.volume_raw),quote:BigInt(row.quote_raw),swaps:row.swaps,pnl:row.pnl_raw==null?-Infinity:BigInt(row.pnl_raw)})[field];
   const rows=[...data[side.list]].sort((a,b)=>{
    const x=field==='price'?BigInt(a.quote_raw)*BigInt(b.volume_raw):value(a);
    const y=field==='price'?BigInt(b.quote_raw)*BigInt(a.volume_raw):value(b);
@@ -117,9 +123,10 @@
     '<td>'+cell+'</td>'+
     '<td class="numeric leader-volume" data-raw="'+esc(row.volume_raw)+'" title="'+esc(row.volume)+' WGNK"><strong>'+esc(amount(row.volume))+'</strong><span class="leader-volume-bar" style="width:'+width+'%" aria-hidden="true"></span></td>'+
     '<td class="numeric" title="'+esc(row.quote)+' USDT">'+esc(amount(row.quote))+'</td>'+
+    pnlCell(row)+
     '<td class="numeric price-value" title="Средневзвешенная цена за 1 WGNK">'+esc(price(row.average_price))+'</td>'+
     '<td class="numeric" title="'+count(row.transactions)+' транзакций">'+count(row.swaps)+'</td></tr>';
-  }).join(''):'<tr><td colspan="6" class="empty">Пока нет сделок с подтверждённой привязкой к адресу за выбранный период.</td></tr>');
+  }).join(''):'<tr><td colspan="7" class="empty">Пока нет сделок с подтверждённой привязкой к адресу за выбранный период.</td></tr>');
   scroll.scrollTop=top;scroll.scrollLeft=left;
  }
  function render(data){
