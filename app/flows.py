@@ -356,13 +356,32 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
         rows=[dict(row) for row in db.conn.execute(
             "SELECT * FROM events INDEXED BY events_trade_page WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?",(*params,limit,offset))]
         for row in rows:row["meta"]=json.loads(row["meta"])
-        result.update(ready=True,total=total,has_more=offset+limit<total,trades=[public_trade(row) for row in rows])
+        result.update(ready=True,total=total,has_more=offset+limit<total,trades=[public_trade(row) for row in rows],pnl=address_pnl(db))
         return result
     rows=[dict(row) for row in db.conn.execute("SELECT * FROM events WHERE "+where,params)]
     selected=selected_trades(rows,pools,hours,q,side,sort,as_of,minimum)
     result.update(ready=True,total=len(selected),has_more=offset+limit<len(selected),
-                  trades=[public_trade(event) for event in selected[offset:offset+limit]])
+                  trades=[public_trade(event) for event in selected[offset:offset+limit]],pnl=address_pnl(db))
     return result
+
+def address_pnl(db):
+    """Realized USDT result per address (sales - buys), confirmed sides only.
+    Shown for two-sided addresses beyond +/-100 USDT; empty otherwise."""
+    rows=db.conn.execute("""SELECT actor,kind,quote_raw FROM events
+        WHERE chain='ethereum' AND finalized=1 AND kind IN ('buy','sell')
+        AND json_extract(meta,'$.attribution') IN ('initiator_net','tx_net')""")
+    quotes={}
+    for r in rows:
+        side=quotes.setdefault(r["actor"],{"buy":0,"sell":0})
+        side[r["kind"]]+=int(r["quote_raw"])
+    out={}
+    for actor,s in quotes.items():
+        if s["buy"] and s["sell"]:
+            diff=s["sell"]-s["buy"]
+            if abs(diff)>=100*10**6:
+                out[actor]=str(diff)
+    return out
+
 
 def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0,include_bridge=False):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
@@ -379,7 +398,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
     result={"now":now,"timezone":TIME_ZONE,"status":status,"snapshot":snapshot,"ready":False,
             "coverage":{"complete":False,"missing":None},"summary":None,"pools":[],
             "sales":[],"daily":[],"minters":[],"total":0,"offset":offset,"limit":limit,
-            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"minimum":minimum,"trades":[],"address_balance":None,"address_history":None,
+            "has_more":False,"hours":hours,"q":q,"side":side,"sort":sort,"minimum":minimum,"trades":[],"pnl":None,"address_balance":None,"address_history":None,
             "outside_holders":None,"holder_history":None,"latest_trade":None,
             "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools",
             "gnk_supply_raw":(db.get("public_holders:GNK") or {}).get("supply_raw"),
@@ -494,7 +513,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
         "liquidity_added":tokens(liquidity_added),"all_sales":len(all_sales)},
         pools=list(pools.values()),trades=page,liquidity_bands=band_series,
         sales=page if side=="sell" else [],total=len(selected),limit=page_limit,
-        has_more=offset+page_limit<len(selected),minters=minters,
+        has_more=offset+page_limit<len(selected),pnl=address_pnl(db),minters=minters,
         daily=[{"date":day,**{key:str(value) if key.endswith("raw") else value for key,value in d.items()},
                 "price_raw":str(price_raw(d["quote_raw"],d["raw"]))} for day,d in sorted(daily.items())])
     return result
