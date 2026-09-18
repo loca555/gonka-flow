@@ -97,7 +97,7 @@
  function pnlCell(row){
   if(row.pnl_raw==null)return '<td class="numeric" title="Только покупки или только продажи, либо PNL в пределах ±100 USDT"></td>';
   const neg=row.pnl_raw.startsWith("-");
-  return '<td class="numeric" title="Реализованный PNL: продажи − покупки, USDT"><span class="'+(neg?'pnl-neg':'pnl-pos')+'">'+(neg?'−':'+')+' '+esc(amount(row.pnl))+'</span></td>';
+  return '<td class="numeric" title="Реализованный PNL: продажи − покупки, USDT"><span class="'+(neg?'pnl-neg':'pnl-pos')+'">'+(neg?'−':'+')+' '+esc(amount(neg?row.pnl.slice(1):row.pnl))+'</span></td>';
  }
  function renderTable(side,data,reset=false){
   const table=el('leaders-'+side.key+'-table'),scroll=table.parentElement,top=reset?0:scroll.scrollTop,left=scroll.scrollLeft;
