@@ -3,7 +3,7 @@ import re
 from datetime import date, datetime, time
 from .config import ZERO
 from .db import tokens
-from .flows import analysis, fifo_pnl_map, price_raw
+from .flows import analysis, price_raw
 from .timezones import CYPRUS, local_day
 from .bridge_volume import bridge_price_bands, bridge_since
 
@@ -58,13 +58,6 @@ def trade_leaders(db, start_date=None, grouped=True):
         return {"volume_raw": str(row["volume_raw"]), "volume": tokens(row["volume_raw"]),
                 "quote_raw": str(row["quote_raw"]), "quote": tokens(row["quote_raw"], 6), "swaps": row["swaps"]}
 
-    pnl_map = fifo_pnl_map(db, since) if db is not None else {}
-    PNL_MIN_RAW = 100 * 10**6
-    def pnl_fields(addresses):
-        total = sum(int(pnl_map.get(address, "0")) for address in addresses)
-        if not total or abs(total) < PNL_MIN_RAW:
-            return {"pnl_raw": None, "pnl": None}
-        return {"pnl_raw": str(total), "pnl": tokens(total, 6)}
 
     # One calendar day belongs to one price band across both trade directions.
     # Recompute at each step: merging 5-cent winners would give wrong 10-cent days.
@@ -98,9 +91,6 @@ def trade_leaders(db, start_date=None, grouped=True):
         summary[side] = {**quantities(total), "addresses": len(rows)}
     if grouped and db is not None:
         merge_groups(db, result, summary)
-    for name in ("buyers", "sellers"):
-        for row in result[name]:
-            row.update(pnl_fields(row["group"]["addresses"] if row.get("group") else [row["address"]]))
     result.update(summary=summary, price_days=price_days, price_bridge=price_bridge, excluded={side: quantities(row) for side, row in excluded.items()},
                   price_distribution={str(step): {
                       side: [{"from_price_raw": str(index * step * 10**10),

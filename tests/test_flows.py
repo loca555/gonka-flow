@@ -587,7 +587,7 @@ if __name__=="__main__": unittest.main()
 
 
 class FifoPnlTests(unittest.TestCase):
-    def test_fifo_closes_oldest_lots_first(self):
+    def test_pnl_uses_smaller_volume_for_both_sides(self):
         import tempfile
         from pathlib import Path
         from app.db import Database
@@ -597,11 +597,10 @@ class FifoPnlTests(unittest.TestCase):
             try:
                 c="0x"+"5"*40
                 meta={"attribution":"initiator_net"}
-                rows=[event(20,"buy",100,actor=c,pool=POOL,quote_raw="10000000000",quote_asset="USDT",meta=meta),
-                      event(21,"buy",100,actor=c,pool=POOL,quote_raw="20000000000",quote_asset="USDT",meta=meta),
-                      event(22,"sell",150,actor=c,pool=POOL,quote_raw="22500000000",quote_asset="USDT",meta=meta)]
-                db.save_batch("ethereum",20,22,rows,[block(i) for i in (20,21,22)])
-                self.assertEqual(address_pnl(db),{c:"2500000000"})
+                rows=[event(20,"buy",100,actor=c,pool=POOL,quote_raw="100000000",quote_asset="USDT",meta=meta),
+                      event(22,"sell",200,actor=c,pool=POOL,quote_raw="600000000",quote_asset="USDT",meta=meta)]
+                db.save_batch("ethereum",20,22,rows,[block(i) for i in (20,22)])
+                self.assertEqual(address_pnl(db),{c:"200000000"})
             finally:
                 db.close()
 

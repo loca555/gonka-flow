@@ -36,13 +36,7 @@ window.WgnkAddress=(()=>{
   try{await navigator.clipboard.writeText(wallet.address);el("address-copy").textContent="Скопировано";}
   catch{el("address-status").textContent="Копирование недоступно. Выделите адрес вручную.";}
  });
-
- function pnlArticle(data){
-  const raw=data&&data.pnl?data.pnl[wallet.address]:null;
-  if(!raw)return '<article><span>PNL · закрытые позиции <small>USDT</small></span><strong>—</strong><p>Нет закрытых позиций либо результат в пределах ±100 USDT</p></article>';
-  const n=BigInt(raw),neg=n<0n,abs=neg?-n:n;
-  return '<article><span>PNL · закрытые позиции <small>USDT</small></span><strong class="'+(neg?'pnl-neg':'pnl-pos')+'">'+(neg?'−':'+')+' '+esc(amount((abs/10n**6n).toString()))+'</strong><p>FIFO: продажи закрывают самые старые покупки; открытый остаток не учтён</p></article>';
- } function render(data,resetScroll=false){
+ function render(data,resetScroll=false){
   if(!data.ready){
    el("address-status").textContent="Сверенный снимок ещё не готов. Это не означает отсутствие сделок.";
    el("address-data").hidden=true;return;
@@ -52,7 +46,7 @@ window.WgnkAddress=(()=>{
    (data.coverage.complete?" · история без пропусков":" · есть незагруженные блоки")+
    (data.status.error?" · свежие данные временно недоступны":data.now-data.snapshot.checked_at>180?" · обновляем данные":"");
   const s=data.summary,balance=data.address_balance;
-  setLiveHTML(el("address-metrics"),'<article><span>Текущий баланс <small>WGNK</small></span><strong id="address-balance">'+(balance?esc(amount(balance.amount)):"—")+'</strong><p>'+(balance?'На проверенном блоке #'+count(balance.height)+'<br>С учётом всех переводов WGNK':'Баланс пока не подтверждён')+'</p></article><article><span>Куплено <small>WGNK</small></span><strong>'+esc(amount(s.bought))+'</strong><p>'+count(s.buys_count)+' исполнений · уплачено '+esc(amount(s.buy_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.buy_average_price))+' USDT</p></article><article><span>Продано <small>WGNK</small></span><strong>'+esc(amount(s.sold))+'</strong><p>'+count(s.sales_count)+' исполнений · получено '+esc(amount(s.sale_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.sale_average_price))+' USDT</p></article>'+pnlArticle(data));
+  setLiveHTML(el("address-metrics"),'<article><span>Текущий баланс <small>WGNK</small></span><strong id="address-balance">'+(balance?esc(amount(balance.amount)):"—")+'</strong><p>'+(balance?'На проверенном блоке #'+count(balance.height)+'<br>С учётом всех переводов WGNK':'Баланс пока не подтверждён')+'</p></article><article><span>Куплено <small>WGNK</small></span><strong>'+esc(amount(s.bought))+'</strong><p>'+count(s.buys_count)+' исполнений · уплачено '+esc(amount(s.buy_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.buy_average_price))+' USDT</p></article><article><span>Продано <small>WGNK</small></span><strong>'+esc(amount(s.sold))+'</strong><p>'+count(s.sales_count)+' исполнений · получено '+esc(amount(s.sale_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.sale_average_price))+' USDT</p></article>');
   setTableSort("address-trades-table",data.sort);
   setLiveHTML(el("address-rows"),data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td class="numeric">'+esc(amount(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td>Uniswap V3<small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' б.п.</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):'<tr><td colspan="7" class="empty">Подтверждённых покупок и продаж этого адреса в отслеживаемых пулах не найдено.</td></tr>');
   el("address-trade-count").textContent=data.total?"Все "+count(data.total)+" исполнений · без разбиения на страницы":"0 сделок";
