@@ -216,6 +216,10 @@ def export_seed(source, destination):
                         db.conn.execute("INSERT OR IGNORE INTO " + table + " VALUES(" + marks + ")", list(row))
                         copied += 1
                     powder_manifest[table] = copied
+                # Public CoinGecko circulating supply so restarts show MCAP instantly.
+                cg = saved("coingecko:wgnk")
+                if cg and isinstance(cg.get("circulating_raw"), str):
+                    db.put("coingecko:wgnk", {"circulating_raw": cg["circulating_raw"], "ts": int(cg.get("ts") or 0)})
                 db.conn.commit()
                 db.put("mints:deployment", {k:deployment[k] for k in ("height","hash","ts")})
                 db.put("mints:status", {"finalized_height":end, "latest_height":end,

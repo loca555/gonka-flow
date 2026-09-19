@@ -282,10 +282,10 @@ class FlowCollector:
         await self.live(start,head)
         return 5
 
-def selected_trades(market_trades,pools,hours,q,side,sort,now,minimum=0):
+def selected_trades(market_trades,pools,hours,q,side,sort,now,minimum=0,pnl_map=None):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
     field,direction=sort.rsplit("_",1)
-    if field not in ("time","kind","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
+    if field not in ("time","kind","actor","amount","quote","price","pool","tx","pnl") or direction not in ("asc","desc"):
         raise ValueError("Invalid trade sort")
     selected=[]
     all_trades=[e for e in market_trades if side=="all" or e["kind"]==side]
@@ -299,10 +299,14 @@ def selected_trades(market_trades,pools,hours,q,side,sort,now,minimum=0):
             elif q not in e["tx_hash"]: continue
         selected.append({**e,"meta":meta})
     # Sort the full filtered history before pagination; prices compare exact ratios.
+    no_pnl=float("inf") if direction=="asc" else float("-inf")
+    def pnl_key(e):
+        value=(pnl_map or {}).get(e["actor"])
+        return no_pnl if value is None else int(value)
     keys={"time":lambda e:e["ts"],"kind":lambda e:e["kind"],"actor":lambda e:e["actor"],
           "amount":lambda e:int(e["amount_raw"]),"quote":lambda e:int(e["quote_raw"]),
           "price":lambda e:Fraction(int(e["quote_raw"]),int(e["amount_raw"])),
-          "pool":lambda e:(pools[e["pool"]]["fee"],e["pool"]),"tx":lambda e:e["tx_hash"]}
+          "pool":lambda e:(pools[e["pool"]]["fee"],e["pool"]),"tx":lambda e:e["tx_hash"],"pnl":pnl_key}
     selected.sort(key=lambda e:(keys[field](e),e["height"],e["idx"],e["tx_hash"]),reverse=direction=="desc")
     return selected
 
@@ -321,7 +325,8 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
     if packet:
         snap=packet["snapshot"];pools={p["address"]:p for p in snap["pools"]}
         rows=[e for e in market_rows(db,deployment["height"],snap,packet) if e["kind"] in ("buy","sell") and e["pool"] in pools]
-        selected=selected_trades(rows,pools,hours,q,side,sort,as_of,minimum)
+        pnl=address_pnl(db) or {}
+        selected=selected_trades(rows,pools,hours,q,side,sort,as_of,minimum,pnl_map=pnl)
         result.update(ready=True,snapshot_hash=snap["hash"],total=len(selected),has_more=offset+limit<len(selected),
                       trades=[public_trade(event) for event in selected[offset:offset+limit]])
         return result
@@ -359,7 +364,8 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
         result.update(ready=True,total=total,has_more=offset+limit<total,trades=[public_trade(row) for row in rows],pnl=address_pnl(db))
         return result
     rows=[dict(row) for row in db.conn.execute("SELECT * FROM events WHERE "+where,params)]
-    selected=selected_trades(rows,pools,hours,q,side,sort,as_of,minimum)
+    pnl=address_pnl(db) or {}
+    selected=selected_trades(rows,pools,hours,q,side,sort,as_of,minimum,pnl_map=pnl)
     result.update(ready=True,total=len(selected),has_more=offset+limit<len(selected),
                   trades=[public_trade(event) for event in selected[offset:offset+limit]],pnl=address_pnl(db))
     return result
@@ -392,7 +398,7 @@ def address_pnl(db):
 def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",minimum=0,include_bridge=False):
     if side not in ("sell","buy","all"): raise ValueError("Invalid trade side")
     field,direction=sort.rsplit("_",1)
-    if field not in ("time","kind","actor","amount","quote","price","pool","tx") or direction not in ("asc","desc"):
+    if field not in ("time","kind","actor","amount","quote","price","pool","tx","pnl") or direction not in ("asc","desc"):
         raise ValueError("Invalid trade sort")
     now=int(time.time())
     deployment=db.get("mints:deployment")
@@ -448,7 +454,8 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
             "gnk_verified_mints":len(native_links[r["address"]]),
             "minted":tokens(r["minted_raw"]),"sold":tokens(r["sales_raw"]),"balance":tokens(ledger.get(r["address"],0)),
             "quote":tokens(r["quote_raw"],6),"average_price":tokens(price_raw(r["quote_raw"],r["sales_raw"]),12) if r["sales_raw"] else None})
-    selected=selected_trades(market_trades,pools,hours,q,side,sort,now,minimum)
+    pnl=address_pnl(db) or {}
+    selected=selected_trades(market_trades,pools,hours,q,side,sort,now,minimum,pnl_map=pnl)
     sold=sum(int(e["amount_raw"]) for e in selected)
     quote=sum(int(e["quote_raw"]) for e in selected)
     sides={kind:{"raw":0,"quote":0,"count":0} for kind in ("sell","buy")}
@@ -519,7 +526,7 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
         "liquidity_added":tokens(liquidity_added),"all_sales":len(all_sales)},
         pools=list(pools.values()),trades=page,liquidity_bands=band_series,
         sales=page if side=="sell" else [],total=len(selected),limit=page_limit,
-        has_more=offset+page_limit<len(selected),pnl=address_pnl(db),minters=minters,
+        has_more=offset+page_limit<len(selected),pnl=pnl,minters=minters,
         daily=[{"date":day,**{key:str(value) if key.endswith("raw") else value for key,value in d.items()},
                 "price_raw":str(price_raw(d["quote_raw"],d["raw"]))} for day,d in sorted(daily.items())])
     return result

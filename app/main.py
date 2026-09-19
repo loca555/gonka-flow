@@ -28,7 +28,7 @@ from .redemptions import native_addresses
 
 STATIC = Path(__file__).parent / "static"
 MINT_SORT_PATTERN = "^(newest|oldest|largest|(time|recipient|amount|tx|status)_(asc|desc))$"
-TRADE_SORT_PATTERN = "^(time|kind|actor|amount|quote|price|pool|tx)_(asc|desc)$"
+TRADE_SORT_PATTERN = "^(time|kind|actor|amount|quote|price|pool|tx|pnl)_(asc|desc)$"
 BRIDGE_SORT_PATTERN = "^(newest|oldest|largest|(time|kind|recipient|amount|tx|status)_(asc|desc))$"
 
 def versioned_page(filename):
