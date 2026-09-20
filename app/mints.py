@@ -230,6 +230,18 @@ class MintIndexer:
                 items[str(e["epoch_index"])]={"date":stamp.strftime("%Y-%m-%d"),
                                               "weight":int(weight),"gpus":gpus}
                 await asyncio.sleep(.5)
+            # AI tokens per epoch (billed prompt+completion), same source family.
+            try:
+                summary=(await client.get("https://ranking.gonkadb.com/api/inference/summary")).json()
+                tokens={}
+                for e in summary.get("epochs") or []:
+                    stamp=datetime.fromisoformat(e["window"]["started_at"].replace("Z","+00:00"))+timedelta(hours=3)
+                    tokens[str(e["epoch"])]={"date":stamp.strftime("%Y-%m-%d"),
+                                             "tokens":int(e.get("total_prompt") or 0)+int(e.get("total_completion") or 0)}
+                if tokens:
+                    self.db.put("inference_tokens:history",{"items":tokens,"updated_at":int(time.time())})
+            except Exception as error:
+                self.status("network_weight:status",tokens_error=str(error)[:200])
         self.db.put("network_weight:history",{"items":items,"updated_at":int(time.time())})
         return 300
 
@@ -392,7 +404,7 @@ def public_event(row):
     return e
 
 
-def daily_rows(price_by_day,weight_by_day,daily,daily_counts):
+def daily_rows(price_by_day,weight_by_day,tokens_by_day,daily,daily_counts):
     """Day rows with the latest known pool price and network weight carried forward."""
     from .db import tokens as _tokens
     rows=[];last_weight={}
@@ -400,7 +412,8 @@ def daily_rows(price_by_day,weight_by_day,daily,daily_counts):
         last_weight=weight_by_day.get(d,last_weight)
         rows.append({"date":d,"amount_raw":str(raw),"amount":_tokens(raw),"events":daily_counts[d],
                      "price_raw":price_by_day.get(d),
-                     "weight":last_weight.get("weight"),"gpus":last_weight.get("gpus")})
+                     "weight":last_weight.get("weight"),"gpus":last_weight.get("gpus"),
+                     "tokens":tokens_by_day.get(d)})
     return rows
 
 
@@ -442,6 +455,7 @@ def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",lim
     for entry in sorted((db.get("network_weight:history") or {}).get("items",{}).values(),
                         key=lambda x:(x["date"],x.get("weight",0))):
         weight_by_day[entry["date"]]=entry
+    tokens_by_day={e["date"]:e.get("tokens") for e in (db.get("inference_tokens:history") or {}).get("items",{}).values()}
     for e in items:
         row=recipients.setdefault(e["recipient"],{"address":e["recipient"],"amount_raw":0,"events":0})
         row["amount_raw"]+=int(e["amount_raw"]); row["events"]+=1
@@ -456,5 +470,5 @@ def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",lim
             "first_mint":min((e["ts"] for e in final),default=None),"last_mint":max((e["ts"] for e in final),default=None),
             "items":items[offset:offset+limit],"total":len(items),"offset":offset,"limit":limit,"has_more":offset+limit<len(items),
             "minimum":minimum,"hours":hours,"q":q,"sort":sort,"finality":finality,"recipients":leaders,
-            "daily":daily_rows(price_by_day,weight_by_day,daily,daily_counts),
+            "daily":daily_rows(price_by_day,weight_by_day,tokens_by_day,daily,daily_counts),
             "imported":db.get("mints:bootstrapped"),"disabled":["gonka_full_scan","holder_census","external_prices","mining"]}

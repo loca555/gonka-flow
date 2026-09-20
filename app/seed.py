@@ -223,6 +223,9 @@ def export_seed(source, destination):
                 weight = saved("network_weight:history")
                 if weight and isinstance(weight.get("items"), dict):
                     db.put("network_weight:history", {"items": weight["items"], "updated_at": 0})
+                tokens = saved("inference_tokens:history")
+                if tokens and isinstance(tokens.get("items"), dict):
+                    db.put("inference_tokens:history", {"items": tokens["items"], "updated_at": 0})
                 db.conn.commit()
                 db.put("mints:deployment", {k:deployment[k] for k in ("height","hash","ts")})
                 db.put("mints:status", {"finalized_height":end, "latest_height":end,
