@@ -130,7 +130,12 @@ function renderChart(d){
  const anomaly="2026-06-09";
  const daily=d.daily.filter(x=>x.date!==anomaly);
  const chart=el("mint-chart"),options={points:daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events,price_raw:x.price_raw,weight:x.weight,tokens:x.tokens})),
-  complete:d.coverage.complete,type:"bars",title:"Чеканка WGNK по дням",countLabel:"Выпусков"};
+  complete:d.coverage.complete,type:"bars",title:"Чеканка WGNK по дням",countLabel:"Выпусков",
+  legend:[{color:"var(--accent)",label:"Чеканка WGNK",bar:true},
+   {color:"#f2801e",label:"Среднее за 7 дней"},
+   {color:"#4db8ff",label:"Цена, USDT"},
+   {color:"#9b59b6",label:"Вес сети"},
+   {color:"#167f73",label:"AI-токены за 24 ч"}]};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
  let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным · оранжевая линия — среднее за 7 дней · голубая — цена дня (правая ось) · фиолетовая — вес сети майнеров (внешняя ось) · зелёная — AI-токены за 24 ч";
  if(daily.length!==d.daily.length)

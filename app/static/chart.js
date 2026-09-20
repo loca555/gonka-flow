@@ -26,7 +26,7 @@ window.GonkaChart=(()=>{
  const label=d=>d.slice(8)+"."+d.slice(5,7);
  const fullDate=d=>label(d)+"."+d.slice(0,4);
  function render(host,options){
-  const {points=[],unit="WGNK",decimals=9,type="line",complete=false,title="Объём по дням",countLabel="Событий"}=options;
+  const {points=[],unit="WGNK",decimals=9,type="line",complete=false,title="Объём по дням",countLabel="Событий",legend=null}=options;
   if(!points.length){host.innerHTML='<p class="empty">Нет данных по выбранным фильтрам.</p>';return;}
   const lookup=new Map(points.map(p=>[p.date,p]));
   const start=Date.parse(points[0].date+"T00:00:00Z"),end=Date.parse(points[points.length-1].date+"T00:00:00Z");
@@ -49,18 +49,17 @@ window.GonkaChart=(()=>{
   };
   const [pMin,pMax]=bounds(prices),[wMin,wMax]=bounds(weights),[tMin,tMax]=bounds(tokens);
   const hasPrice=pMin!==null,hasWeight=wMin!==null,hasTokens=tMin!==null,hasLines=hasPrice||hasWeight||hasTokens;
-  const W=Math.max(280,host.clientWidth),H=W<500?320:390,top=26,bottom=H-42;
-  const axOut=hasWeight?(W<500?36:44):0;
-  const left=(W<500?62:76)+axOut;
+  const W=Math.max(280,host.clientWidth),H=W<500?330:390,top=26,bottom=H-42;
+  const baseLeft=W<500?62:76;
+  const axWeight=hasWeight?(W<500?36:44):0;
+  const axTokens=hasTokens?(W<500?32:38):0;
+  const left=baseLeft+axWeight+axTokens;
   const right=hasPrice?(W<500?50:60):20;
   const plot=W-left-right;
-  const split=top+(hasLines?(bottom-top)*0.44+6:0);
-  const lineTop=top,lineBottom=hasLines?split-8:bottom;
-  const barTop=hasLines?split+4:top;
-  const mapLine=(v,lo,hi)=>lineBottom-Number((v-lo)*1000000n/(hi-lo))/1000000*(lineBottom-lineTop);
-  const yPrice=v=>mapLine(v,pMin,pMax);
-  const yWeight=v=>mapLine(v,wMin,wMax);
-  const yTokens=v=>mapLine(v,tMin,tMax);
+  const mapFull=(v,lo,hi)=>bottom-Number((v-lo)*1000000n/(hi-lo))/1000000*(bottom-top);
+  const yPrice=v=>mapFull(v,pMin,pMax);
+  const yWeight=v=>mapFull(v,wMin,wMax);
+  const yTokens=v=>mapFull(v,tMin,tMax);
   // Trailing 7-day moving average over the known daily values.
   const ma=rows.map((r,i)=>{
    let sum=0n,count=0;
@@ -72,14 +71,15 @@ window.GonkaChart=(()=>{
   });
   const high=ceiling(rows.reduce((v,r)=>r.raw!==null&&r.raw>v?r.raw:v,0n));
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
-  const y=raw=>bottom-Number(raw*1000000n/high)/1000000*(bottom-barTop);
-  let svg='<svg viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="'+escape(title)+'. Стрелки влево и вправо выбирают день."><defs><linearGradient id="'+host.id+'-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity=".28"/><stop offset="100%" stop-color="var(--accent)" stop-opacity=".015"/></linearGradient></defs>';
+  const y=raw=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
+  const legendHtml=Array.isArray(legend)?'<div class="chart-legend">'+legend.map(item=>
+   '<span class="chart-legend-item">'+(item.bar?'<i class="chart-swatch-bar" style="background:'+item.color+'"></i>':'<i class="chart-swatch-line" style="background:'+item.color+'"></i>')+escape(item.label)+'</span>').join('')+'</div>':'';
+  let svg=legendHtml+'<svg viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="'+escape(title)+'. Стрелки влево и вправо выбирают день."><defs><linearGradient id="'+host.id+'-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity=".28"/><stop offset="100%" stop-color="var(--accent)" stop-opacity=".015"/></linearGradient></defs>';
   svg+='<text x="'+left+'" y="13" class="chart-unit">'+escape(unit)+'</text>';
   for(let i=0;i<=4;i++){
-   const raw=high*BigInt(i)/4n,py=barTop+(bottom-barTop)*(4-i)/4;
+   const raw=high*BigInt(i)/4n,py=y(raw);
    svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-10)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(raw,decimals))+'</text>';
   }
-  if(hasLines)svg+='<line class="chart-split" x1="'+left+'" x2="'+(W-right)+'" y1="'+split+'" y2="'+split+'"/>';
   const ticks=Math.min(rows.length,W<500?4:7);
   for(let i=0;i<ticks;i++){
    const index=ticks===1?0:Math.round(i*(rows.length-1)/(ticks-1)),px=x(index);
@@ -102,7 +102,7 @@ window.GonkaChart=(()=>{
    rows.forEach((r,i)=>{if(r.raw===null)draw();else segment.push(i);});draw();
   }
   if(hasWeight){
-   const axX=(W<500?62:76)-8;
+   const axX=baseLeft-8;
    for(let k=0;k<=2;k++){
     const wv=wMin+(wMax-wMin)*BigInt(k)/2n,wy=yWeight(wv);
     svg+='<text class="chart-weight-axis" x="'+axX+'" y="'+(wy+4)+'" text-anchor="end">'+escape(axis(wv,0))+'</text>';
@@ -118,7 +118,7 @@ window.GonkaChart=(()=>{
    weights.forEach((v,i)=>{if(v===null)drawWeight();else wSeg.push(i);});drawWeight();
   }
   if(hasTokens){
-   const axX=left-10;
+   const axX=baseLeft+axWeight-8;
    for(let k=0;k<=2;k++){
     const tv=tMin+(tMax-tMin)*BigInt(k)/2n,ty=yTokens(tv);
     svg+='<text class="chart-tokens-axis" x="'+axX+'" y="'+(ty+4)+'" text-anchor="end">'+escape(axis(tv,0))+'</text>';
