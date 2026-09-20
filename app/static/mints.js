@@ -135,7 +135,7 @@ function renderChart(d){
    {color:"#f2801e",label:"Среднее за 7 дней"},
    {color:"#4db8ff",label:"Цена, USDT"},
    {color:"#9b59b6",label:"Вес сети"},
-   {color:"#167f73",label:"AI-токены за 24 ч"}]};
+   {color:"#d63384",label:"AI-токены за 24 ч"}]};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
  let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным · оранжевая линия — среднее за 7 дней · голубая — цена дня (правая ось) · фиолетовая — вес сети майнеров (внешняя ось) · зелёная — AI-токены за 24 ч";
  if(daily.length!==d.daily.length)
