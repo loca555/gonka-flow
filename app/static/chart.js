@@ -139,7 +139,7 @@ window.GonkaChart=(()=>{
    tooltip.innerHTML='<span>'+fullDate(row.date)+'</span><strong>'+(row.raw===null?"Нет подтверждённых данных":escape(exact(row.raw,decimals))+' <small>'+escape(unit)+'</small>')+'</strong><span>'+(row.raw===null?"Покрытие неполное":escape(countLabel)+": "+Number(row.events||0).toLocaleString("ru-RU"))+'</span>'+
     (row.raw!==null&&ma[selected]!==null?'<span>среднее за 7 дней: '+escape(exact(ma[selected],decimals))+' '+escape(unit)+'</span>':'')+
     (row.raw!==null&&prices[selected]!==null?'<span class="chart-price-axis">цена: '+escape(formatPrice(prices[selected]))+' USDT</span>':'')+
-    (row.weight!=null?'<span class="chart-weight-axis">вес сети: '+Number(row.weight).toLocaleString("ru-RU")+(row.gpus!=null?' · GPU: '+Number(row.gpus).toLocaleString("ru-RU"):'')+'</span>':'');
+    (row.weight!=null?'<span class="chart-weight-axis">вес сети: '+Number(row.weight).toLocaleString("ru-RU")+(row.gpus!=null?' · GPU в работе: '+Number(row.gpus).toLocaleString("ru-RU"):'')+'</span>':'');
    tooltip.hidden=false;
    const boxWidth=tooltip.offsetWidth;
    tooltip.style.left=Math.max(6,Math.min(W-boxWidth-6,px>W/2?px-boxWidth-14:px+14))+"px";
