@@ -132,7 +132,7 @@ function renderChart(d){
  const chart=el("mint-chart"),options={points:daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
   complete:d.coverage.complete,type:"bars",title:"Чеканка WGNK по дням",countLabel:"Выпусков"};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
- let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным · пунктир — среднее за 7 дней";
+ let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным · оранжевая линия — среднее за 7 дней";
  if(daily.length!==d.daily.length)
   window_note+=" · 09.06.2026 исключён из графика: аномальный выброс 3 268 769 WGNK разминочного выпуска";
  el("chart-window").textContent=window_note;
