@@ -45,6 +45,11 @@
 .chart-clip{stroke:var(--accent);stroke-width:1.6;fill:none}
 .chart-clip-text{fill:var(--accent);font-size:10px}
 .chart-price-axis{fill:#4db8ff;font-size:9px}.chart-price-line{stroke:#4db8ff;stroke-width:2.2;fill:none}
+/* Rhythm chart tooltip: larger box and text */
+.chart-tooltip.mint-tooltip{padding:15px 18px;border-radius:10px;min-width:190px}
+.chart-tooltip.mint-tooltip span{font-size:12.5px}
+.chart-tooltip.mint-tooltip strong{font-size:21px;margin:7px 0}
+.chart-tooltip.mint-tooltip strong small{font-size:13px}
 .chart-ma{stroke:#f2801e;stroke-width:3.2;fill:none;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 3px rgba(242,128,30,.45))}
 .chart-tooltip{position:absolute;pointer-events:none;z-index:2;background:var(--panel);border:1px solid var(--accent);border-radius:7px;padding:11px 13px;box-shadow:0 5px 25px #0002;max-width:calc(100% - 12px)}
 .chart-tooltip span{display:block;font-size:10px;color:var(--muted)}.chart-tooltip strong{display:block;font-size:15px;margin:6px 0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}.chart-tooltip small{font-size:10px;color:var(--muted)}

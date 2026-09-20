@@ -96,7 +96,7 @@ window.GonkaChart=(()=>{
    maSeg=[];
   };
   rows.forEach((r,i)=>{if(ma[i]===null)drawMa();else maSeg.push(i);});drawMa();
-  svg+='<g class="chart-cursor" visibility="hidden"><line class="chart-crosshair" y1="'+top+'" y2="'+bottom+'"/><circle r="4.5"/><rect class="chart-date-box" y="'+(bottom+10)+'" height="24" width="100" rx="4"/><text class="chart-date-text" y="'+(bottom+26)+'" text-anchor="middle"></text></g><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip" role="status" hidden></div>';
+  svg+='<g class="chart-cursor" visibility="hidden"><line class="chart-crosshair" y1="'+top+'" y2="'+bottom+'"/><circle r="4.5"/><rect class="chart-date-box" y="'+(bottom+10)+'" height="24" width="100" rx="4"/><text class="chart-date-text" y="'+(bottom+26)+'" text-anchor="middle"></text></g><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip mint-tooltip" role="status" hidden></div>';
   host.innerHTML=svg;
   const root=host.querySelector("svg"),cursor=host.querySelector(".chart-cursor"),tooltip=host.querySelector(".chart-tooltip");
   let selected=rows.length-1;
