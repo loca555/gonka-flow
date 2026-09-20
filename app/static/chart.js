@@ -44,10 +44,22 @@ window.GonkaChart=(()=>{
    if(pMin===pMax){pMin-=10**11;pMax+=10**11;}
    else{const span=pMax-pMin;pMin-=span/10n;pMax+=span/10n;}
   }
-  const W=Math.max(280,host.clientWidth),H=W<500?270:330,left=W<500?62:76,top=26,bottom=H-42;
+  // Gonka network weight (GPU miner capacity) on an outer left axis.
+  const weights=rows.map(r=>r.weight==null?null:BigInt(r.weight));
+  let wMin=null,wMax=null;
+  weights.forEach(v=>{if(v!==null){if(wMin===null||v<wMin)wMin=v;if(wMax===null||v>wMax)wMax=v;}});
+  const hasWeight=wMin!==null;
+  if(hasWeight){
+   if(wMin===wMax){wMin-=10n;wMax+=10n;}
+   else{const span=wMax-wMin;wMin-=span/10n;wMax+=span/10n;}
+  }
+  const W=Math.max(280,host.clientWidth),H=W<500?270:330,top=26,bottom=H-42;
+  const axOut=hasWeight?(W<500?36:44):0;
+  const left=(W<500?62:76)+axOut;
   const right=hasPrice?(W<500?50:60):20;
   const plot=W-left-right;
   const yPrice=v=>bottom-Number((v-pMin)*1000000n/(pMax-pMin))/1000000*(bottom-top);
+  const yWeight=v=>bottom-Number((v-wMin)*1000000n/(wMax-wMin))/1000000*(bottom-top);
   // Trailing 7-day moving average over the known daily values.
   const ma=rows.map((r,i)=>{
    let sum=0n,count=0;
@@ -87,6 +99,22 @@ window.GonkaChart=(()=>{
    };
    rows.forEach((r,i)=>{if(r.raw===null)draw();else segment.push(i);});draw();
   }
+  if(hasWeight){
+   const axX=(W<500?62:76)-8;
+   for(let k=0;k<=4;k++){
+    const wv=wMin+(wMax-wMin)*BigInt(k)/4n,wy=yWeight(wv);
+    svg+='<text class="chart-weight-axis" x="'+axX+'" y="'+(wy+4)+'" text-anchor="end">'+escape(axis(wv,0))+'</text>';
+   }
+   let wSeg=[];
+   const drawWeight=()=>{
+    if(wSeg.length){
+     const path=wSeg.map((i,j)=>(j?"L":"M")+x(i).toFixed(2)+","+yWeight(weights[i]).toFixed(2)).join(" ");
+     svg+='<path class="chart-weight-line" d="'+path+'"/>';
+    }
+    wSeg=[];
+   };
+   weights.forEach((v,i)=>{if(v===null)drawWeight();else wSeg.push(i);});drawWeight();
+  }
   if(hasPrice){   for(let k=0;k<=4;k++){    const pv=pMin+(pMax-pMin)*BigInt(k)/4n,py=yPrice(pv);    svg+='<text class="chart-price-axis" x="'+(W-right+8)+'" y="'+(py+4)+'">'+escape(formatPrice(pv))+'</text>';   }   let pSeg=[];   const drawPrice=()=>{    if(pSeg.length){     const path=pSeg.map((i,j)=>(j?"L":"M")+x(i).toFixed(2)+","+yPrice(prices[i]).toFixed(2)).join(" ");     svg+='<path class="chart-price-line" d="'+path+'"/>';    }    pSeg=[];   };   prices.forEach((v,i)=>{if(v===null)drawPrice();else pSeg.push(i);});drawPrice();  }  let maSeg=[];
   const drawMa=()=>{
    if(maSeg.length){
@@ -110,7 +138,8 @@ window.GonkaChart=(()=>{
    cursor.querySelector("text").setAttribute("x",dateX);cursor.querySelector("text").textContent=fullDate(row.date);
    tooltip.innerHTML='<span>'+fullDate(row.date)+'</span><strong>'+(row.raw===null?"Нет подтверждённых данных":escape(exact(row.raw,decimals))+' <small>'+escape(unit)+'</small>')+'</strong><span>'+(row.raw===null?"Покрытие неполное":escape(countLabel)+": "+Number(row.events||0).toLocaleString("ru-RU"))+'</span>'+
     (row.raw!==null&&ma[selected]!==null?'<span>среднее за 7 дней: '+escape(exact(ma[selected],decimals))+' '+escape(unit)+'</span>':'')+
-    (row.raw!==null&&prices[selected]!==null?'<span class="chart-price-axis">цена: '+escape(formatPrice(prices[selected]))+' USDT</span>':'');
+    (row.raw!==null&&prices[selected]!==null?'<span class="chart-price-axis">цена: '+escape(formatPrice(prices[selected]))+' USDT</span>':'')+
+    (row.weight!=null?'<span class="chart-weight-axis">вес сети: '+Number(row.weight).toLocaleString("ru-RU")+(row.gpus!=null?' · GPU: '+Number(row.gpus).toLocaleString("ru-RU"):'')+'</span>':'');
    tooltip.hidden=false;
    const boxWidth=tooltip.offsetWidth;
    tooltip.style.left=Math.max(6,Math.min(W-boxWidth-6,px>W/2?px-boxWidth-14:px+14))+"px";

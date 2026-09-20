@@ -1,5 +1,6 @@
 """WGNK monitor with targeted native bridge/address enrichment; no full Gonka scan."""
 import asyncio
+import os
 import json
 import logging
 import re
@@ -200,6 +201,38 @@ class MintIndexer:
         self.db.put("coingecko:wgnk",{"circulating_raw":str(raw),"ts":int(time.time())})
         return 3600
 
+    async def network_weight(self):
+        """Gonka network weight (GPU miner capacity) per epoch, from the
+        public ranking.gonkadb snapshots. Backfills a few epochs per run."""
+        import httpx
+        from datetime import datetime, timedelta
+        batch=max(1,int(os.getenv("NETWORK_WEIGHT_BATCH","8")))
+        async with httpx.AsyncClient(timeout=30,follow_redirects=True,
+                headers={"accept":"application/json","user-agent":"gonka-flow/1.0"}) as client:
+            epochs=(await client.get("https://ranking.gonkadb.com/api/epochs")).json()["summary"]
+            cached=self.db.get("network_weight:history") or {"items":{}}
+            items=cached["items"]
+            todo=[e for e in epochs if str(e["epoch_index"]) not in items][:batch]
+            targets=todo+[e for e in epochs[:2] if e not in todo]
+            for e in targets:
+                try:
+                    response=await client.get("https://ranking.gonkadb.com/api/snapshot",
+                                              params={"epoch":e["epoch_index"]})
+                    response.raise_for_status()
+                    data=response.json()
+                except Exception:
+                    continue
+                weight=(data.get("meta") or {}).get("total_network_weight")
+                if weight is None:
+                    continue
+                gpus=sum(int(r.get("gpu_count") or 0) for r in data.get("rows") or [])
+                stamp=datetime.fromisoformat(e["first_at"].replace("Z","+00:00"))+timedelta(hours=3)
+                items[str(e["epoch_index"])]={"date":stamp.strftime("%Y-%m-%d"),
+                                              "weight":int(weight),"gpus":gpus}
+                await asyncio.sleep(.5)
+        self.db.put("network_weight:history",{"items":items,"updated_at":int(time.time())})
+        return 300
+
     def status(self,key,**values):
         self.db.put(key,{**self.db.get(key,{}),**values})
 
@@ -223,6 +256,7 @@ class MintIndexer:
 
     def start(self):
         self.tasks=[asyncio.create_task(self.loop("coingecko:status",self.coingecko,60),name="coingecko_circulating"),
+                    asyncio.create_task(self.loop("network_weight:status",self.network_weight,60),name="gonka_network_weight"),
                     asyncio.create_task(self.loop("holder_history:status",self.holder_history.run,10),name="gonka_holder_history"),
                     asyncio.create_task(self.loop("public_holders:GNK:status",self.holders.run,60),name="gonka_holder_census"),
                     asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),
@@ -358,6 +392,18 @@ def public_event(row):
     return e
 
 
+def daily_rows(price_by_day,weight_by_day,daily,daily_counts):
+    """Day rows with the latest known pool price and network weight carried forward."""
+    from .db import tokens as _tokens
+    rows=[];last_weight={}
+    for d,raw in sorted(daily.items()):
+        last_weight=weight_by_day.get(d,last_weight)
+        rows.append({"date":d,"amount_raw":str(raw),"amount":_tokens(raw),"events":daily_counts[d],
+                     "price_raw":price_by_day.get(d),
+                     "weight":last_weight.get("weight"),"gpus":last_weight.get("gpus")})
+    return rows
+
+
 def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",limit=50,offset=0):
     now=int(time.time())
     rows=[public_event(r) for r in db.conn.execute("SELECT * FROM wgnk_mints")]
@@ -391,6 +437,11 @@ def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",lim
         acc=price_daily.setdefault(day2,[0,0])
         acc[0]+=int(r["amount_raw"]); acc[1]+=int(r["quote_raw"])
     price_by_day={d:(str(price_raw(q,a)) if a else None) for d,(a,q) in price_daily.items()}
+    # Network weight per calendar day: latest epoch known as of that day.
+    weight_by_day={}
+    for entry in sorted((db.get("network_weight:history") or {}).get("items",{}).values(),
+                        key=lambda x:(x["date"],x.get("weight",0))):
+        weight_by_day[entry["date"]]=entry
     for e in items:
         row=recipients.setdefault(e["recipient"],{"address":e["recipient"],"amount_raw":0,"events":0})
         row["amount_raw"]+=int(e["amount_raw"]); row["events"]+=1
@@ -405,6 +456,5 @@ def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",lim
             "first_mint":min((e["ts"] for e in final),default=None),"last_mint":max((e["ts"] for e in final),default=None),
             "items":items[offset:offset+limit],"total":len(items),"offset":offset,"limit":limit,"has_more":offset+limit<len(items),
             "minimum":minimum,"hours":hours,"q":q,"sort":sort,"finality":finality,"recipients":leaders,
-            "daily":[{"date":d,"amount_raw":str(raw),"amount":tokens(raw),"events":daily_counts[d],
-                      "price_raw":price_by_day.get(d)} for d,raw in sorted(daily.items())],
+            "daily":daily_rows(price_by_day,weight_by_day,daily,daily_counts),
             "imported":db.get("mints:bootstrapped"),"disabled":["gonka_full_scan","holder_census","external_prices","mining"]}

@@ -220,6 +220,9 @@ def export_seed(source, destination):
                 cg = saved("coingecko:wgnk")
                 if cg and isinstance(cg.get("circulating_raw"), str):
                     db.put("coingecko:wgnk", {"circulating_raw": cg["circulating_raw"], "ts": int(cg.get("ts") or 0)})
+                weight = saved("network_weight:history")
+                if weight and isinstance(weight.get("items"), dict):
+                    db.put("network_weight:history", {"items": weight["items"], "updated_at": 0})
                 db.conn.commit()
                 db.put("mints:deployment", {k:deployment[k] for k in ("height","hash","ts")})
                 db.put("mints:status", {"finalized_height":end, "latest_height":end,

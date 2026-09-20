@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix='gonka-seed-check-') as tmp:
         tables={r[0] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if 'labels' in tables:assert db.conn.execute('SELECT COUNT(*) FROM labels').fetchone()[0]==0
         keys=[r[0] for r in db.conn.execute('SELECT key FROM kv')]
-        assert all(key in {'mints:deployment','mints:status','mints:next','mints:bootstrapped','flow:snapshot','flow:status','public_holders:GNK','holder_history:version','coingecko:wgnk'} for key in keys),keys
+        assert all(key in {'mints:deployment','mints:status','mints:next','mints:bootstrapped','flow:snapshot','flow:status','public_holders:GNK','holder_history:version','coingecko:wgnk','network_weight:history'} for key in keys),keys
         holder_snapshot, holder_rows = public_holder_seed(db.conn)
         if holder_snapshot:
             assert db.conn.execute('SELECT COUNT(*) FROM public_gnk_holder_stage').fetchone()[0]==0
