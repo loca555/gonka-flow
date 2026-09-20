@@ -129,10 +129,10 @@ function renderChart(d){
  // dwarfs the daily rhythm, so it is ignored on this chart by request.
  const anomaly="2026-06-09";
  const daily=d.daily.filter(x=>x.date!==anomaly);
- const chart=el("mint-chart"),options={points:daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events})),
+ const chart=el("mint-chart"),options={points:daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events,price_raw:x.price_raw})),
   complete:d.coverage.complete,type:"bars",title:"Чеканка WGNK по дням",countLabel:"Выпусков"};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
- let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным · оранжевая линия — среднее за 7 дней";
+ let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным · оранжевая линия — среднее за 7 дней · голубая — цена дня (правая ось)";
  if(daily.length!==d.daily.length)
   window_note+=" · 09.06.2026 исключён из графика: аномальный выброс 3 268 769 WGNK разминочного выпуска";
  el("chart-window").textContent=window_note;

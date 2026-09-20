@@ -6,7 +6,7 @@ import re
 import time
 from collections import defaultdict
 from .codec import MINT, TRANSFER
-from .config import TOKEN, ZERO
+from .config import TOKEN, ZERO, SEED_POOLS
 from .db import tokens
 from .sources import Sources
 from .timezones import TIME_ZONE, local_day
@@ -381,6 +381,16 @@ def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",lim
     recipients={}
     daily=defaultdict(int)
     daily_counts=defaultdict(int)
+    # Daily VWAP of the verified pools: the price context for the rhythm chart.
+    from .flows import price_raw
+    price_daily={}
+    pool_marks=",".join("?"*len(SEED_POOLS))
+    for r in db.conn.execute("SELECT amount_raw,quote_raw,ts FROM events WHERE chain='ethereum' AND finalized=1 "
+                             f"AND kind IN ('buy','sell') AND pool IN ({pool_marks})",SEED_POOLS):
+        day2=local_day(r["ts"])
+        acc=price_daily.setdefault(day2,[0,0])
+        acc[0]+=int(r["amount_raw"]); acc[1]+=int(r["quote_raw"])
+    price_by_day={d:(str(price_raw(q,a)) if a else None) for d,(a,q) in price_daily.items()}
     for e in items:
         row=recipients.setdefault(e["recipient"],{"address":e["recipient"],"amount_raw":0,"events":0})
         row["amount_raw"]+=int(e["amount_raw"]); row["events"]+=1
@@ -395,5 +405,6 @@ def listing(db,minimum=10000,hours=0,q="",finality="finalized",sort="newest",lim
             "first_mint":min((e["ts"] for e in final),default=None),"last_mint":max((e["ts"] for e in final),default=None),
             "items":items[offset:offset+limit],"total":len(items),"offset":offset,"limit":limit,"has_more":offset+limit<len(items),
             "minimum":minimum,"hours":hours,"q":q,"sort":sort,"finality":finality,"recipients":leaders,
-            "daily":[{"date":d,"amount_raw":str(raw),"amount":tokens(raw),"events":daily_counts[d]} for d,raw in sorted(daily.items())],
+            "daily":[{"date":d,"amount_raw":str(raw),"amount":tokens(raw),"events":daily_counts[d],
+                      "price_raw":price_by_day.get(d)} for d,raw in sorted(daily.items())],
             "imported":db.get("mints:bootstrapped"),"disabled":["gonka_full_scan","holder_census","external_prices","mining"]}

@@ -35,7 +35,19 @@ window.GonkaChart=(()=>{
    const day=new Date(t).toISOString().slice(0,10),source=lookup.get(day);
    rows.push(source?{...source,raw:BigInt(source.raw)}:{date:day,raw:complete?0n:null,events:0});
   }
-  const W=Math.max(280,host.clientWidth),H=W<500?270:330,left=W<500?62:76,right=20,top=26,bottom=H-42,plot=W-left-right;
+  // Daily pool price (VWAP) on its own right-hand scale.
+  const prices=rows.map(r=>r.price_raw==null?null:BigInt(r.price_raw));
+  let pMin=null,pMax=null;
+  prices.forEach(v=>{if(v!==null){if(pMin===null||v<pMin)pMin=v;if(pMax===null||v>pMax)pMax=v;}});
+  const hasPrice=pMin!==null;
+  if(hasPrice){
+   if(pMin===pMax){pMin-=10**11;pMax+=10**11;}
+   else{const span=pMax-pMin;pMin-=span/10n;pMax+=span/10n;}
+  }
+  const W=Math.max(280,host.clientWidth),H=W<500?270:330,left=W<500?62:76,top=26,bottom=H-42;
+  const right=hasPrice?(W<500?50:60):20;
+  const plot=W-left-right;
+  const yPrice=v=>bottom-Number((v-pMin)*1000000n/(pMax-pMin))/1000000*(bottom-top);
   // Trailing 7-day moving average over the known daily values.
   const ma=rows.map((r,i)=>{
    let sum=0n,count=0;
@@ -75,7 +87,7 @@ window.GonkaChart=(()=>{
    };
    rows.forEach((r,i)=>{if(r.raw===null)draw();else segment.push(i);});draw();
   }
-  let maSeg=[];
+  if(hasPrice){   for(let k=0;k<=4;k++){    const pv=pMin+(pMax-pMin)*BigInt(k)/4n,py=yPrice(pv);    svg+='<text class="chart-price-axis" x="'+(W-right+8)+'" y="'+(py+4)+'">'+escape(formatPrice(pv))+'</text>';   }   let pSeg=[];   const drawPrice=()=>{    if(pSeg.length){     const path=pSeg.map((i,j)=>(j?"L":"M")+x(i).toFixed(2)+","+yPrice(prices[i]).toFixed(2)).join(" ");     svg+='<path class="chart-price-line" d="'+path+'"/>';    }    pSeg=[];   };   prices.forEach((v,i)=>{if(v===null)drawPrice();else pSeg.push(i);});drawPrice();  }  let maSeg=[];
   const drawMa=()=>{
    if(maSeg.length){
     const path=maSeg.map((i,j)=>(j?"L":"M")+x(i).toFixed(2)+","+y(ma[i]).toFixed(2)).join(" ");
@@ -97,7 +109,8 @@ window.GonkaChart=(()=>{
    cursor.querySelector("rect").setAttribute("x",dateX-50);
    cursor.querySelector("text").setAttribute("x",dateX);cursor.querySelector("text").textContent=fullDate(row.date);
    tooltip.innerHTML='<span>'+fullDate(row.date)+'</span><strong>'+(row.raw===null?"Нет подтверждённых данных":escape(exact(row.raw,decimals))+' <small>'+escape(unit)+'</small>')+'</strong><span>'+(row.raw===null?"Покрытие неполное":escape(countLabel)+": "+Number(row.events||0).toLocaleString("ru-RU"))+'</span>'+
-    (row.raw!==null&&ma[selected]!==null?'<span>среднее за 7 дней: '+escape(exact(ma[selected],decimals))+' '+escape(unit)+'</span>':'');
+    (row.raw!==null&&ma[selected]!==null?'<span>среднее за 7 дней: '+escape(exact(ma[selected],decimals))+' '+escape(unit)+'</span>':'')+
+    (row.raw!==null&&prices[selected]!==null?'<span class="chart-price-axis">цена: '+escape(formatPrice(prices[selected]))+' USDT</span>':'');
    tooltip.hidden=false;
    const boxWidth=tooltip.offsetWidth;
    tooltip.style.left=Math.max(6,Math.min(W-boxWidth-6,px>W/2?px-boxWidth-14:px+14))+"px";
