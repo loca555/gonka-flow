@@ -34,7 +34,7 @@ services:
         value: "2500"
       # Crash-recovery snapshots on GitHub Releases (public repo).
       - key: SNAPSHOT_REPO
-        value: loca555/gonka-flow
+        value: loca555/gonka-flow-snapshots
       - key: SNAPSHOT_HOURS
         value: "6"
       - key: SNAPSHOT_MIN_BLOCKS

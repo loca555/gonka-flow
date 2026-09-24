@@ -75,6 +75,7 @@ async def restore_fresh(target, cfg):
                     if int(manifest.get("height") or 0) > int(_bundled_manifest().get("height") or 0):
                         with tempfile.TemporaryDirectory(prefix="gonka-snapshot-") as tmp:
                             archive = Path(tmp) / "wgnk.sqlite3.gz"
+                            (Path(tmp) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
                             await _download(client, assets["wgnk.sqlite3.gz"]["url"],
                                             archive, manifest["sha256"])
                             return restore_seed(Path(target), archive)
