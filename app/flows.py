@@ -415,7 +415,9 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
             "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools",
             "gnk_supply_raw":(db.get("public_holders:GNK") or {}).get("supply_raw"),
             "gnk_circulating_raw":(db.get("coingecko:wgnk") or {}).get("circulating_raw"),
-            "coingecko_status":dict(db.get("coingecko:status") or {},cached_at=(db.get("coingecko:wgnk") or {}).get("ts"))}
+            "coingecko_status":dict(db.get("coingecko:status") or {},cached_at=(db.get("coingecko:wgnk") or {}).get("ts")),
+            "snapshot_status":dict(db.get("snapshot:status") or {},last=db.get("snapshot:last"),
+                                   token_set=bool(db.get("cfg:snapshot_token"))) if False else dict(db.get("snapshot:status") or {},last=db.get("snapshot:last"))}
     if not deployment or not target: return result
     start=deployment["height"];end=packet["snapshot"]["height"] if packet else history_end(db,start,target)
     target=max(target,end)
