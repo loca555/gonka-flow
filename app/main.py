@@ -23,6 +23,7 @@ from .flows import analysis as flow_analysis, bridge_listing, trade_page
 from .leaders import trade_leaders
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
+from . import snapshots
 from .provenance import overview as provenance_overview, incoming_history, GNK, links_for
 from .redemptions import native_addresses
 
@@ -70,7 +71,7 @@ def create_app(settings=None):
     @asynccontextmanager
     async def lifespan(app):
         if cfg.mode == "mints" and cfg.seed_enabled:
-            restore_seed(cfg.data_dir / "gonka-flow.sqlite3")
+            await snapshots.restore_fresh(cfg.data_dir / "gonka-flow.sqlite3", cfg)
         db = Database(cfg.data_dir / "gonka-flow.sqlite3")
         from .attribution import migrate
         migrate(db)

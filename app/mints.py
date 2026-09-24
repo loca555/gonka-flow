@@ -201,6 +201,24 @@ class MintIndexer:
         self.db.put("coingecko:wgnk",{"circulating_raw":str(raw),"ts":int(time.time())})
         return 3600
 
+    async def auto_snapshot(self):
+        """Rolling crash-recovery snapshot; see app.snapshots."""
+        from . import snapshots
+        if not self.cfg.snapshot_token:
+            return 3600
+        last = self.db.get("snapshot:last") or {}
+        if time.time() - last.get("ts", 0) < self.cfg.snapshot_hours * 3600:
+            return 300
+        snapshot = self.db.get("flow:snapshot") or {}
+        if not snapshot.get("ledger_verified"):
+            return 600
+        if snapshot["height"] - last.get("height", 0) < self.cfg.snapshot_min_blocks:
+            return 600
+        height = await snapshots.publish_snapshot(self.cfg,
+                self.cfg.data_dir / "gonka-flow.sqlite3", snapshot["height"])
+        self.db.put("snapshot:last", {"height": height, "ts": int(time.time())})
+        return 300
+
     async def network_weight(self):
         """Gonka network weight (GPU miner capacity) per epoch, from the
         public ranking.gonkadb snapshots. Backfills a few epochs per run."""
@@ -269,6 +287,7 @@ class MintIndexer:
     def start(self):
         self.tasks=[asyncio.create_task(self.loop("coingecko:status",self.coingecko,60),name="coingecko_circulating"),
                     asyncio.create_task(self.loop("network_weight:status",self.network_weight,60),name="gonka_network_weight"),
+                    asyncio.create_task(self.loop("snapshot:status",self.auto_snapshot,120),name="gonka_auto_snapshot"),
                     asyncio.create_task(self.loop("holder_history:status",self.holder_history.run,10),name="gonka_holder_history"),
                     asyncio.create_task(self.loop("public_holders:GNK:status",self.holders.run,60),name="gonka_holder_census"),
                     asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),

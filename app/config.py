@@ -46,6 +46,11 @@ class Settings:
     keep_alive_seconds: int = field(default_factory=lambda: max(60, int(os.getenv("KEEP_ALIVE_SECONDS", "240"))))
     keep_alive_enabled: bool = field(default_factory=lambda: os.getenv("KEEP_ALIVE_ENABLED", "true").lower() == "true")
     holders_labels_enabled: bool = field(default_factory=lambda: os.getenv("HOLDERS_LABELS_ENABLED", "false").lower() == "true")
+    snapshot_repo: str = field(default_factory=lambda: os.getenv("SNAPSHOT_REPO", "loca555/gonka-flow"))
+    snapshot_token: str = field(default_factory=lambda: os.getenv("BACKUP_GITHUB_TOKEN", "").strip())
+    snapshot_hours: float = field(default_factory=lambda: max(1.0, float(os.getenv("SNAPSHOT_HOURS", "6"))))
+    snapshot_min_blocks: int = field(default_factory=lambda: max(0, int(os.getenv("SNAPSHOT_MIN_BLOCKS", "20000"))))
+    snapshot_restore: bool = field(default_factory=lambda: os.getenv("SNAPSHOT_RESTORE", "true").lower() == "true")
     powder_enabled: bool = field(default_factory=lambda: os.getenv("POWDER_ENABLED", "true").lower() == "true")
 
     def __post_init__(self):
