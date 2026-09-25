@@ -190,11 +190,16 @@ def export_seed(source, destination):
             db = Database(seed_path)
             try:
                 initialize(db)
+                present = {r[0] for r in reader.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
                 for table, clause, args in (
                     ("events", "chain='ethereum' AND finalized=1 AND height BETWEEN ? AND ?", (start, end)),
                     ("blocks", "chain='ethereum' AND height BETWEEN ? AND ?", (start, end)),
                     ("wgnk_mints", "finalized=1 AND height BETWEEN ? AND ?", (start, end)),
+                    ("lp_ticks", "height BETWEEN ? AND ?", (start, end)),
                 ):
+                    if table not in present:
+                        continue
                     rows = reader.execute("SELECT * FROM " + table + " WHERE " + clause, args)
                     for row in rows:
                         values = dict(row)
@@ -226,6 +231,14 @@ def export_seed(source, destination):
                 tokens = saved("inference_tokens:history")
                 if tokens and isinstance(tokens.get("items"), dict):
                     db.put("inference_tokens:history", {"items": tokens["items"], "updated_at": 0})
+                # Exact daily depth series so restarts show it instantly; the
+                # worker rebuilds it when new events arrive.
+                depth_history = saved("flow:depth_history")
+                if depth_history and isinstance(depth_history.get("pools"), dict):
+                    db.put("flow:depth_history", {**depth_history, "built_at": 0})
+                lp_head = saved("lp_ticks:head")
+                if lp_head and lp_head.get("height") and "lp_ticks" in present:
+                    db.put("lp_ticks:head", lp_head)
                 db.conn.commit()
                 db.put("mints:deployment", {k:deployment[k] for k in ("height","hash","ts")})
                 db.put("mints:status", {"finalized_height":end, "latest_height":end,

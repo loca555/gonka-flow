@@ -181,8 +181,8 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         self.idx.loop=loop
         self.idx.start()
         await asyncio.sleep(0)
-        self.assertEqual(sorted(started),["coingecko:status","depth:status","flow:status","holder_history:status","mints:history","mints:status","network_weight:status","powder:status","provenance:balances","provenance:burns","provenance:incoming","provenance:status","public_holders:GNK:status","snapshot:status"])
-        self.assertEqual({t.get_name() for t in self.idx.tasks},{"coingecko_circulating","eth_depth_ticks","gonka_auto_snapshot","gonka_network_weight","wgnk_mints_live","wgnk_mints_history","wgnk_market_flow","stable_powder","gonka_bridge_links","gonka_burn_links","gonka_targeted_incoming","gonka_targeted_balances","gonka_holder_census","gonka_holder_history"})
+        self.assertEqual(sorted(started),["coingecko:status","depth:status","flow:status","holder_history:status","lp_ticks:status","mints:history","mints:status","network_weight:status","powder:status","provenance:balances","provenance:burns","provenance:incoming","provenance:status","public_holders:GNK:status","snapshot:status"])
+        self.assertEqual({t.get_name() for t in self.idx.tasks},{"coingecko_circulating","eth_depth_ticks","eth_lp_tick_history","gonka_auto_snapshot","gonka_network_weight","wgnk_mints_live","wgnk_mints_history","wgnk_market_flow","stable_powder","gonka_bridge_links","gonka_burn_links","gonka_targeted_incoming","gonka_targeted_balances","gonka_holder_census","gonka_holder_history"})
         await self.idx.stop()
 
 

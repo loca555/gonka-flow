@@ -208,6 +208,13 @@ class MintIndexer:
         self.db.put("depth:live", snap)
         return 300
 
+    async def lp_tick_history(self):
+        """Historical tick liquidity from Mint/Burn events; see app.lp_history."""
+        from . import lp_history
+        await lp_history.sync(self.cfg, self.db)
+        lp_history.rebuild_if_stale(self.db)
+        return 300
+
     async def auto_snapshot(self):
         """Rolling crash-recovery snapshot; see app.snapshots."""
         from . import snapshots
@@ -296,6 +303,7 @@ class MintIndexer:
                     asyncio.create_task(self.loop("network_weight:status",self.network_weight,60),name="gonka_network_weight"),
                     asyncio.create_task(self.loop("snapshot:status",self.auto_snapshot,120),name="gonka_auto_snapshot"),
                     asyncio.create_task(self.loop("depth:status",self.depth_ticks,60),name="eth_depth_ticks"),
+                    asyncio.create_task(self.loop("lp_ticks:status",self.lp_tick_history,60),name="eth_lp_tick_history"),
                     asyncio.create_task(self.loop("holder_history:status",self.holder_history.run,10),name="gonka_holder_history"),
                     asyncio.create_task(self.loop("public_holders:GNK:status",self.holders.run,60),name="gonka_holder_census"),
                     asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),

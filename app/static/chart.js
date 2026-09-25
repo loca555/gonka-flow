@@ -275,8 +275,8 @@ window.GonkaChart=(()=>{
    if(event.key==="Home")show(0);if(event.key==="End")show(rows.length-1);if(event.key==="Escape")hide();
   });
  }
- function renderLiquidity(host,bands,{levels=["2"],prices=null,fee=3000}={}){
-  if(!bands||!Object.keys(bands).length){host.innerHTML='<p class="empty">Ликвидность пула ещё собирается: нужны сохранённые значения sqrt/liquidity сделок.</p>';return;}
+ function renderLiquidity(host,bands,{levels=["2"],fee=3000}={}){
+  if(!bands||!Object.keys(bands).length){host.innerHTML='<p class="empty">Ликвидность пула ещё собирается: нужна история Mint/Burn событий пула.</p>';return;}
   const chosen=levels.filter(l=>bands[l]);
   if(!chosen.length){host.innerHTML='<p class="empty">Выберите хотя бы один уровень диапазона.</p>';return;}
   // Merge levels by date, carrying the last known depth across quiet days.
@@ -335,11 +335,9 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
    tooltip.innerHTML='<span>'+fullDate(r.date)+'</span>'+
-    chosen.map(l=>r[l]?'<div class="market-tooltip-band liq-b'+l+'"><span>±'+l+'%</span>'+
-     (r.date&&prices&&prices[r.date]?
-      '<b>↑ ≈ $'+escape(exact(BigInt(r[l].usdt_raw)*BigInt(Math.round(((1+l/100)*0.997-1)/0.997/(Math.sqrt(1+l/100)-Math.sqrt(1-l/100))*1e9))/10n**9n,6))+' <em>USDT</em></b>'
-      :'<b>'+escape(exact(BigInt(r[l].wgnk_raw),9))+' <em>WGNK</em></b>')+
-     '<b>↓ ≈ $'+escape(exact(BigInt(r[l].wgnk_raw)*BigInt(Math.round((l/100-0.003)/0.997/(1/Math.sqrt(1-l/100)-1/Math.sqrt(1+l/100))*1e9))/10n**9n*BigInt(prices&&prices[r.date]||1)/10n**15n,6))+' <em>USDT</em></b></div>':'').join("");
+    chosen.map(l=>r[l]&&r[l].up_usdt_raw?'<div class="market-tooltip-band liq-b'+l+'" title="Цена после сделки: ↑ $'+(+r[l].up_final_price).toFixed(4)+' · ↓ $'+(+r[l].down_final_price).toFixed(4)+'"><span>±'+l+'%</span>'+
+     '<b>↑ $'+escape(exact(BigInt(r[l].up_usdt_raw),6))+' <em>USDT</em></b>'+
+     '<b>↓ $'+escape(exact(BigInt(r[l].down_usdt_raw),6))+' <em>USDT</em></b></div>':'').join("");
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
    tooltip.hidden=false;

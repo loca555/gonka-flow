@@ -64,12 +64,12 @@ def _tick_sqrt(pos):
     return (1.0001 ** ((pos * SPACING) / 2)) * Q96
 
 
-def _amounts_up(net, pos_now, active, sqrt, s_end):
+def _amounts_up(net, pos_now, active, sqrt, s_end, order=None):
     """(usdt_in, wgnk_out) for buying WGNK until the price reaches s_end."""
     usdt = wgnk = 0.0
     walked = active
     edge = sqrt
-    for pos in sorted(p for p in net if p > pos_now):
+    for pos in (order if order is not None else sorted(p for p in net if p > pos_now)):
         boundary = _tick_sqrt(pos)
         if boundary >= s_end:
             break
@@ -83,12 +83,13 @@ def _amounts_up(net, pos_now, active, sqrt, s_end):
     return usdt, wgnk
 
 
-def _amounts_down(net, pos_now, active, sqrt, s_end):
+def _amounts_down(net, pos_now, active, sqrt, s_end, order=None):
     """(usdt_out, wgnk_in) for selling WGNK until the price reaches s_end."""
     usdt = wgnk = 0.0
     walked = active
     edge = sqrt
-    for pos in sorted((p for p in net if p <= pos_now), reverse=True):
+    for pos in (order if order is not None else
+                sorted((p for p in net if p <= pos_now), reverse=True)):
         boundary = _tick_sqrt(pos)
         if boundary <= s_end:
             break
@@ -100,12 +101,6 @@ def _amounts_down(net, pos_now, active, sqrt, s_end):
     usdt += walked * (edge - s_end) / Q96
     wgnk += walked * Q96 * (edge - s_end) / (edge * s_end)
     return usdt, wgnk
-
-
-def _avg_price(net, pos_now, active, sqrt, s_end, up):
-    """Average execution rate (USDT per WGNK) of the trade ending at s_end."""
-    usdt, wgnk = (_amounts_up if up else _amounts_down)(net, pos_now, active, sqrt, s_end)
-    return usdt * 1e3 / wgnk if wgnk > 0 else 0.0
 
 
 def _solve_avg(net, pos_now, active, sqrt, price, level, up):
@@ -120,16 +115,24 @@ def _solve_avg(net, pos_now, active, sqrt, price, level, up):
     x = level / 100
     mult = 1 + x if up else 1 - x
     target = price * mult * ((1 - FEE) if up else 1 / (1 - FEE))
-    # Uniform liquidity reaches the target exactly at price*mult^2; real
-    # distributions can need a bit more, so probe slightly beyond.
+    # A uniform-liquidity pool reaches the target exactly at price*mult^2;
+    # concentrate the search slightly beyond in case nearby liquidity is thin.
     far = sqrt * (mult * mult * 1.05 if up else mult * mult * 0.95)
-    far_avg = _avg_price(net, pos_now, active, sqrt, far, up)
+    order = (sorted(p for p in net if p > pos_now) if up else
+             sorted((p for p in net if p <= pos_now), reverse=True))
+
+    def avg(s):
+        usdt, wgnk = (_amounts_up if up else _amounts_down)(
+            net, pos_now, active, sqrt, s, order)
+        return usdt * 1e3 / wgnk if wgnk > 0 else 0.0
+
+    far_avg = avg(far)
     if (up and far_avg < target) or (not up and far_avg > target):
         return None
     lo, hi = (sqrt, far) if up else (far, sqrt)
-    for _ in range(60):
+    for _ in range(40):
         mid = (lo + hi) / 2
-        if _avg_price(net, pos_now, active, sqrt, mid, up) < target:
+        if avg(mid) < target:
             lo = mid
         else:
             hi = mid

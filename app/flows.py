@@ -21,14 +21,6 @@ def price_raw(quote, quantity, quote_decimals=6):
 # The swap belongs to the address confirmed by a whole-transaction WGNK net flow:
 # either the initiator itself, or the recipient/payer found in the same receipt.
 CONFIRMED = ("initiator_net", "tx_net")
-# Exact integer sqrt multipliers for price bands around the day-close price,
-# scaled by 10**31: sqrt(1 - level/100) and sqrt(1 + level/100) per level.
-from math import isqrt as _isqrt
-BAND_SCALE = 10**31
-BAND_LEVELS = (2, 5, 10, 20)
-BAND_SQRT = {level: (_isqrt((100 - level) * BAND_SCALE**2 // 100),
-                     _isqrt((100 + level) * BAND_SCALE**2 // 100))
-             for level in BAND_LEVELS}
 
 def history_end(db,start,head):
     end=start-1
@@ -466,39 +458,10 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
         total["raw"]+=int(e["amount_raw"]);total["quote"]+=int(e["quote_raw"]);total["count"]+=1
     pooled=sum(int(p["balance_raw"]) for p in pools.values())
     supply=int(snapshot["supply_raw"])
-    # Depth of book: Uniswap V3 active liquidity within selectable price
-    # bands (+/-2, 5, 10, 20 percent) of each day's closing price, split into
-    # WGNK and USDT sides. sqrtX96/liquidity come from the Swap events
-    # themselves (verified on-chain values).
-    band={}
-    for event in rows:
-        if event["kind"] not in ("buy","sell"):
-            continue
-        meta=event["meta"] if isinstance(event["meta"],dict) else json.loads(event["meta"])
-        if "liquidity_raw" not in meta or "sqrt_price_raw" not in meta:
-            continue
-        pool=band.setdefault(event["pool"],{})
-        pool[local_day(event["ts"])]=(int(meta["sqrt_price_raw"]),int(meta["liquidity_raw"]))
-    band_series={}
-    for address,days in band.items():
-        levels={}
-        for level in BAND_LEVELS:
-            low_mult,high_mult=BAND_SQRT[level]
-            points=[]
-            for day in sorted(days):
-                sqrt_raw,liquidity=days[day]
-                if not sqrt_raw or not liquidity:
-                    continue
-                low=sqrt_raw*low_mult//BAND_SCALE
-                high=sqrt_raw*high_mult//BAND_SCALE
-                span=high-low
-                points.append({"date":day,
-                               "wgnk_raw":str(liquidity*span*2**96//(low*high or 1)),
-                               "usdt_raw":str(liquidity*span//2**96)})
-            if points:
-                levels[str(level)]=points
-        if levels:
-            band_series[address]=levels
+    # Exact daily depth: tick-level history rebuilt from the pool's own
+    # Mint/Burn events by the lp_ticks worker, served from kv so requests
+    # stay cheap. Empty until the worker's first pass completes.
+    band_series = (db.get("flow:depth_history") or {}).get("pools") or {}
     liquidity_added=sum(int(e["amount_raw"]) for e in rows if e["kind"]=="liquidity_add" and e["pool"] in pools)
     daily=defaultdict(lambda:{"raw":0,"quote_raw":0,"events":0,"sold_raw":0,"bought_raw":0,
                               "sale_quote_raw":0,"buy_quote_raw":0,"sales_count":0,"buys_count":0})

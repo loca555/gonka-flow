@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS ranges(
  chain TEXT NOT NULL, lo INTEGER NOT NULL, hi INTEGER NOT NULL,
  PRIMARY KEY(chain, lo)
 );
+CREATE TABLE IF NOT EXISTS lp_ticks(
+ tx_hash TEXT NOT NULL, idx INTEGER NOT NULL, height INTEGER NOT NULL,
+ kind TEXT NOT NULL, tick_lower INTEGER NOT NULL, tick_upper INTEGER NOT NULL,
+ amount TEXT NOT NULL, PRIMARY KEY(tx_hash, idx)
+);
+CREATE INDEX IF NOT EXISTS lp_ticks_height ON lp_ticks(height, idx);
 CREATE TABLE IF NOT EXISTS blocks(
  chain TEXT NOT NULL, height INTEGER NOT NULL, hash TEXT NOT NULL, ts INTEGER NOT NULL,
  PRIMARY KEY(chain, height)
