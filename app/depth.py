@@ -58,12 +58,14 @@ def _integrate(net, pos_now, active, sqrt, up_sqrt, dn_sqrt, price):
     edge = sqrt
     for pos in sorted(p for p in net if p > pos_now):
         boundary = _tick_sqrt(pos)
-        top = min(boundary, up_sqrt)
-        if top > edge:
-            usdt_up += walked * (top - edge) / Q96
         if boundary >= up_sqrt:
+            usdt_up += walked * (up_sqrt - edge) / Q96
+            edge = up_sqrt
             break
-        edge, walked = boundary, walked + net[pos]
+        if boundary > edge:
+            usdt_up += walked * (boundary - edge) / Q96
+            edge = boundary
+        walked += net[pos]
     if edge < up_sqrt:
         usdt_up += walked * (up_sqrt - edge) / Q96
 
@@ -72,12 +74,14 @@ def _integrate(net, pos_now, active, sqrt, up_sqrt, dn_sqrt, price):
     edge = sqrt
     for pos in sorted((p for p in net if p <= pos_now), reverse=True):
         boundary = _tick_sqrt(pos)
-        bottom = max(boundary, dn_sqrt)
-        if bottom < edge:
-            wgnk_dn += walked * Q96 * (edge - bottom) / (edge * bottom)
         if boundary <= dn_sqrt:
+            wgnk_dn += walked * Q96 * (edge - dn_sqrt) / (edge * dn_sqrt)
+            edge = dn_sqrt
             break
-        edge, walked = boundary, walked - net[pos]
+        if boundary < edge:
+            wgnk_dn += walked * Q96 * (edge - boundary) / (edge * boundary)
+            edge = boundary
+        walked -= net[pos]
     if edge > dn_sqrt:
         wgnk_dn += walked * Q96 * (edge - dn_sqrt) / (edge * dn_sqrt)
 
