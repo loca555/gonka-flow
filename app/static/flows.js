@@ -327,7 +327,8 @@
   const pool=(data.pools||[]).find(p=>p.fee===3000);
   const bands=pool&&data.liquidity_bands?data.liquidity_bands[pool.address]:null;
   const levels=liquiditySelection();
-  renderLiveChart(host,[bands,levels],()=>GonkaChart.renderLiquidity(host,bands,{levels}));
+  const prices=Object.fromEntries((data.daily||[]).map(d=>[d.date,d.price_raw]));
+  renderLiveChart(host,[bands,levels,prices],()=>GonkaChart.renderLiquidity(host,bands,{levels,prices}));
  }
  document.querySelectorAll('[data-liq-level]').forEach(box=>box.addEventListener('change',()=>{
   const levels=[...document.querySelectorAll('[data-liq-level]')].filter(b=>b.checked).map(b=>b.dataset.liqLevel);
