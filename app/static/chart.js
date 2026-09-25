@@ -342,6 +342,7 @@ window.GonkaChart=(()=>{
      '<b>↓ $'+escape(exact(BigInt(r[l].wgnk_raw)*BigInt(Math.round((l/100-0.003)/0.997/(1/Math.sqrt(1-l/100)-1/Math.sqrt(1+l/100))*1e9))/10n**9n*BigInt(prices&&prices[r.date]||1)/10n**15n,6))+' <em>USDT</em></b></div>':'').join("");
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
+   tooltip.hidden=false;
   }
   const hide=()=>{cursor.setAttribute("visibility","hidden");tooltip.hidden=true;};
   const pointer=event=>{
