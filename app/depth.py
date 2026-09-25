@@ -1,10 +1,14 @@
-"""Exact Uniswap V3 market depth by walking tick liquidity.
+"""Exact Uniswap V3 executable depth by walking tick liquidity.
 
-The band formulas used for the daily chart assume the active liquidity is
-constant across the whole +/-N% range. Real V3 liquidity is piecewise
-constant (manual LP ranges), so this worker computes the exact cost of
-moving the price: it reads the tick bitmap and every initialized tick in
-the range and integrates L over each sub-range. Cached in kv `depth:live`.
+Bands use the average-execution-rate semantics: level N answers "how much
+USDT can buy WGNK until the *average* rate paid (pool fee included) is +N%
+over the pool price" and "how much WGNK can be sold (USDT proceeds shown)
+until the average rate received is -N%". Real V3 liquidity is piecewise
+constant (manual LP ranges), so the endpoint of each band is found by
+integrating L over ticks; the average rate is the volume-weighted ratio of
+both sides. The 0.3% pool fee is charged on the input token, so trader
+amounts are the curve amounts grossed up by 1/(1-fee). Cached in kv
+`depth:live`.
 """
 import time
 
@@ -13,8 +17,10 @@ import httpx
 POOL = "0x203ee836d417cf944133bbdd2c62b4bc7388c55d"  # 30 b.p. WGNK/USDT
 SPACING = 60
 LEVELS = (2, 5, 10, 20)
+FEE = 0.003
 Q96 = 2 ** 96
 RPC_TIMEOUT = 30
+BATCH = 100
 
 
 def _pad_int(value, size=32):
@@ -41,6 +47,13 @@ async def _batch(client, endpoint, calls):
     return out
 
 
+async def _batched(client, endpoint, calls):
+    results = []
+    for start in range(0, len(calls), BATCH):
+        results.extend(await _batch(client, endpoint, calls[start:start + BATCH]))
+    return results
+
+
 def _bitmap_positions(hex_word, base):
     bits = int(hex_word, 16)
     return [base + bit for bit in range(256) if bits >> bit & 1]
@@ -51,47 +64,98 @@ def _tick_sqrt(pos):
     return (1.0001 ** ((pos * SPACING) / 2)) * Q96
 
 
-def _integrate(net, pos_now, active, sqrt, up_sqrt, dn_sqrt, price):
-    """Exact token amounts: integrate piecewise-constant L between ticks."""
-    usdt_up = 0.0
+def _amounts_up(net, pos_now, active, sqrt, s_end):
+    """(usdt_in, wgnk_out) for buying WGNK until the price reaches s_end."""
+    usdt = wgnk = 0.0
     walked = active
     edge = sqrt
     for pos in sorted(p for p in net if p > pos_now):
         boundary = _tick_sqrt(pos)
-        if boundary >= up_sqrt:
-            usdt_up += walked * (up_sqrt - edge) / Q96
-            edge = up_sqrt
+        if boundary >= s_end:
             break
         if boundary > edge:
-            usdt_up += walked * (boundary - edge) / Q96
+            usdt += walked * (boundary - edge) / Q96
+            wgnk += walked * Q96 * (boundary - edge) / (edge * boundary)
             edge = boundary
         walked += net[pos]
-    if edge < up_sqrt:
-        usdt_up += walked * (up_sqrt - edge) / Q96
+    usdt += walked * (s_end - edge) / Q96
+    wgnk += walked * Q96 * (s_end - edge) / (edge * s_end)
+    return usdt, wgnk
 
-    wgnk_dn = 0.0
+
+def _amounts_down(net, pos_now, active, sqrt, s_end):
+    """(usdt_out, wgnk_in) for selling WGNK until the price reaches s_end."""
+    usdt = wgnk = 0.0
     walked = active
     edge = sqrt
     for pos in sorted((p for p in net if p <= pos_now), reverse=True):
         boundary = _tick_sqrt(pos)
-        if boundary <= dn_sqrt:
-            wgnk_dn += walked * Q96 * (edge - dn_sqrt) / (edge * dn_sqrt)
-            edge = dn_sqrt
+        if boundary <= s_end:
             break
         if boundary < edge:
-            wgnk_dn += walked * Q96 * (edge - boundary) / (edge * boundary)
+            usdt += walked * (edge - boundary) / Q96
+            wgnk += walked * Q96 * (edge - boundary) / (edge * boundary)
             edge = boundary
         walked -= net[pos]
-    if edge > dn_sqrt:
-        wgnk_dn += walked * Q96 * (edge - dn_sqrt) / (edge * dn_sqrt)
+    usdt += walked * (edge - s_end) / Q96
+    wgnk += walked * Q96 * (edge - s_end) / (edge * s_end)
+    return usdt, wgnk
 
-    return {"up_usdt_raw": str(int(usdt_up)),        # USDT, 6 decimals
-            "down_wgnk_raw": str(int(wgnk_dn)),      # WGNK, 9 decimals
-            "down_usdt_raw": str(int(wgnk_dn * price / 1e3))}
+
+def _avg_price(net, pos_now, active, sqrt, s_end, up):
+    """Average execution rate (USDT per WGNK) of the trade ending at s_end."""
+    usdt, wgnk = (_amounts_up if up else _amounts_down)(net, pos_now, active, sqrt, s_end)
+    return usdt * 1e3 / wgnk if wgnk > 0 else 0.0
+
+
+def _solve_avg(net, pos_now, active, sqrt, price, level, up):
+    """Endpoint where the trader's average rate hits price*(1 +/- level%).
+
+    The fee is taken from the swap input, so the curve itself only needs to
+    deliver average price*(1+level)*(1-FEE) on a buy and price*(1-level)/(1-FEE)
+    on a sell. The average rises monotonically with the endpoint (every extra
+    unit trades at a marginal rate beyond the current average), so bisection
+    is exact. Returns None when the range walked cannot absorb that much.
+    """
+    x = level / 100
+    mult = 1 + x if up else 1 - x
+    target = price * mult * ((1 - FEE) if up else 1 / (1 - FEE))
+    # Uniform liquidity reaches the target exactly at price*mult^2; real
+    # distributions can need a bit more, so probe slightly beyond.
+    far = sqrt * (mult * mult * 1.05 if up else mult * mult * 0.95)
+    far_avg = _avg_price(net, pos_now, active, sqrt, far, up)
+    if (up and far_avg < target) or (not up and far_avg > target):
+        return None
+    lo, hi = (sqrt, far) if up else (far, sqrt)
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if _avg_price(net, pos_now, active, sqrt, mid, up) < target:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def _band(net, pos_now, active, sqrt, price, level):
+    band = {}
+    for up in (True, False):
+        end = _solve_avg(net, pos_now, active, sqrt, price, level, up)
+        if end is None:
+            continue
+        usdt, wgnk = (_amounts_up if up else _amounts_down)(net, pos_now, active, sqrt, end)
+        if up:
+            band.update(up_usdt_raw=str(int(usdt / (1 - FEE))),   # USDT spent incl. fee
+                        up_wgnk_raw=str(int(wgnk)),               # WGNK bought, 9 decimals
+                        up_final_price=(end / Q96) ** 2 * 1e3)
+        else:
+            band.update(down_usdt_raw=str(int(usdt)),             # USDT proceeds, 6 decimals
+                        down_wgnk_raw=str(int(wgnk / (1 - FEE))), # WGNK sold incl. fee
+                        down_final_price=(end / Q96) ** 2 * 1e3)
+    return band
 
 
 async def snapshot(endpoints):
-    """Exact per-level cost of moving the 30 b.p. pool price up and down."""
+    """Per-level executable amounts at an average rate of +/- LEVELS percent."""
     async with httpx.AsyncClient(timeout=RPC_TIMEOUT) as client:
         endpoint = endpoints[0]
         slot0, liquidity = (await _batch(client, endpoint, [
@@ -103,11 +167,11 @@ async def snapshot(endpoints):
         active = int(liquidity, 16)
         tick = _signed(slot0[66:130])
 
-        span = 1920  # ticks for +/-20% (log(1.2)/log(1.0001) ~ 1823) plus air
+        span = 5100  # ticks: a -20% average-rate band ends near -39% price
         lo_pos = (tick - span) // SPACING
         hi_pos = (tick + span) // SPACING
         words = sorted({p >> 8 for p in range(lo_pos - 1, hi_pos + 2)})
-        results = await _batch(client, endpoint, [
+        results = await _batched(client, endpoint, [
             {"to": POOL, "data": "0x5339c296" + _pad_int(w)} for w in words])
         positions = set()
         for word, result in zip(words, results):
@@ -117,7 +181,7 @@ async def snapshot(endpoints):
         ticks = sorted(p for p in positions if lo_pos <= p <= hi_pos)
         net = {}
         if ticks:
-            results = await _batch(client, endpoint, [
+            results = await _batched(client, endpoint, [
                 {"to": POOL, "data": "0xf30dba93" + _pad_int(p * SPACING)}
                 for p in ticks])
             for pos, result in zip(ticks, results):
@@ -125,8 +189,6 @@ async def snapshot(endpoints):
                     net[pos] = _signed(result[66:130])  # liquidityNet
 
         price = (sqrt / Q96) ** 2 * 1e3  # USDT per WGNK
-        bands = {str(level): _integrate(net, tick // SPACING, active,
-                                        sqrt, sqrt * (1 + level / 100) ** .5,
-                                        sqrt * (1 - level / 100) ** .5, price)
+        bands = {str(level): _band(net, tick // SPACING, active, sqrt, price, level)
                  for level in LEVELS}
         return {"ts": int(time.time()), "price": price, "bands": bands}
