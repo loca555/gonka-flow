@@ -201,6 +201,13 @@ class MintIndexer:
         self.db.put("coingecko:wgnk",{"circulating_raw":str(raw),"ts":int(time.time())})
         return 3600
 
+    async def depth_ticks(self):
+        """Exact depth via tick liquidity; see app.depth."""
+        from . import depth
+        snap = await depth.snapshot(self.cfg.ethereum)
+        self.db.put("depth:live", snap)
+        return 300
+
     async def auto_snapshot(self):
         """Rolling crash-recovery snapshot; see app.snapshots."""
         from . import snapshots
@@ -288,6 +295,7 @@ class MintIndexer:
         self.tasks=[asyncio.create_task(self.loop("coingecko:status",self.coingecko,60),name="coingecko_circulating"),
                     asyncio.create_task(self.loop("network_weight:status",self.network_weight,60),name="gonka_network_weight"),
                     asyncio.create_task(self.loop("snapshot:status",self.auto_snapshot,120),name="gonka_auto_snapshot"),
+                    asyncio.create_task(self.loop("depth:status",self.depth_ticks,60),name="eth_depth_ticks"),
                     asyncio.create_task(self.loop("holder_history:status",self.holder_history.run,10),name="gonka_holder_history"),
                     asyncio.create_task(self.loop("public_holders:GNK:status",self.holders.run,60),name="gonka_holder_census"),
                     asyncio.create_task(self.loop("mints:status",self.live,12),name="wgnk_mints_live"),

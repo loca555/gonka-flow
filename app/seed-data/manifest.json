@@ -1,8 +1,8 @@
 {
   "gonka_holders": 560,
   "gonka_holders_height": 6238720,
-  "gonka_history_targets": 4750,
-  "gonka_history_blocks": 169485,
+  "gonka_history_targets": 4766,
+  "gonka_history_blocks": 170144,
   "gonka_history_events": 62828,
   "powder_transfers": 3598,
   "powder_done": 190,
@@ -10,16 +10,16 @@
   "powder_snapshots": 7,
   "format": 1,
   "network": "ethereum",
-  "height": 26053627,
-  "ts": 1790329175,
+  "height": 26053722,
+  "ts": 1790330327,
   "events": 16020,
   "mints": 1009,
   "gonka_links": 1009,
   "gonka_burn_links": 629,
-  "gonka_incoming": 9829,
+  "gonka_incoming": 9839,
   "gonka_balances": 163,
   "gonka_scope": "Verified bridge provenance plus public holder transfer graph; targeted history is not chain-complete proof",
-  "sha256": "7ccd3484d589998825f4810388c1788a8a4c09b6ae6350409276601ae1316f13",
-  "unpacked_bytes": 113881088,
-  "archive_bytes": 16228449
+  "sha256": "190fd46535fa4af59ae253f4c5b447154c679b77331ef2350837d56e69310061",
+  "unpacked_bytes": 113897472,
+  "archive_bytes": 16227574
 }
