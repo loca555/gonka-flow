@@ -31,26 +31,36 @@ def _signed(word):
     return int.from_bytes(bytes.fromhex(word), "big", signed=True)
 
 
-async def _batch(client, endpoint, calls):
-    """One JSON-RPC batch; returns results in order (None on per-item error)."""
-    payload = [{"jsonrpc": "2.0", "id": i, "method": "eth_call",
-                "params": [call, "latest"]} for i, call in enumerate(calls)]
-    response = await client.post(endpoint, json=payload,
-                                 headers={"Content-Type": "application/json"})
-    response.raise_for_status()
-    data = response.json()
-    if not isinstance(data, list):
-        raise ValueError("RPC batch rejected")
-    out = [None] * len(calls)
-    for item in data:
-        out[item["id"]] = item.get("result")
-    return out
+async def _batched(client, endpoints, calls):
+    """Chunked JSON-RPC batch; every chunk tries the endpoints in order.
 
-
-async def _batched(client, endpoint, calls):
+    Public providers cap batch sizes (blockpi: 5), so a rejected chunk
+    falls through to the next endpoint instead of failing the worker.
+    """
     results = []
     for start in range(0, len(calls), BATCH):
-        results.extend(await _batch(client, endpoint, calls[start:start + BATCH]))
+        chunk = calls[start:start + BATCH]
+        payload = [{"jsonrpc": "2.0", "id": i, "method": "eth_call",
+                    "params": [call, "latest"]} for i, call in enumerate(chunk)]
+        last = None
+        for endpoint in endpoints:
+            try:
+                response = await client.post(endpoint, json=payload,
+                                             headers={"Content-Type": "application/json"})
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, list):
+                    raise ValueError("RPC batch rejected")
+                out = [None] * len(chunk)
+                for item in data:
+                    out[item["id"]] = item.get("result")
+                results.extend(out)
+                last = None
+                break
+            except Exception as error:
+                last = error
+        if last is not None:
+            raise last
     return results
 
 
@@ -160,8 +170,7 @@ def _band(net, pos_now, active, sqrt, price, level):
 async def snapshot(endpoints):
     """Per-level executable amounts at an average rate of +/- LEVELS percent."""
     async with httpx.AsyncClient(timeout=RPC_TIMEOUT) as client:
-        endpoint = endpoints[0]
-        slot0, liquidity = (await _batch(client, endpoint, [
+        slot0, liquidity = (await _batched(client, endpoints, [
             {"to": POOL, "data": "0x3850c7bd"},
             {"to": POOL, "data": "0x1a686502"}]))[:2]
         if not slot0 or not liquidity:
@@ -174,7 +183,7 @@ async def snapshot(endpoints):
         lo_pos = (tick - span) // SPACING
         hi_pos = (tick + span) // SPACING
         words = sorted({p >> 8 for p in range(lo_pos - 1, hi_pos + 2)})
-        results = await _batched(client, endpoint, [
+        results = await _batched(client, endpoints, [
             {"to": POOL, "data": "0x5339c296" + _pad_int(w)} for w in words])
         positions = set()
         for word, result in zip(words, results):
@@ -184,7 +193,7 @@ async def snapshot(endpoints):
         ticks = sorted(p for p in positions if lo_pos <= p <= hi_pos)
         net = {}
         if ticks:
-            results = await _batched(client, endpoint, [
+            results = await _batched(client, endpoints, [
                 {"to": POOL, "data": "0xf30dba93" + _pad_int(p * SPACING)}
                 for p in ticks])
             for pos, result in zip(ticks, results):

@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from app.depth import FEE, _amounts_down, _amounts_up, _solve_avg
@@ -6,6 +7,31 @@ Q96 = 2 ** 96
 L = 10 ** 13
 S = Q96  # tick 0: sqrt price equals the X96 scale
 PRICE = 1e3  # (S/Q96)^2 * 1e3: pool price at tick 0
+
+
+class EndpointRotationTests(unittest.TestCase):
+    def test_batch_falls_through_to_next_endpoint(self):
+        import asyncio
+        import httpx
+        from app.depth import _batched
+
+        def handler(request):
+            payload = json.loads(request.content)
+            if "blockpi" in str(request.url):
+                return httpx.Response(503, json={"jsonrpc": "2.0",
+                    "error": {"code": -32000, "message": "Max messages exceeded"}})
+            return httpx.Response(200, json=[
+                {"jsonrpc": "2.0", "id": item["id"], "result": "0x1"} for item in payload])
+
+        async def run():
+            transport = httpx.MockTransport(handler)
+            async with httpx.AsyncClient(transport=transport) as client:
+                out = await _batched(client,
+                    ["https://blockpi.example", "https://drpc.example"],
+                    [{"to": "0x" + "0" * 40, "data": "0x3850c7bd"}] * 12)
+                return out
+
+        self.assertEqual(asyncio.run(run()), ["0x1"] * 12)
 
 
 class DepthAverageRateTests(unittest.TestCase):
