@@ -19,7 +19,7 @@
   return !d?"—":n>0n&&n*100n<d?"< 1%":(n*100n/d).toString()+"%";
  };
  function mountHolders(){
-  ui("distribution-legend").insertAdjacentHTML("afterend",'<section id="outside-holders" class="outside-holders" aria-labelledby="outside-holders-title"><div class="holder-heading"><h3 id="outside-holders-title">Вне пулов · распределение баланса</h3><p id="outside-holders-total"></p></div><div id="outside-holders-content" hidden><div id="holder-distribution-bar" class="holder-distribution-bar" role="img"></div><div id="holder-group-cards" class="holder-group-cards"></div><p class="holder-method">Категория по объёму WGNK за всю историю: покупки / (покупки + продажи), аналогично для продаж. Только подтверждённые сделки двух пулов; переводы и мост не являются сделками. Ровно 90/10 — трейдеры. Условные категории адресов, не установленные личности. Доля — от текущего баланса вне пулов, не от торгового оборота.</p></div></section>');
+  ui("distribution-legend").insertAdjacentHTML("afterend",'<section id="outside-holders" class="outside-holders" aria-labelledby="outside-holders-title"><div class="holder-heading"><h3 id="outside-holders-title">Вне пулов · распределение баланса</h3><p id="outside-holders-total"></p></div><div id="outside-holders-content" hidden><div id="holder-distribution-bar" class="holder-distribution-bar" role="img"></div><div id="holder-group-cards" class="holder-group-cards"></div><div id="holder-history-grid" class="holder-history-grid" hidden></div><p class="holder-method">Категория по объёму WGNK за всю историю: покупки / (покупки + продажи), аналогично для продаж. Только подтверждённые сделки двух пулов; переводы и мост не являются сделками. Ровно 90/10 — трейдеры. Условные категории адресов, не установленные личности. Доля — от текущего баланса вне пулов, не от торгового оборота.</p></div></section>');
   document.body.insertAdjacentHTML("beforeend",'<dialog id="holder-dialog" aria-labelledby="holder-dialog-title"><div class="dialog-heading"><div><span class="eyebrow">WGNK / ВНЕ ПУЛОВ</span><h2 id="holder-dialog-title"></h2></div><button id="holder-close" aria-label="Закрыть список адресов" autofocus>✕</button></div><p id="holder-dialog-summary" class="holder-dialog-summary"></p><p id="holder-dialog-rule" class="flow-explanation"></p><div class="table-container holder-address-table" tabindex="0" aria-label="Все адреса категории, прокручиваемый список"><table id="holder-table"><thead><tr><th data-sort="address" data-default="asc">Адрес Ethereum</th><th data-sort="balance" class="numeric">Баланс WGNK</th><th data-sort="share" class="numeric">Доля группы</th><th data-sort="bought" class="numeric">Куплено WGNK</th><th data-sort="sold" class="numeric">Продано WGNK</th><th data-sort="buyshare" class="numeric">Доля покупок</th></tr></thead><tbody id="holder-rows"></tbody></table></div><p id="holder-dialog-note" class="flow-explanation"></p></dialog>');
   const dialog=ui("holder-dialog");closeOnBackdrop(dialog);
   ui("holder-close").addEventListener("click",()=>dialog.close());
@@ -68,6 +68,43 @@
   ui("holder-distribution-bar").setAttribute("aria-label",info.groups.map(g=>holderKinds[g.id].label+": "+share(g.balance_raw,info.total_raw)).join(", "));
   setLiveHTML(ui("holder-distribution-bar"),info.groups.map(g=>'<span class="holder-'+g.id+'" style="width:'+(total?Number(BigInt(g.balance_raw)*100000n/total)/1000:0)+'%" title="'+esc(holderKinds[g.id].label+": "+fmt(g.balance)+" WGNK")+'"></span>').join(""));
   setLiveHTML(ui("holder-group-cards"),info.groups.map(g=>'<button type="button" class="holder-group holder-'+g.id+'" data-holder-group="'+g.id+'" data-balance-raw="'+g.balance_raw+'" aria-haspopup="dialog" aria-controls="holder-dialog"><span class="holder-group-name"><i></i>'+holderKinds[g.id].label+'<span aria-hidden="true">↗</span></span><strong>'+esc(fmt(g.balance))+' <small>WGNK</small></strong><span class="holder-group-share">'+esc(share(g.balance_raw,info.total_raw))+' <small>от WGNK вне пулов</small></span><small class="holder-group-rule">'+esc(holderKinds[g.id].rule)+'</small><span class="holder-group-count">Адресов: '+count(g.addresses)+' <span>Открыть список →</span></span></button>').join(""));
+  renderHolderHistory(data.holder_history,info);
+ }
+ // Daily balance sparkline under each holder-category card; the server
+ // replays the whole verified ledger day by day (point-in-time category).
+ function renderHolderHistory(history,info){
+  const grid=ui("holder-history-grid");if(!grid)return;
+  const ok=history&&history.ready&&Array.isArray(history.points)&&history.points.length>1&&info&&info.ready;
+  grid.hidden=!ok;if(!ok)return;
+  grid.innerHTML=info.groups.map(g=>'<div class="holder-history-cell holder-'+g.id+'" data-holder-spark="'+g.id+'"><svg role="img" aria-label="История баланса: '+esc(holderKinds[g.id].label)+'"></svg><div class="holder-spark-tip" hidden></div></div>').join("");
+  grid.querySelectorAll("[data-holder-spark]").forEach(cell=>{
+   const id=cell.dataset.holderSpark,svg=cell.querySelector("svg"),tip=cell.querySelector(".holder-spark-tip");
+   const pts=history.points.map(p=>({date:p.date,raw:p[id+"_raw"],total:p.total_raw,
+    v:Number(BigInt(p[id+"_raw"])/10n**6n)/1e3,n:(p.addresses||{})[id]||0}));
+   const W=Math.max(140,Math.round(cell.clientWidth)||280),H=100,pad=5;
+   svg.setAttribute("viewBox","0 0 "+W+" "+H);
+   const vmax=Math.max.apply(null,pts.map(p=>p.v).concat([1]));
+   const x=i=>pts.length===1?W/2:pad+i*(W-2*pad)/(pts.length-1);
+   const y=v=>H-4-(v/vmax)*(H-18);
+   const line="M"+pts.map((p,i)=>x(i).toFixed(1)+","+y(p.v).toFixed(1)).join("L");
+   svg.innerHTML='<line class="spark-zero" x1="0" x2="'+W+'" y1="'+y(0).toFixed(1)+'" y2="'+y(0).toFixed(1)+'"/>'+
+    '<path class="spark-area" d="'+line+'L'+x(pts.length-1).toFixed(1)+','+y(0).toFixed(1)+'L'+pad+','+y(0).toFixed(1)+'Z"/>'+
+    '<path class="spark-line" d="'+line+'"/>'+
+    '<circle class="spark-dot" cx="'+x(pts.length-1).toFixed(1)+'" cy="'+y(pts[pts.length-1].v).toFixed(1)+'" r="2.5"/>'+
+    '<text class="spark-max" x="7" y="12">'+esc(compact(vmax))+' WGNK</text>';
+   const move=event=>{
+    const box=svg.getBoundingClientRect(),px=(event.clientX-box.left)*W/box.width;
+    const i=Math.max(0,Math.min(pts.length-1,Math.round((px-pad)*(pts.length-1)/(W-2*pad))));
+    const p=pts[i];
+    tip.innerHTML='<b>'+esc(p.date.split("-").reverse().join("."))+'</b> · '+esc(fmt(p.v))+' WGNK · '+esc(share(p.raw,p.total))+' вне пулов · адресов: '+count(p.n);
+    tip.hidden=false;
+    tip.style.left=Math.max(4,Math.min(cell.clientWidth-tip.offsetWidth-4,x(i)*cell.clientWidth/W-tip.offsetWidth/2))+"px";
+    tip.style.top="6px";
+   };
+   svg.addEventListener("pointermove",move);
+   svg.addEventListener("pointerdown",move);
+   svg.addEventListener("pointerleave",()=>{tip.hidden=true;});
+  });
  }
  function mount(){
   ui("flow-content").innerHTML=
@@ -171,14 +208,23 @@
   value.textContent=trade?headerPrice(trade.price):"—";  value.textContent=trade?headerPrice(trade.price):"—";
   const mcapBox=ui("header-mcap");
   if(mcapBox){
-   const p=trade?Number(trade.price):null;
-   const compact=v=>v>=1e9?"$"+(v/1e9).toLocaleString("ru-RU",{maximumFractionDigits:2})+" млрд"
-    :v>=1e6?"$"+(v/1e6).toLocaleString("ru-RU",{maximumFractionDigits:1})+" млн"
-    :v>=1e3?"$"+(v/1e3).toLocaleString("ru-RU",{maximumFractionDigits:0})+" тыс"
-    :"$"+v.toLocaleString("ru-RU",{maximumFractionDigits:0});
-   const cap=raw=>!raw||!p?null:compact(Number(BigInt(raw)/10n**9n)*p);
-   const mcap=cap(data?.gnk_circulating_raw),fdv=cap(data?.gnk_supply_raw);
-   mcapBox.textContent=[mcap?"MCAP "+mcap:null,fdv?"FDV "+fdv:null].filter(Boolean).join(" · ");
+   const parts=/^(\d+)(?:\.(\d+))?$/.exec(String(trade?.price));
+   const cap=raw=>{
+    if(!parts||!/^\d+$/.test(String(raw)))return null;
+    const fraction=parts[2]||"",numerator=BigInt(raw)*BigInt(parts[1]+fraction);
+    const denominator=10n**BigInt(9+fraction.length);
+    const unit=numerator>=denominator*1000000000n?1000000000n:numerator>=denominator*1000000n?1000000n:numerator>=denominator*1000n?1000n:1n;
+    const digits=unit===1000000000n?2:unit===1000000n?1:0,scale=10n**BigInt(digits);
+    const rounded=(numerator*scale+denominator*unit/2n)/(denominator*unit);
+    const tail=(rounded%scale).toString().padStart(digits,"0").replace(/0+$/,"");
+    return "$"+(rounded/scale).toLocaleString("ru-RU")+(tail?","+tail:"")+(unit===1000000000n?" млрд":unit===1000000n?" млн":unit===1000n?" тыс":"");
+   };
+   const mcap=cap(data?.gnk_circulating_raw),fdv=cap("1000000000000000000");
+   mcapBox.textContent="MCAP "+(mcap||"—")+" · FDV "+(fdv||"—");
+   mcapBox.title="MCAP = (Bank supply − заблокированный вестинг аккаунтов − streamvesting) × цена WGNK/USDT. Прочие резервы и залоги не вычитаются. FDV = 1 млрд GNK × та же цена."; if(data?.gnk_liquid_supply) mcapBox.title+=" Блок #"+data.gnk_liquid_supply.height+" · проверено "+new Date(data.gnk_liquid_supply.checked_at*1000).toLocaleString("ru-RU")+(Date.now()/1000-data.gnk_liquid_supply.checked_at>1200?" · данные устарели":"");
+   if(data?.gnk_liquid_supply?.catalog_checked_at) mcapBox.title+=" Список vesting-аккаунтов: блок #"+data.gnk_liquid_supply.catalog_height+", сверка "+new Date(data.gnk_liquid_supply.catalog_checked_at*1000).toLocaleString("ru-RU")+". Новые аккаунты учитываются после полной сверки (раз в сутки); MCAP — оценка по известным блокировкам.";
+   if(!data?.gnk_liquid_supply && data?.gnk_liquid_supply_progress) mcapBox.title+=" Первичная сверка: проверено "+data.gnk_liquid_supply_progress.accounts_scanned.toLocaleString("ru-RU")+" аккаунтов.";
+
   }
   document.title=value.textContent==="—"?defaultTitle:value.textContent+" · WGNK — Gonka Flow";
   value.setAttribute("aria-label","Цена за 1 WGNK, USDT: "+value.textContent);
@@ -347,9 +393,10 @@
   if(flow.data?.ready)renderLiquidityChart(flow.data);
  }));
  syncLiquidityControls();
- window.addEventListener("resize",()=>{if(flow.data?.ready)renderChart(flow.data);});
+ window.addEventListener("resize",()=>{if(flow.data?.ready){renderChart(flow.data);renderHolders(flow.data);}});
  window.addEventListener("gonka:view",()=>{if(flow.data?.ready)renderChart(flow.data);});
  // Keep the tab quote current in the background, with fewer requests while hidden.
  setInterval(()=>{if(!flow.loading&&(!document.hidden||Date.now()-lastMarketRefresh>=30000))refresh(false,true);},10000);
  document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh(false,true);});
 })();
+

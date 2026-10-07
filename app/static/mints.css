@@ -156,3 +156,14 @@
 .band-key{font-size:11px;color:var(--muted,#526477)}
 .band-key.wgnk::before{content:"";display:inline-block;width:14px;height:0;border-top:2px dashed var(--up,#167f73);margin-right:4px;vertical-align:middle}
 .band-key.usdt::before{content:"";display:inline-block;width:14px;height:0;border-top:2px dotted var(--warn,#c28632);margin-right:4px;vertical-align:middle}
+/* Daily balance sparklines under holder-category cards */
+.holder-history-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px}
+.holder-history-cell{position:relative;border:1px solid var(--line);border-radius:9px;background:var(--bg);padding:8px 6px 6px;min-width:0}
+.holder-history-cell svg{display:block;width:100%;height:96px;touch-action:none;cursor:crosshair}
+.spark-line{fill:none;stroke:var(--holder-color);stroke-width:1.8;stroke-linejoin:round}
+.spark-area{fill:var(--holder-color);opacity:.12}
+.spark-zero{stroke:var(--line);stroke-width:1}
+.spark-dot{fill:var(--holder-color)}
+.spark-max{font-size:9px;fill:var(--muted)}
+.holder-spark-tip{position:absolute;z-index:6;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:11px;line-height:1.55;box-shadow:0 6px 18px rgba(0,0,0,.18);white-space:nowrap}
+@media (max-width:980px){.holder-history-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
