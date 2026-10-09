@@ -167,3 +167,5 @@
 .spark-max{font-size:9px;fill:var(--muted)}
 .holder-spark-tip{position:absolute;z-index:6;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:11px;line-height:1.55;box-shadow:0 6px 18px rgba(0,0,0,.18);white-space:nowrap}
 @media (max-width:980px){.holder-history-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Price overlay on the liquidity chart */
+.liq-price-band span,.liq-price-band b{color:var(--market-price,#4db8ff)}
