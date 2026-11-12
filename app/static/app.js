@@ -4,8 +4,8 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;",
 const nf = (n,d=2) => n===null || n===undefined ? "—" : Number(n).toLocaleString("en-US",{maximumFractionDigits:d});
 const compact = n => Number(n)>=1e6 ? nf(Number(n)/1e6,2)+" M" : Number(n)>=1e3 ? nf(Number(n)/1e3,1)+" K" : nf(n,2);
 const short = a => !a ? "—" : a.length>23 ? a.slice(0,a.startsWith("gonka")?11:8)+"…"+a.slice(-6) : a;
-const clock = ts => ts ? new Date(ts*1000).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—";
-const date = ts => ts ? new Date(ts*1000).toLocaleString("en-US",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
+const clock = ts => ts ? new Date(ts*1000).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—";
+const date = ts => ts ? new Date(ts*1000).toLocaleString("en-GB",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
 const utc = ts => new Date(ts*1000).toISOString().slice(11,16);
 const kinds = {buy:"Buy",sell:"Sell",transfer:"Transfer",bridge_lock:"GNK → bridge",bridge_mint:"WGNK mint",bridge_burn:"WGNK burn",bridge_release:"GNK release",reward_paid:"Reward payout",reward_vested:"Reward to vesting",vesting_unlock:"Unlock",vesting_credit:"Vesting credit",vesting_funding:"Vesting reserve",module_transfer:"System transfer",collateral_deposit:"To collateral",collateral_release:"Collateral release",fee:"Fee",escrow_deposit:"Transfer to escrow",liquidity_add:"LP add",liquidity_remove:"LP remove"};
 const titles = {
@@ -66,7 +66,7 @@ function periodParams(value=state.hours){
 }
 function archiveDate(o=state.overview,full=false){
  const ts=o?.history_request?.since;
- return ts?new Date(ts*1000).toLocaleDateString("en-US",{timeZone:"Europe/Moscow",day:"2-digit",month:"2-digit",...(full?{year:"numeric"}:{})}):"—";
+ return ts?new Date(ts*1000).toLocaleDateString("en-GB",{timeZone:"Europe/Moscow",day:"2-digit",month:"2-digit",...(full?{year:"numeric"}:{})}):"—";
 }
 function periodLabel(){return state.hours==="archive"?"since "+archiveDate(undefined,true):"for "+(state.hours===168?"7 days":state.hours+" h");}
 function renderArchive(o){
@@ -78,7 +78,7 @@ function renderArchive(o){
  txt("archive-period","From "+archiveDate(o));txt("profile-archive-option","From "+archiveDate(o,true)+" · MSK");
  $("archive-period").title="From "+request.iso+"; loaded part of history only";
  txt("history-heading","Archive from "+archiveDate(o,true));
- txt("history-cutoff",new Date(request.since*1000).toLocaleTimeString("en-US",{timeZone:"Europe/Moscow",hour:"2-digit",minute:"2-digit"})+" MSK · up to the final network blocks");
+ txt("history-cutoff",new Date(request.since*1000).toLocaleTimeString("en-GB",{timeZone:"Europe/Moscow",hour:"2-digit",minute:"2-digit"})+" MSK · up to the final network blocks");
  $("history-chains").innerHTML=["gonka","ethereum"].map(c=>{
   const a=o.archive[c],ready=a.boundary_verified,complete=a.complete;
   const percent=a.total_blocks?Math.min(complete?100:99.99,Math.floor(a.covered_blocks/a.total_blocks*10000)/100):0;

@@ -96,7 +96,7 @@
     const box=svg.getBoundingClientRect(),px=(event.clientX-box.left)*W/box.width;
     const i=Math.max(0,Math.min(pts.length-1,Math.round((px-pad)*(pts.length-1)/(W-2*pad))));
     const p=pts[i];
-    tip.innerHTML='<b>'+esc(p.date.slice(5,7)+"/"+p.date.slice(8)+"/"+p.date.slice(0,4))+'</b> · '+esc(fmt(p.v))+' WGNK · '+esc(share(p.raw,p.total))+' outside pools · addresses: '+count(p.n);
+    tip.innerHTML='<b>'+esc(p.date.split("-").reverse().join("/"))+'</b> · '+esc(fmt(p.v))+' WGNK · '+esc(share(p.raw,p.total))+' outside pools · addresses: '+count(p.n);
     tip.hidden=false;
     tip.style.left=Math.max(4,Math.min(cell.clientWidth-tip.offsetWidth-4,x(i)*cell.clientWidth/W-tip.offsetWidth/2))+"px";
     tip.style.top="6px";
@@ -221,8 +221,8 @@
    };
    const mcap=cap(data?.gnk_circulating_raw),fdv=cap("1000000000000000000");
    mcapBox.textContent="MCAP "+(mcap||"—")+" · FDV "+(fdv||"—");
-   mcapBox.title="MCAP = (Bank supply − locked account vesting − streamvesting) × WGNK/USDT price. Other reserves and collateral are not subtracted. FDV = 1 billion GNK × the same price."; if(data?.gnk_liquid_supply) mcapBox.title+=" Block #"+data.gnk_liquid_supply.height+" · checked "+new Date(data.gnk_liquid_supply.checked_at*1000).toLocaleString("en-US")+(Date.now()/1000-data.gnk_liquid_supply.checked_at>1200?" · data is stale":"");
-   if(data?.gnk_liquid_supply?.catalog_checked_at) mcapBox.title+=" Vesting account list: block #"+data.gnk_liquid_supply.catalog_height+", reconciled "+new Date(data.gnk_liquid_supply.catalog_checked_at*1000).toLocaleString("en-US")+". New accounts are counted after a full reconciliation (once a day); MCAP is an estimate based on known locks.";
+   mcapBox.title="MCAP = (Bank supply − locked account vesting − streamvesting) × WGNK/USDT price. Other reserves and collateral are not subtracted. FDV = 1 billion GNK × the same price."; if(data?.gnk_liquid_supply) mcapBox.title+=" Block #"+data.gnk_liquid_supply.height+" · checked "+new Date(data.gnk_liquid_supply.checked_at*1000).toLocaleString("en-GB")+(Date.now()/1000-data.gnk_liquid_supply.checked_at>1200?" · data is stale":"");
+   if(data?.gnk_liquid_supply?.catalog_checked_at) mcapBox.title+=" Vesting account list: block #"+data.gnk_liquid_supply.catalog_height+", reconciled "+new Date(data.gnk_liquid_supply.catalog_checked_at*1000).toLocaleString("en-GB")+". New accounts are counted after a full reconciliation (once a day); MCAP is an estimate based on known locks.";
    if(!data?.gnk_liquid_supply && data?.gnk_liquid_supply_progress) mcapBox.title+=" Initial reconciliation: checked "+data.gnk_liquid_supply_progress.accounts_scanned.toLocaleString("en-US")+" accounts.";
 
   }

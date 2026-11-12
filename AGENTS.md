@@ -13,7 +13,7 @@
 
 ## Known failure of the built-in Windows browser
 
-- On this computer the Node REPL of the built-in browser crashes regularly: `windows sandbox failed: helper_unknown_error: apply deny-read ACLs` / `node_repl kernel exited unexpectedly` (confirmed on September 7, 2026; keep this context for future tasks).
+- On this computer the Node REPL of the built-in browser crashes regularly: `windows sandbox failed: helper_unknown_error: apply deny-read ACLs` / `node_repl kernel exited unexpectedly` (confirmed on 7 September 2026; keep this context for future tasks).
 - Follow the mandatory browser skill procedure, but after one attempt with the same error do not repeat the launch and diagnostics in a loop. For the local UI use the permitted fallback: a separate headless Chrome via Playwright with a clean profile, without real wallets or user data.
 - Do not weaken the sandbox/ACL and do not bypass the restrictions on controlling the built-in tab. Do not present a separate test browser as a check of the user extension.
 
@@ -28,7 +28,7 @@
 - Make and verify all new changes locally first, then show the user the local result.
 - Publish new changes to Render only after a separate explicit request from the user. A previous deploy does not mean permission to publish subsequent changes automatically.
 
-## Operating mode since October 4, 2026
+## Operating mode since 4 October 2026
 - Local development and running only. Do not publish to Render anymore.
 - Update the main Docker container gonka-flow at http://127.0.0.1:8017, keeping the gonka-flow-data volume.
 

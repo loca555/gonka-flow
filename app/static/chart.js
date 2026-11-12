@@ -25,7 +25,7 @@ window.GonkaChart=(()=>{
   const step=(n+3n)/4n,power=10n**BigInt(step.toString().length-1);
   return [1n,2n,5n,10n].find(x=>x*power>=step)*power*4n;
  }
- const label=d=>d.slice(5,7)+"/"+d.slice(8);
+ const label=d=>d.slice(8)+"/"+d.slice(5,7);
  const fullDate=d=>label(d)+"/"+d.slice(0,4);
  function render(host,options){
   const {points=[],unit="WGNK",decimals=9,type="line",complete=false,title="Volume by day",countLabel="Events",legend=null}=options;
@@ -428,7 +428,7 @@ window.GonkaChart=(()=>{
    cursor.setAttribute('visibility','visible');
    const line=cursor.querySelector('line');line.setAttribute('x1',px);line.setAttribute('x2',px);
    const dot=cursor.querySelector('circle');dot.setAttribute('cx',px);dot.setAttribute('cy',y(row.balance,balanceHigh));
-   const time=new Date(Number(host.dataset.snapshotTs||history.ts)*1000).toLocaleTimeString('en-US',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
+   const time=new Date(Number(host.dataset.snapshotTs||history.ts)*1000).toLocaleTimeString('en-GB',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
    tooltip.innerHTML='<span>'+fullDate(row.date)+(onSnapshot?' · until '+escape(time):'')+'</span><strong class="balance-value">'+escape(exact(row.balance,9))+' <small>WGNK</small></strong><span>Balance '+(onSnapshot?'at snapshot':'at end of day')+'</span><div class="address-tooltip-sides">'+['buy','sell'].map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(row[kind],9))+' WGNK</b><small>'+(kind==='buy'?row.buys_count:row.sales_count).toLocaleString('en-US')+' exec.</small><small class="address-day-price">Average price: <b>'+escape(formatPrice(row[kind]>0n&&row[kind==='buy'?'buy_quote_raw':'sale_quote_raw']!=null?BigInt(row[kind==='buy'?'buy_quote_raw':'sale_quote_raw'])*10n**15n/row[kind]:null))+'</b> USDT</small></div>').join('')+'</div>';
    tooltip.dataset.date=row.date;tooltip.dataset.balanceRaw=row.balance.toString();tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';
@@ -475,7 +475,7 @@ window.GonkaChart=(()=>{
    selected=Math.max(0,Math.min(last,index));const row=rows[selected],px=x(selected),total=BigInt(row.total_raw);
    cursor.setAttribute('visibility','visible');const line=cursor.querySelector('line');line.setAttribute('x1',px);line.setAttribute('x2',px);
    keys.forEach(key=>{const dot=cursor.querySelector('[data-holder-kind="'+key+'"]');dot.setAttribute('cx',px);dot.setAttribute('cy',y(row.values[key]));});
-   const time=new Date(history.ts*1000).toLocaleTimeString('en-US',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
+   const time=new Date(history.ts*1000).toLocaleTimeString('en-GB',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
    tooltip.innerHTML='<span class="holder-history-date">'+fullDate(row.date)+(selected===last?' · until '+escape(time):' · end of day')+'</span><div class="holder-history-values">'+keys.map(key=>{
     const raw=row.values[key],percent=total?(raw>0n&&raw*100n<total?'< 1':(raw*100n/total).toString())+'%':'—';
     return '<div class="holder-'+key+'" data-holder-kind="'+key+'" data-balance-raw="'+raw+'"><span><i></i>'+escape(kinds[key].label)+'</span><b>'+escape(exact(raw,9))+'</b><small>'+escape(percent)+' · addresses: '+row.addresses[key].toLocaleString('en-US')+'</small></div>';

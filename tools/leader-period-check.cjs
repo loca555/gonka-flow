@@ -55,9 +55,9 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   assert(await calendar.evaluate(e=>!e.matches(':open')));
   await calendar.fill('');
   await apply('2026-09-01');await checkRows(september);
-  assert.equal(await page.locator('#leaders-period').innerText(),'From 09/01/2026');
+  assert.equal(await page.locator('#leaders-period').innerText(),'From 01/09/2026');
   assert.equal(await page.locator('#leaders-buy-table tbody tr').first().getAttribute('data-address'),september.buyers[0].address);
-  assert((await page.locator('#leaders-buy-price-summary').innerText()).includes('from 09/01/2026'));
+  assert((await page.locator('#leaders-buy-price-summary').innerText()).includes('from 01/09/2026'));
   assert(!(await page.locator('#leaders-buy-price-summary').innerText()).includes('all history'));
   await page.locator('#leaders-price-step').selectOption('10');
   await page.locator('#leaders-buy-chart svg').press('Home');
@@ -86,7 +86,7 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   await page.getByRole('button',{name:'Apply',exact:true}).click();await held;
   await apply('2026-09-01');unblock();await checkRows(september);
   await page.unroute('**/api/mints/leaders?start_date=2026-08-01');
-  assert.equal(await page.locator('#leaders-period').innerText(),'From 09/01/2026');
+  assert.equal(await page.locator('#leaders-period').innerText(),'From 01/09/2026');
   await apply('2099-01-01');
   assert.equal(await page.locator('#leaders-content').isVisible(),true);
   assert.equal(await page.locator('#leaders-buy-chart svg').count(),0);

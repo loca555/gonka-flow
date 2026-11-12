@@ -12,8 +12,8 @@ const GonkaSync=(()=>{
   const parts=[],snapshot=market?.snapshot,coverage=market?.coverage;
   if(snapshot?.ts){
    const stamp=new Date(snapshot.ts*1000),options={timeZone:market.timezone||"Asia/Nicosia"};
-   parts.push(stamp.toLocaleDateString("en-US",{...options,day:"2-digit",month:"2-digit",year:"numeric"})+" "+
-    stamp.toLocaleTimeString("en-US",{...options,hour:"2-digit",minute:"2-digit",second:"2-digit"}));
+   parts.push(stamp.toLocaleDateString("en-GB",{...options,day:"2-digit",month:"2-digit",year:"numeric"})+" "+
+    stamp.toLocaleTimeString("en-GB",{...options,hour:"2-digit",minute:"2-digit",second:"2-digit"}));
   }
   if(!mint?.coverage||!coverage)parts.push("fetching history status");
   else{

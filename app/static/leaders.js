@@ -5,7 +5,7 @@
  const dateInput=el('leaders-start-date'),dateStorageKey='gonka-leaders-start-date';
  try{dateInput.value=localStorage.getItem(dateStorageKey)||'';}catch{}
  ranking.startDate=dateInput.value;
- const periodLabel=value=>value?'From '+value.slice(5,7)+'/'+value.slice(8)+'/'+value.slice(0,4):'All history';
+ const periodLabel=value=>value?'From '+value.split('-').reverse().join('/'):'All history';
  function showPeriod(){
   el('leaders-period').textContent=periodLabel(ranking.startDate);
   el('leaders-period-reset').disabled=!ranking.startDate&&!dateInput.value;
@@ -48,7 +48,7 @@
   const link=(kind,value,label)=>'<a href="https://etherscan.io/'+kind+'/'+esc(value)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+' ↗</a>';
   let text='<summary>Bridge in tooltips · inflow and outflow for the days at level'+(excluded?' · excluded '+GonkaChart.exact(excluded,9)+' WGNK of initial liquidity':'')+'</summary>'+
    '<p>Bridge volume refers to the whole day and is the same on both charts. It is not buy or sell volume.</p>';
-  if(excluded)text+='<p>Initial liquidity was subtracted from the June 9, 2026 inflow: '+GonkaChart.exact(excluded,9)+' WGNK. Address '+link('address',adjustment.origin,short(adjustment.origin,6))+
+  if(excluded)text+='<p>Initial liquidity was subtracted from the 9 June 2026 inflow: '+GonkaChart.exact(excluded,9)+' WGNK. Address '+link('address',adjustment.origin,short(adjustment.origin,6))+
    ' sent funds through '+link('address',adjustment.relay,short(adjustment.relay,6))+' to '+link('address',adjustment.pool,'the pool')+'. Deposits: '+
    adjustment.deposits.map((d,i)=>link('tx',d.tx_hash,String(i+1))).join(' · ')+'. This is a metric adjustment; the original transfers are kept.</p>';
   if(unassigned.days)text+='<p>Days without ranked trades: '+count(unassigned.days)+'. Outside price ranges: inflow '+GonkaChart.exact(unassigned.in_raw,9)+' WGNK, outflow '+GonkaChart.exact(unassigned.out_raw,9)+' WGNK.</p>';

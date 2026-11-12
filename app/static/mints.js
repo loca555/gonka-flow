@@ -16,8 +16,8 @@ function price(value){
  return GonkaChart.formatPrice(raw);
 }
 const short=(v,n=8)=>v.slice(0,n)+"…"+v.slice(-6);
-const date=ts=>new Date(ts*1000).toLocaleDateString("en-US",{timeZone:"Asia/Nicosia",day:"2-digit",month:"2-digit",year:"numeric"});
-const clock=ts=>new Date(ts*1000).toLocaleTimeString("en-US",{timeZone:"Asia/Nicosia",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+const date=ts=>new Date(ts*1000).toLocaleDateString("en-GB",{timeZone:"Asia/Nicosia",day:"2-digit",month:"2-digit",year:"numeric"});
+const clock=ts=>new Date(ts*1000).toLocaleTimeString("en-GB",{timeZone:"Asia/Nicosia",hour:"2-digit",minute:"2-digit",second:"2-digit"});
 const txUrl=h=>"https://etherscan.io/tx/"+encodeURIComponent(h);
 const blockUrl=h=>"https://etherscan.io/block/"+encodeURIComponent(h);
 const state={minimum:10000,sort:"time_desc",offset:0,request:0,data:null,bridge:null};

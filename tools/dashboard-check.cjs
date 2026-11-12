@@ -83,8 +83,8 @@ const path=require("node:path");
   assert.equal(await page.evaluate(()=>price("12345678901234567890.123456").replace(/\s/g," ")),"12,345,678,901,234,567,890.123456");
   assert.match(await page.locator('#minter-table th[data-sort="price"]').innerText(),/Average price per 1 WGNK, USDT/);
   assert.equal(await page.evaluate(()=>GonkaChart.exact("1234567890001",6).replace(/\s/g," ")),"1,234,567");
-  assert.equal(await page.evaluate(()=>clock(Date.parse("2026-01-01T21:30:00Z")/1000).replace(/\s/g," ")),"11:30:00 PM");
-  assert.equal(await page.evaluate(()=>date(Date.parse("2026-07-01T21:30:00Z")/1000)),"07/02/2026");
+  assert.equal(await page.evaluate(()=>clock(Date.parse("2026-01-01T21:30:00Z")/1000)),"23:30:00");
+  assert.equal(await page.evaluate(()=>date(Date.parse("2026-07-01T21:30:00Z")/1000)),"02/07/2026");
   assert.equal(await page.locator("#minter-rows tr").count(),all.minters.length);
   for(const field of ["address","native","dates","minted","balance","sold","price","count"]){
    const th=page.locator('#minter-table th[data-sort="'+field+'"]');
