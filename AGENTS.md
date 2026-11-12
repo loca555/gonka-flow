@@ -1,6 +1,5 @@
 # Gonka Flow
 
-- The interface is in English; replies to the user are in Russian.
 - Do not ask for a seed/private key and do not add signing/sending without a separate request.
 - Do not replace RPC errors with zero balances or volumes.
 - Amounts are integer strings; do not use float for financial aggregates.
