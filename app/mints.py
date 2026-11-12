@@ -14,6 +14,7 @@ from .timezones import TIME_ZONE, local_day
 
 log = logging.getLogger("gonka-flow.mints")
 SCOPE = "wgnk_mints"
+LIVE_BATCH_SIZE = 500
 HEX32 = re.compile(r"0x[0-9a-fA-F]{64}")
 ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}")
 FIELDS = "tx_hash log_index height block_hash ts recipient amount_raw request_id epoch_id finalized source".split()
@@ -155,6 +156,8 @@ def progress(db):
 
 
 def gap(db, lo, hi):
+    if lo > hi:
+        return None
     for row in db.conn.execute("SELECT lo,hi FROM ranges WHERE chain=? AND hi>=? ORDER BY lo",(SCOPE,lo)):
         if row["lo"]>lo:
             return lo,min(hi,row["lo"]-1)
@@ -212,14 +215,28 @@ class MintIndexer:
         """Historical tick liquidity from Mint/Burn events; see app.lp_history."""
         from . import lp_history
         await lp_history.sync(self.cfg, self.db)
-        lp_history.rebuild_if_stale(self.db)
+        # Tick replay can take seconds on a shared free CPU. Keep health checks
+        # responsive and never share the writer's connection with a worker.
+        if getattr(self, 'read_api', None) is not None:
+            result = await self.read_api.run(lp_history.prepare_if_stale, as_response=False)
+        else:
+            from .read_api import read_view
+            def prepare():
+                with read_view(self.db) as reader:
+                    return lp_history.prepare_if_stale(reader)
+            result = await asyncio.to_thread(prepare)
+        if result is not None and tuple(result['fingerprint']) == lp_history.fingerprint(self.db):
+            self.db.put('flow:depth_history', result)
         return 300
 
     async def auto_snapshot(self):
         """Rolling crash-recovery snapshot; see app.snapshots."""
         from . import snapshots
         if not self.cfg.snapshot_token:
+            self.db.put("snapshot:configuration", {"enabled":False,
+                "repository":self.cfg.snapshot_repo,"reason":"backup_writer_not_configured"})
             return 3600
+        self.db.put("snapshot:configuration", {"enabled":True,"repository":self.cfg.snapshot_repo})
         last = self.db.get("snapshot:last") or {}
         if time.time() - last.get("ts", 0) < self.cfg.snapshot_hours * 3600:
             return 300
@@ -299,7 +316,10 @@ class MintIndexer:
                 await asyncio.sleep(delay)
 
     def start(self):
-        self.tasks=[asyncio.create_task(self.loop("coingecko:status",self.coingecko,60),name="coingecko_circulating"),
+        from .liquid_supply import LiquidSupply
+        self.liquid_supply=LiquidSupply(self)
+        self.tasks=[asyncio.create_task(self.loop("liquid_supply:status",self.liquid_supply.run,600),name="gnk_liquid_supply"),
+                    asyncio.create_task(self.loop("coingecko:status",self.coingecko,60),name="coingecko_circulating"),
                     asyncio.create_task(self.loop("network_weight:status",self.network_weight,60),name="gonka_network_weight"),
                     asyncio.create_task(self.loop("snapshot:status",self.auto_snapshot,120),name="gonka_auto_snapshot"),
                     asyncio.create_task(self.loop("depth:status",self.depth_ticks,60),name="eth_depth_ticks"),
@@ -408,10 +428,15 @@ class MintIndexer:
         if not self.ready.is_set(): await self.setup(head)
         self.status("mints:status",finalized_height=head,latest_height=tip,
                     latest_ts=int(latest["timestamp"],16),provider=self.net.current.get("ethereum"))
-        start=self.db.get("mints:next")
+        start=max(self.db.get("mints:next"),head-LIVE_BATCH_SIZE+1)
         if start<=head:
-            end=min(head,start+499)
-            await self.batch(start,end,next_height=end+1,archive=head-start>500)
+            hole=gap(self.db,start,head)
+            if hole is None:
+                end=head
+                self.db.put("mints:next",end+1)
+            else:
+                lo,end=hole
+                await self.batch(lo,end,next_height=end+1)
             self.status("mints:status",indexed_height=end)
         if tip-head>400:
             raise ValueError("Ethereum finality lag exceeds 400 blocks; provisional feed paused")
@@ -423,7 +448,9 @@ class MintIndexer:
         await self.ready.wait()
         head=self.db.get("mints:status",{}).get("finalized_height")
         if head is None: return 2
-        hole=gap(self.db,self.db.get("mints:deployment")["height"],head)
+        # Older gaps belong to this worker even after restoring a stale cursor.
+        end=min(head,max(self.db.get("mints:next")-1,head-LIVE_BATCH_SIZE))
+        hole=gap(self.db,self.db.get("mints:deployment")["height"],end)
         if not hole: return 30
         lo,end=hole
         hi=min(end,lo+self.cfg.eth_history_batch-1)

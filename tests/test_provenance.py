@@ -232,12 +232,19 @@ class ProvenanceTests(unittest.TestCase):
                 self.assertEqual(result['verified'],manifest['gonka_links'])
                 self.assertGreater(result['verified'],0)
                 total=0
-                for source in result['sources']:
-                    data=client.get('/api/mints/gonka/'+source['address']).json()
-                    total+=data['total']
-                    self.assertFalse(data['full_chain_verified'])
-                    self.assertEqual(data['amount_raw'],str(sum(int(e['amount_raw']) for e in data['items'])))
-                    self.assertEqual(data['history']['next_check'],0)
+                # The growing public seed may contain more than 180 sources.
+                # Preserve the production rate limit and test every HTTP route
+                # in separate application lifespans with a bounded request batch.
+                for start in range(0,len(result['sources']),cfg.api_heavy_per_minute):
+                    with TestClient(create_app(cfg)) as reader:
+                        for source in result['sources'][start:start+cfg.api_heavy_per_minute]:
+                            response=reader.get('/api/mints/gonka/'+source['address'])
+                            self.assertEqual(response.status_code,200)
+                            data=response.json()
+                            total+=data['total']
+                            self.assertFalse(data['full_chain_verified'])
+                            self.assertEqual(data['amount_raw'],str(sum(int(e['amount_raw']) for e in data['items'])))
+                            self.assertEqual(data['history']['next_check'],0)
                 self.assertEqual(total,manifest['gonka_incoming'])
                 self.assertEqual(db.conn.execute('SELECT COUNT(*) FROM gonka_address_balances').fetchone()[0],manifest.get('gonka_balances',0))
                 self.assertEqual(db.conn.execute("SELECT COUNT(*) FROM events WHERE chain!='ethereum'").fetchone()[0],0)

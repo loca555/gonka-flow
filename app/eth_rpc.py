@@ -41,9 +41,11 @@ def rpc_result(response):
     detail = f"HTTP {status}" + (f", RPC {code}" if isinstance(code, int) else "")
     wait = retry_after(response.headers.get("Retry-After"))
     # Authorization and rate limits must not trigger exponential subdivision of getLogs.
-    if status in (401, 403) or any(s in message for s in ("personal token", "api key required", "unauthorized")):
+    if status == 429:
+        category, reason = "rate_limit", "лимит RPC; ожидаем разрешённый повтор"
+    elif status in (401, 403) or any(s in message for s in ("personal token", "api key required", "unauthorized")):
         category, reason = "access", "доступ к RPC/архиву ограничен; нужен разрешённый endpoint"
-    elif status == 429 or any(s in message for s in ("rate limit", "rate exceeded", "too many requests", "quota exceeded", "daily limit")):
+    elif any(s in message for s in ("rate limit", "rate exceeded", "too many requests", "quota exceeded", "daily limit")):
         category, reason = "rate_limit", "лимит RPC; ожидаем разрешённый повтор"
     elif code == -32601 or "method not found" in message or "method is not supported" in message:
         category, reason = "unsupported", "RPC не поддерживает этот метод"
@@ -52,7 +54,9 @@ def rpc_result(response):
                                    "block range is too", "exceeds max", "exceed the maximum block",
                                    "please limit the query", "range should be less")):
         category, reason = "range", "слишком большой диапазон или ответ getLogs"
-    elif any(s in message for s in ("missing trie node", "historical state", "pruned", "archive requests")):
+    elif any(s in message for s in ("missing trie node", "historical state")):
+        category, reason = "historical_state", "историческое состояние недоступно на этом RPC"
+    elif any(s in message for s in ("pruned", "archive requests")):
         category, reason = "access", "исторические данные недоступны на этом RPC"
     else:
         category, reason = "unavailable", "RPC временно не ответил корректно"

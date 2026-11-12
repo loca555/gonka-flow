@@ -14,8 +14,10 @@ window.GonkaChart=(()=>{
  }
  function axis(raw,decimals){
   const n=BigInt(raw),base=10n**BigInt(decimals);
-  if(n>=1000000n*base)return exact(n*10n/(base*1000000n),1)+" млн";
-  if(n>=1000n*base)return exact(n*10n/(base*1000n),1)+" тыс";
+  if(n<0n)return '−'+axis(-n,decimals);
+  for(const [scale,suffix] of [[1000000000000n,'трлн'],[1000000000n,'млрд'],[1000000n,'млн'],[1000n,'тыс']]){
+   if(n>=scale*base){const tenths=n*10n/(scale*base);return (tenths/10n).toString()+(tenths%10n?','+(tenths%10n):'')+' '+suffix;}
+  }
   return exact(n,decimals);
  }
  function ceiling(n){
@@ -35,26 +37,24 @@ window.GonkaChart=(()=>{
    const day=new Date(t).toISOString().slice(0,10),source=lookup.get(day);
    rows.push(source?{...source,raw:BigInt(source.raw)}:{date:day,raw:complete?0n:null,events:0});
   }
-  // Two bands: reference lines (price, network weight, AI tokens) occupy the
-  // upper band, mint bars and their 7-day average the lower band, so the
-  // lines never cross the bars.
+  // Independent scales for the reference series.
   const prices=rows.map(r=>r.price_raw==null?null:BigInt(r.price_raw));
   const weights=rows.map(r=>r.weight==null?null:BigInt(r.weight));
   const tokens=rows.map(r=>r.tokens==null?null:BigInt(r.tokens));
   const bounds=series=>{
    let lo=null,hi=null;
    series.forEach(v=>{if(v!==null){if(lo===null||v<lo)lo=v;if(hi===null||v>hi)hi=v;}});
-   if(lo!==null){if(lo===hi){lo-=10n;hi+=10n;}else{const span=hi-lo;lo-=span/10n;hi+=span/10n;}}
+   if(lo!==null){if(lo===hi){lo-=10n;hi+=10n;}else{const span=hi-lo;lo-=span/10n;hi+=span/10n;}lo=lo<0n?0n:lo;}
    return [lo,hi];
   };
   const [pMin,pMax]=bounds(prices),[wMin,wMax]=bounds(weights),[tMin,tMax]=bounds(tokens);
   const hasPrice=pMin!==null,hasWeight=wMin!==null,hasTokens=tMin!==null,hasLines=hasPrice||hasWeight||hasTokens;
-  const W=Math.max(280,host.clientWidth),H=W<500?330:390,top=26,bottom=H-42;
+  const W=Math.max(hasWeight||hasTokens?620:280,host.clientWidth),H=W<500?330:390,top=26,bottom=H-42;
   const baseLeft=W<500?62:76;
-  const axWeight=hasWeight?(W<500?36:44):0;
-  const axTokens=hasTokens?(W<500?32:38):0;
+  const axWeight=hasWeight?78:0;
+  const axTokens=hasTokens?78:0;
   const left=baseLeft+axWeight+axTokens;
-  const right=hasPrice?(W<500?50:60):20;
+  const right=hasPrice?78:20;
   const plot=W-left-right;
   const mapFull=(v,lo,hi)=>bottom-Number((v-lo)*1000000n/(hi-lo))/1000000*(bottom-top);
   const yPrice=v=>mapFull(v,pMin,pMax);
@@ -103,6 +103,7 @@ window.GonkaChart=(()=>{
   }
   if(hasWeight){
    const axX=baseLeft-8;
+   svg+='<text class="chart-weight-axis" x="'+axX+'" y="13" text-anchor="end">Вес сети</text>';
    for(let k=0;k<=2;k++){
     const wv=wMin+(wMax-wMin)*BigInt(k)/2n,wy=yWeight(wv);
     svg+='<text class="chart-weight-axis" x="'+axX+'" y="'+(wy+4)+'" text-anchor="end">'+escape(axis(wv,0))+'</text>';
@@ -119,6 +120,7 @@ window.GonkaChart=(()=>{
   }
   if(hasTokens){
    const axX=baseLeft+axWeight-8;
+   svg+='<text class="chart-tokens-axis" x="'+axX+'" y="13" text-anchor="end">AI-токены</text>';
    for(let k=0;k<=2;k++){
     const tv=tMin+(tMax-tMin)*BigInt(k)/2n,ty=yTokens(tv);
     svg+='<text class="chart-tokens-axis" x="'+axX+'" y="'+(ty+4)+'" text-anchor="end">'+escape(axis(tv,0))+'</text>';
@@ -128,6 +130,7 @@ window.GonkaChart=(()=>{
     if(tSeg.length){
      const path=tSeg.map((i,j)=>(j?"L":"M")+x(i).toFixed(2)+","+yTokens(tokens[i]).toFixed(2)).join(" ");
      svg+='<path class="chart-tokens-line" d="'+path+'"/>';
+     if(tSeg.length===1)svg+='<circle class="chart-tokens-point" cx="'+x(tSeg[0])+'" cy="'+yTokens(tokens[tSeg[0]])+'" r="3.5" fill="#d63384"/>';
     }
     tSeg=[];
    };
@@ -160,6 +163,8 @@ window.GonkaChart=(()=>{
   svg+='<g class="chart-cursor" visibility="hidden"><line class="chart-crosshair" y1="'+top+'" y2="'+bottom+'"/><circle r="4.5"/><rect class="chart-date-box" y="'+(bottom+10)+'" height="24" width="100" rx="4"/><text class="chart-date-text" y="'+(bottom+26)+'" text-anchor="middle"></text></g><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip mint-tooltip" role="status" hidden></div>';
   host.innerHTML=svg;
   const root=host.querySelector("svg"),cursor=host.querySelector(".chart-cursor"),tooltip=host.querySelector(".chart-tooltip");
+  root.style.minWidth=W+'px';
+  if(hasTokens)cursor.insertAdjacentHTML('beforeend','<circle class="chart-token-cursor" r="4.5" style="fill:#d63384"/>');
   let selected=rows.length-1;
   const show=index=>{
    selected=Math.max(0,Math.min(rows.length-1,index));
@@ -167,13 +172,15 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    cursor.querySelector("line").setAttribute("x1",px);cursor.querySelector("line").setAttribute("x2",px);
    const dot=cursor.querySelector("circle");dot.setAttribute("cx",px);dot.setAttribute("cy",py);dot.setAttribute("visibility",row.raw===null?"hidden":"visible");
+   const tokenDot=cursor.querySelector('.chart-token-cursor');
+   if(tokenDot){tokenDot.setAttribute('cx',px);tokenDot.setAttribute('cy',tokens[selected]===null?bottom:yTokens(tokens[selected]));tokenDot.setAttribute('visibility',tokens[selected]===null?'hidden':'visible');}
    cursor.querySelector("rect").setAttribute("x",dateX-50);
    cursor.querySelector("text").setAttribute("x",dateX);cursor.querySelector("text").textContent=fullDate(row.date);
    tooltip.innerHTML='<span>'+fullDate(row.date)+'</span><strong>'+(row.raw===null?"Нет подтверждённых данных":escape(exact(row.raw,decimals))+' <small>'+escape(unit)+'</small>')+'</strong><span>'+(row.raw===null?"Покрытие неполное":escape(countLabel)+": "+Number(row.events||0).toLocaleString("ru-RU"))+'</span>'+
     (row.raw!==null&&ma[selected]!==null?'<span>среднее за 7 дней: '+escape(exact(ma[selected],decimals))+' '+escape(unit)+'</span>':'')+
     (row.raw!==null&&prices[selected]!==null?'<span class="chart-price-axis">цена: '+escape(formatPrice(prices[selected]))+' USDT</span>':'')+
     (row.weight!=null?'<span class="chart-weight-axis">вес сети: '+Number(row.weight).toLocaleString("ru-RU")+'</span>':'')+
-    (row.tokens!=null?'<span class="chart-tokens-axis">AI-токены за 24 ч: '+Number(row.tokens).toLocaleString("ru-RU")+'</span>':'');
+    (hasTokens?'<span class="chart-tokens-axis">AI-токены за эпоху: '+(row.tokens!=null?Number(row.tokens).toLocaleString("ru-RU"):'нет данных')+'</span>':'');
    tooltip.hidden=false;
    const boxWidth=tooltip.offsetWidth;
    tooltip.style.left=Math.max(6,Math.min(W-boxWidth-6,px>W/2?px-boxWidth-14:px+14))+"px";
@@ -302,35 +309,41 @@ window.GonkaChart=(()=>{
   let pMin=Infinity,pMax=-Infinity;
   priceSeries.forEach(v=>{if(v!==null){if(v<pMin)pMin=v;if(v>pMax)pMax=v;}});
   if(hasPrice){if(pMin===pMax){pMin*=.95;pMax*=1.05;}const padP=(pMax-pMin)*.08;pMin-=padP;pMax+=padP;}
-  // Each level is a pair: +N% is WGNK sitting above the price, -N% is USDT below it.
-  let highUp=0n,highDown=0n;
+  // Lines and tooltip share the same executable USDT amounts and scale.
+  let high=0n;
   rows.forEach(r=>chosen.forEach(l=>{if(r[l]){
-   const w=BigInt(r[l].wgnk_raw),u=BigInt(r[l].usdt_raw);
-   if(w>highUp)highUp=w;if(u>highDown)highDown=u;
+   for(const key of ['up_usdt_raw','down_usdt_raw']){const value=BigInt(r[l][key]);if(value>high)high=value;}
   }}));
-  if(highUp<=0n&&highDown<=0n){host.innerHTML='<p class="empty">Нет данных ликвидности.</p>';return;}
+  if(high<=0n){host.innerHTML='<p class="empty">Нет данных ликвидности.</p>';return;}
+  high=ceiling(high);
   const W=Math.max(280,host.clientWidth),H=W<500?300:330;
-  const left=W<500?56:84,rightBase=W<500?50:64,axPrice=hasPrice?(W<500?40:48):0,right=rightBase+axPrice,top=26,bottom=H-42,plot=W-left-right;
+  const left=W<500?68:84,right=hasPrice?78:20,top=42,bottom=H-42,plot=W-left-right;
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
-  const yUp=v=>highUp>0n?bottom-Number(v*1000000n/highUp)/1000000*(bottom-top):bottom;
-  const yDown=v=>highDown>0n?bottom-Number(v*1000000n/highDown)/1000000*(bottom-top):bottom;
+  const yVolume=v=>bottom-Number(v*1000000n/high)/1000000*(bottom-top);
   const yPrice=v=>bottom-(v-pMin)/(pMax-pMin)*(bottom-top);
-  let svg='<svg class="liquidity-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Ликвидность пула '+(fee/100)+' б.п.: WGNK над ценой, шкала слева, и USDT под ценой, шкала справа'+(hasPrice?'; дневная цена — голубая линия, отдельная шкала справа':'')+'. Стрелки выбирают день.">';
-  svg+='<text class="chart-unit" x="'+left+'" y="15">+N% · WGNK над ценой · слева</text><text class="chart-unit" x="'+(W-right)+'" y="15" text-anchor="end">−N% · USDT под ценой · справа · пул '+(fee/100)+' б.п.</text>';
+  let svg='<svg class="liquidity-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Объём покупки и продажи в USDT, единая шкала слева. Цена WGNK, шкала справа. Стрелки выбирают день.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="15">Объём · USDT</text>';
+  if(hasPrice)svg+='<text class="chart-unit" x="'+(W-right)+'" y="30" text-anchor="end">Цена · USDT / WGNK</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
-   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(highUp*BigInt(i)/4n,9))+'</text><text class="liq-down-axis" x="'+(W-right+8)+'" y="'+(py+4)+'">'+escape(axis(highDown*BigInt(i)/4n,6))+'</text>'+
-    (hasPrice?'<text class="chart-price-axis" x="'+(W-axPrice+6)+'" y="'+(py+4)+'">$'+(pMin+(pMax-pMin)*i/4).toFixed(4)+'</text>':'');
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(high*BigInt(i)/4n,6))+'</text>'+
+    (hasPrice?'<text class="chart-price-axis" x="'+(W-right+8)+'" y="'+(py+4)+'">$'+(pMin+(pMax-pMin)*i/4).toFixed(4)+'</text>':'');
   }
   chosen.forEach(level=>{
    const up=[],down=[];
    rows.forEach((r,i)=>{
     if(!r[level])return;
-    up.push((up.length?"L":"M")+x(i).toFixed(2)+","+yUp(BigInt(r[level].wgnk_raw)).toFixed(2));
-    down.push((down.length?"L":"M")+x(i).toFixed(2)+","+yDown(BigInt(r[level].usdt_raw)).toFixed(2));
+    up.push((up.length?"L":"M")+x(i).toFixed(2)+","+yVolume(BigInt(r[level].up_usdt_raw)).toFixed(2));
+    down.push((down.length?"L":"M")+x(i).toFixed(2)+","+yVolume(BigInt(r[level].down_usdt_raw)).toFixed(2));
    });
    if(up.length)svg+='<path class="liq-line liq-l'+level+'" data-level="'+level+'" data-side="up" d="'+up.join(" ")+'"/>';
    if(down.length)svg+='<path class="liq-line liq-down liq-l'+level+'" data-level="'+level+'" data-side="down" d="'+down.join(" ")+'"/>';
+   const latest=rows[rows.length-1][level];
+   if(latest){
+    const value=BigInt(latest.down_usdt_raw),py=yVolume(value);
+    svg+='<line class="liq-current liq-line liq-l'+level+'" data-level="'+level+'" data-raw="'+value+'" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'" style="stroke-dasharray:6 5;stroke-width:1;opacity:.8;pointer-events:none"/>';
+    svg+='<text class="liq-current-label" x="'+(left+6)+'" y="'+(py-7)+'" style="paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round">Продажа −'+level+'%: '+escape(exact(value,6))+' USDT</text>';
+   }
   });
   if(hasPrice){
    let pd="";priceSeries.forEach((v,i)=>{if(v===null)return;pd+=(pd?"L":"M")+x(i).toFixed(2)+","+yPrice(v).toFixed(2);});
@@ -353,8 +366,8 @@ window.GonkaChart=(()=>{
    tooltip.innerHTML='<span>'+fullDate(r.date)+'</span>'+
     (hasPrice&&priceSeries[selected]!==null?'<div class="market-tooltip-band liq-price-band"><span>Цена дня</span><b>$'+priceSeries[selected].toFixed(4)+' <em>USDT</em></b></div>':'')+
     chosen.map(l=>r[l]&&r[l].up_usdt_raw?'<div class="market-tooltip-band liq-b'+l+'" title="Цена после сделки: ↑ $'+(+r[l].up_final_price).toFixed(4)+' · ↓ $'+(+r[l].down_final_price).toFixed(4)+'"><span>±'+l+'%</span>'+
-     '<b>↑ $'+escape(exact(BigInt(r[l].up_usdt_raw),6))+' <em>USDT</em></b>'+
-     '<b>↓ $'+escape(exact(BigInt(r[l].down_usdt_raw),6))+' <em>USDT</em></b></div>':'').join("");
+     '<b>Покупка ↑ $'+escape(exact(BigInt(r[l].up_usdt_raw),6))+' <em>USDT</em></b>'+
+     '<b>Продажа ↓ $'+escape(exact(BigInt(r[l].down_usdt_raw),6))+' <em>USDT</em></b></div>':'').join("");
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
    tooltip.hidden=false;

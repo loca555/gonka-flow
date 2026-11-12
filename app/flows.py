@@ -267,7 +267,14 @@ class FlowCollector:
             lo=end+1;hi=min(head,lo+self.owner.cfg.eth_history_batch-1)
             await self.batch(lo,hi,archive=head-lo>500)
             self.owner.status("flow:status",indexed_height=hi)
-            if hi<head: return .5
+            if hi<head:
+                # Publish a supply-reconciled prefix as catch-up advances. A
+                # failure keeps both the prior verified snapshot and this batch;
+                # the next pass resumes at the next real uncovered range.
+                snapshot=self.db.get("flow:snapshot",{})
+                if hi>snapshot.get("height",0) and time.time()-snapshot.get("checked_at",0)>=300:
+                    await self.snapshot(start,hi)
+                return .5
         snapshot=self.db.get("flow:snapshot",{})
         if snapshot.get("height")!=head or time.time()-snapshot.get("checked_at",0)>300:
             await self.snapshot(start,head)
@@ -343,15 +350,20 @@ def trade_page(db,*,through,as_of,hours=0,q="",limit=25,offset=0,side="sell",sor
         raw=str(minimum*10**9)
         where+=" AND (length(amount_raw)>? OR (length(amount_raw)=? AND amount_raw>=?))"
         params.extend((len(raw),len(raw),raw))
-    # The default feed can page in SQLite without decoding every historical Swap.
-    if not q and sort in ("time_asc","time_desc") and side in ("all","buy","sell"):
+    address_query=bool(re.fullmatch("0x[0-9a-f]{40}",q))
+    if address_query:
+        where+=" AND actor=? AND json_extract(meta,'$.attribution') IN ('initiator_net','tx_net','initiator_only')"
+        params.append(q)
+    # Time-sorted feeds/address pages need decode only one bounded SQL page.
+    if (not q or address_query) and sort in ("time_asc","time_desc") and side in ("all","buy","sell"):
         if side!="all":where+=" AND kind=?";params.append(side)
         if hours:where+=" AND ts>=?";params.append(as_of-hours*3600)
-        total=db.conn.execute("SELECT COUNT(*) FROM events INDEXED BY events_trade_page WHERE "+where,params).fetchone()[0]
+        index="events_actor" if address_query else "events_trade_page"
+        total=db.conn.execute("SELECT COUNT(*) FROM events INDEXED BY "+index+" WHERE "+where,params).fetchone()[0]
         direction="DESC" if sort=="time_desc" else "ASC"
         order=",".join(field+" "+direction for field in ("ts","height","idx","tx_hash"))
         rows=[dict(row) for row in db.conn.execute(
-            "SELECT * FROM events INDEXED BY events_trade_page WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?",(*params,limit,offset))]
+            "SELECT * FROM events INDEXED BY "+index+" WHERE "+where+" ORDER BY "+order+" LIMIT ? OFFSET ?",(*params,limit,offset))]
         for row in rows:row["meta"]=json.loads(row["meta"])
         result.update(ready=True,total=total,has_more=offset+limit<total,trades=[public_trade(row) for row in rows],pnl=address_pnl(db))
         return result
@@ -406,7 +418,11 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
             "outside_holders":None,"holder_history":None,"latest_trade":None,
             "scope":"All addresses in 2 verified Uniswap V3 WGNK/USDT pools",
             "gnk_supply_raw":(db.get("public_holders:GNK") or {}).get("supply_raw"),
-            "gnk_circulating_raw":(db.get("coingecko:wgnk") or {}).get("circulating_raw"),
+            "gnk_circulating_raw":(db.get("liquid_supply:GNK") or {}).get("liquid_raw"),
+            "gnk_circulating_method":"bank_minus_account_locked_and_streamvesting",
+            "gnk_liquid_supply":db.get("liquid_supply:GNK"),
+            "gnk_liquid_supply_progress":db.get("liquid_supply:progress"),
+            "gnk_liquid_supply_status":db.get("liquid_supply:status"),
             "coingecko_status":dict(db.get("coingecko:status") or {},cached_at=(db.get("coingecko:wgnk") or {}).get("ts")),
             "snapshot_status":dict(db.get("snapshot:status") or {},last=db.get("snapshot:last")),
             "depth_live":db.get("depth:live")}
@@ -422,7 +438,8 @@ def analysis(db,hours=0,q="",limit=25,offset=0,side="sell",sort="time_desc",mini
         result["bridge"]=bridge_daily(rows,cut)
     ledger,minted,burned=balances(rows)
     result["outside_holders"]=outside_holders(rows,ledger,snapshot)
-    result["holder_history"]=holder_history(rows,ledger,snapshot,deployment,result["outside_holders"])
+    result["holder_history"]=holder_history(rows,ledger,snapshot,deployment,result["outside_holders"],
+        verified_live_base=packet["base"] if packet else None)
     if re.fullmatch("0x[0-9a-f]{40}",q) and snapshot.get("ledger_verified") and ledger.get(q,0)>=0:
         result["address_balance"]={"address":q,"amount":tokens(ledger.get(q,0)),
             "amount_raw":str(ledger.get(q,0)),"height":cut,"ts":snapshot["ts"],"source":"verified_transfer_ledger"}

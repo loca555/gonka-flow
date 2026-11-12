@@ -31,6 +31,11 @@ def build(output, api=DEFAULT_API):
         raise ValueError("Output must be an empty directory; existing files are never removed")
     pages = {"index.html": (STATIC / "mints.html").read_text(encoding="utf-8"),
              "api-docs.html": (STATIC / "mints-api.html").read_text(encoding="utf-8")}
+    # Local OTC experiments are not part of the public analytics publication.
+    # The header contains the ordinary link to the separate Gonka Market site.
+    pages["index.html"] = re.sub(
+        r'<link rel="stylesheet" href="/static/otc\.css"><script src="/static/otc\.js" defer></script>',
+        '', pages["index.html"])
     pending = set(ASSET_URL.findall("\n".join(pages.values())))
     assets = {}
     while pending:

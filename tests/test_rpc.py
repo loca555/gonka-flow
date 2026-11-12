@@ -38,6 +38,7 @@ class ErrorTests(unittest.TestCase):
             (403, "Archive requests require a personal token SECRET", "access"),
             (400, "query returned more than 10000 results SECRET", "range"),
             (429, "too many requests SECRET", "rate_limit"),
+            (429, "api key required SECRET", "rate_limit"),
             (400, "Can't route your request to suitable provider SECRET", "unavailable"),
             (200, "method not found SECRET", "unsupported")]
         for status, message, category in cases:
@@ -135,6 +136,22 @@ class NetworkTests(unittest.IsolatedAsyncioTestCase):
             await self.net.eth("eth_getLogs",[],archive=True)
         self.assertEqual(caught.exception.category,"wrong_chain")
         self.assertEqual(calls,["eth_chainId"])
+
+    async def test_missing_historical_state_does_not_pause_archive_logs(self):
+        calls = []
+        def handle(request):
+            method = json.loads(request.content)["method"]
+            calls.append(method)
+            if method == "eth_call":
+                return httpx.Response(200, json={"error":{"message":"missing trie node"}})
+            return httpx.Response(200, json={"result":[]})
+        self.net.verified_eth.add("https://archive.test")
+        self.transport(handle)
+        for _ in range(2):
+            with self.assertRaises(EthereumRPCError):
+                await self.net.eth("eth_call", [], archive=True)
+        self.assertEqual(await self.net.eth("eth_getLogs", [], archive=True), [])
+        self.assertEqual(calls, ["eth_call", "eth_getLogs"])
 
     async def test_only_range_errors_split_and_cover_every_block(self):
         calls=[]

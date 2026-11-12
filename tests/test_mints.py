@@ -159,6 +159,37 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing(self.db,0)["total"],1)
         self.idx.net.native.assert_not_called();self.idx.net.api.assert_not_called();self.idx.net.pool.assert_not_called()
 
+    async def test_restored_cursor_scans_old_gaps_and_recent_mints_without_overlap(self):
+        self.db.put("mints:deployment",block(10))
+        self.db.put("mints:next",21)
+        self.db.put("mints:status",{"finalized_height":1000})
+        save_batch(self.db,10,20,[],[])
+        save_batch(self.db,501,510,[],[])
+        self.idx.ready.set()
+
+        async def eth(method, params):
+            return {"number":hex(1000 if params[0]=="finalized" else 1080),"timestamp":hex(TS)}
+
+        async def batch(lo,hi,*,finalized=True,archive=False,next_height=None):
+            await asyncio.sleep(0)
+            save_batch(self.db,lo,hi,[],[],finalized,next_height)
+
+        self.idx.net.eth=AsyncMock(side_effect=eth)
+        self.idx.batch=AsyncMock(side_effect=batch)
+        await asyncio.gather(self.idx.live(),self.idx.history())
+        self.idx.batch.assert_any_await(21,500,archive=True)
+        self.idx.batch.assert_any_await(511,1000,next_height=1001)
+        self.idx.batch.assert_any_await(1001,1080,finalized=False)
+        self.assertEqual(self.idx.batch.await_count,3)
+        self.assertTrue(progress(self.db)["complete"])
+
+        # Older versions could leave the cursor behind an already complete range.
+        self.db.put("mints:next",21)
+        self.idx.batch.reset_mock()
+        await self.idx.live()
+        self.idx.batch.assert_awaited_once_with(1001,1080,finalized=False)
+        self.assertEqual(self.db.get("mints:next"),1001)
+
     async def test_deployment_is_verified_and_does_not_use_june_start(self):
         self.db.put("holders:WGNK:deployment",5)
         self.idx.net.call=AsyncMock(return_value="0x9")
@@ -181,8 +212,8 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
         self.idx.loop=loop
         self.idx.start()
         await asyncio.sleep(0)
-        self.assertEqual(sorted(started),["coingecko:status","depth:status","flow:status","holder_history:status","lp_ticks:status","mints:history","mints:status","network_weight:status","powder:status","provenance:balances","provenance:burns","provenance:incoming","provenance:status","public_holders:GNK:status","snapshot:status"])
-        self.assertEqual({t.get_name() for t in self.idx.tasks},{"coingecko_circulating","eth_depth_ticks","eth_lp_tick_history","gonka_auto_snapshot","gonka_network_weight","wgnk_mints_live","wgnk_mints_history","wgnk_market_flow","stable_powder","gonka_bridge_links","gonka_burn_links","gonka_targeted_incoming","gonka_targeted_balances","gonka_holder_census","gonka_holder_history"})
+        self.assertEqual(sorted(started),["coingecko:status","depth:status","flow:status","holder_history:status","liquid_supply:status","lp_ticks:status","mints:history","mints:status","network_weight:status","powder:status","provenance:balances","provenance:burns","provenance:incoming","provenance:status","public_holders:GNK:status","snapshot:status"])
+        self.assertEqual({t.get_name() for t in self.idx.tasks},{"gnk_liquid_supply","coingecko_circulating","eth_depth_ticks","eth_lp_tick_history","gonka_auto_snapshot","gonka_network_weight","wgnk_mints_live","wgnk_mints_history","wgnk_market_flow","stable_powder","gonka_bridge_links","gonka_burn_links","gonka_targeted_incoming","gonka_targeted_balances","gonka_holder_census","gonka_holder_history"})
         await self.idx.stop()
 
 
@@ -228,3 +259,4 @@ class APITests(unittest.TestCase):
 
 
 if __name__=="__main__": unittest.main()
+

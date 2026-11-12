@@ -169,3 +169,6 @@
 @media (max-width:980px){.holder-history-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 /* Price overlay on the liquidity chart */
 .liq-price-band span,.liq-price-band b{color:var(--market-price,#4db8ff)}
+
+#mint-chart{overflow-x:auto} #mint-chart svg .chart-weight-axis{fill:#9b59b6} #mint-chart svg .chart-tokens-axis{fill:#d63384} #mint-chart svg .chart-price-axis{fill:#4db8ff} #download-mint-chart{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;padding:8px} .mint-tooltip .chart-tokens-axis{color:#d63384}
+

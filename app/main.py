@@ -5,7 +5,6 @@ import json
 import re
 import time
 from hashlib import sha256
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import date as calendar_date
@@ -24,8 +23,10 @@ from .leaders import trade_leaders
 from .timezones import local_time, TIME_ZONE
 from .seed import restore_seed
 from . import snapshots
+from .api_policy import APIAdmission, PublicAPIGuard, ResponseCache
 from .provenance import overview as provenance_overview, incoming_history, GNK, links_for
 from .redemptions import native_addresses
+from .read_api import ReadAPI
 
 STATIC = Path(__file__).parent / "static"
 MINT_SORT_PATTERN = "^(newest|oldest|largest|(time|recipient|amount|tx|status)_(asc|desc))$"
@@ -42,7 +43,7 @@ def versioned_page(filename):
 
 def create_app(settings=None):
     cfg = settings or Settings()
-    cache, hits = {}, defaultdict(deque)
+    cache = ResponseCache(cfg.api_cache_entries, cfg.api_cache_bytes)
     index_html = versioned_page("mints.html" if cfg.mode == "mints" else "index.html")
 
     def local_otc(request):
@@ -77,6 +78,8 @@ def create_app(settings=None):
         migrate(db)
         indexer = MintIndexer(cfg, db) if cfg.mode == "mints" else Indexer(cfg, db)
         app.state.db, app.state.indexer = db, indexer
+        app.state.read_api = ReadAPI(db, cache, max_pending=cfg.api_max_concurrent)
+        indexer.read_api = app.state.read_api
         keep_alive = (asyncio.create_task(ping_self(), name="keep_alive")
                       if cfg.keep_alive_enabled and cfg.keep_alive_url else None)
         if cfg.indexer_enabled:
@@ -88,30 +91,24 @@ def create_app(settings=None):
                 keep_alive.cancel()
                 await asyncio.gather(keep_alive, return_exceptions=True)
             await indexer.stop()
+            await app.state.read_api.close()
             db.close()
 
     app = FastAPI(title="Gonka Flow", version="0.2.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+    admission = APIAdmission(cfg)
+    app.state.api_admission = admission
+    app.state.response_cache = cache
+    app.add_middleware(PublicAPIGuard, admission=admission)
 
     @app.middleware("http")
     async def headers_and_limits(request: Request, call_next):
         if (cfg.mode == "mints" and request.url.path.startswith("/api/")
                 and not (request.url.path == "/api/docs" or request.url.path == "/api/mints"
                          or request.url.path.startswith("/api/mints/"))):
-            return JSONResponse({"detail":"Этот раздел отключён. Активен только монитор чеканки WGNK.",
-                                 "mode":"mints"},410,headers={"Cache-Control":"no-store"})
-        if request.url.path.startswith("/api/"):
-            now = time.monotonic()
-            ip = request.client.host if request.client else "local"
-            if ip not in hits and len(hits) > 10000:
-                hits.clear()
-            window = hits[ip]
-            while window and window[0] < now-60:
-                window.popleft()
-            if len(window) >= 180:
-                return JSONResponse({"detail":"Слишком много запросов; повторите через минуту."},429,
-                                    headers={"Retry-After":"60"})
-            window.append(now)
-        response = await call_next(request)
+            response = JSONResponse({"detail":"Этот раздел отключён. Активен только монитор чеканки WGNK.",
+                                     "mode":"mints"},410)
+        else:
+            response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
@@ -128,8 +125,9 @@ def create_app(settings=None):
 
     # Public read-only data is also consumed by the IPFS frontend on gateway origins.
     # Register outside headers_and_limits so API errors retain CORS headers too.
-    app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                       allow_methods=["GET"], allow_credentials=False)
+    app.add_middleware(CORSMiddleware, allow_origins=cfg.api_allowed_origins,
+                       allow_methods=["GET"], allow_credentials=False,
+                       expose_headers=["Retry-After"])
 
     @app.get("/")
     async def index(request: Request):
@@ -153,13 +151,12 @@ def create_app(settings=None):
                         limit: int=Query(50,ge=1,le=200),offset: int=Query(0,ge=0,le=5000000)):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор чеканки отключён")
         key=("mints",minimum,hours,q.lower(),finality,sort,limit,offset)
-        if len(cache)>1000: cache.clear()
-        if key not in cache or time.time()-cache[key][0]>3:
-            data=mint_listing(request.app.state.db,minimum,hours,q.lower(),finality,sort,limit,offset)
+        def build(db):
+            data=mint_listing(db,minimum,hours,q.lower(),finality,sort,limit,offset)
             data["indexer_enabled"]=cfg.indexer_enabled
             data["workers"]=[t.get_name() for t in request.app.state.indexer.tasks if not t.done()]
-            cache[key]=(time.time(),data)
-        return cache[key][1]
+            return data
+        return await request.app.state.read_api.run(build,key=key,ttl=3)
 
     @app.get("/api/mints/flows")
     async def mint_flows(request:Request,hours:int=Query(0,ge=0,le=175200),
@@ -170,10 +167,8 @@ def create_app(settings=None):
                          minimum:int=Query(0,ge=0,le=10**12)):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
         key=("flows",hours,q.lower(),limit,offset,side,sort,minimum)
-        if len(cache)>1000: cache.clear()
-        if key not in cache or time.time()-cache[key][0]>8:
-            cache[key]=(time.time(),flow_analysis(request.app.state.db,hours,q.lower(),limit,offset,side,sort,minimum))
-        return JSONResponse(cache[key][1])
+        return await request.app.state.read_api.run(
+            lambda db: flow_analysis(db,hours,q.lower(),limit,offset,side,sort,minimum),key=key,ttl=8)
 
     @app.get("/api/mints/trades")
     async def mint_trade_page(request:Request,through:int=Query(...,ge=1),as_of:int=Query(...,ge=0),
@@ -185,7 +180,7 @@ def create_app(settings=None):
                               minimum:int=Query(0,ge=0,le=10**12),
                               snapshot_hash:str=Query("",pattern="^(|0x[0-9a-fA-F]{64})$")):
         if cfg.mode!="mints":raise HTTPException(404,"Монитор WGNK отключён")
-        return JSONResponse(trade_page(request.app.state.db,through=through,as_of=as_of,hours=hours,
+        return await request.app.state.read_api.run(lambda db: trade_page(db,through=through,as_of=as_of,hours=hours,
                                        q=q.lower(),limit=limit,offset=offset,side=side,sort=sort,minimum=minimum,
                                        snapshot_hash=snapshot_hash.lower()))
 
@@ -196,36 +191,50 @@ def create_app(settings=None):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
         from .public_holders import listing
         key=("public_holders",asset,q.lower(),limit,offset)
-        if len(cache)>1000: cache.clear()
-        if key not in cache or time.time()-cache[key][0]>8:
-            data=listing(request.app.state.db,asset,q,limit,offset)
+        def build(db):
+            data=listing(db,asset,q,limit,offset)
             data["indexer_enabled"]=cfg.indexer_enabled
-            cache[key]=(time.time(),data)
-        return cache[key][1]
+            return data
+        return await request.app.state.read_api.run(build,key=key,ttl=8)
 
     @app.get("/api/mints/leaders")
     async def mint_leaders(request:Request,start_date:calendar_date|None=Query(None),
                            grouped:bool=Query(True)):
         start_date=start_date.isoformat() if start_date else None
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        key=("trade_leaders",start_date,grouped)
-        if len(cache)>1000: cache.clear()
-        if key not in cache or time.time()-cache[key][0]>8:
-            data=trade_leaders(request.app.state.db,start_date=start_date,grouped=grouped)
-            cache[key]=(time.time(),data)
-            return data
-        return cache[key][1]
+        db=request.app.state.db
+        key=("trade_leaders",db.revision,start_date,grouped)
+        return await request.app.state.read_api.run(
+            lambda reader: trade_leaders(reader,start_date=start_date,grouped=grouped),key=key,ttl=8)
 
     @app.get("/api/mints/address/{address}")
-    async def mint_address(request:Request,address:str,sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN)):
+    async def mint_address(request:Request,address:str,sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN),
+                           limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000),
+                           through:int|None=Query(None,ge=1),as_of:int|None=Query(None,ge=0),
+                           snapshot_hash:str=Query("",pattern="^(|0x[0-9a-fA-F]{64})$")):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
         if not re.fullmatch("0x[0-9a-fA-F]{40}",address): raise HTTPException(400,"Нужен полный Ethereum-адрес")
         address=address.lower()
-        key=("address_trades",address,sort)
-        if len(cache)>1000: cache.clear()
-        if key not in cache or time.time()-cache[key][0]>8:
-            cache[key]=(time.time(),flow_analysis(request.app.state.db,q=address,side="all",sort=sort,limit=None))
-        return cache[key][1]
+        pinned=through is not None or as_of is not None or bool(snapshot_hash)
+        if pinned and (through is None or as_of is None or not snapshot_hash):
+            raise HTTPException(400,"Для страницы нужны блок, время и хеш снимка. Обновите историю адреса.")
+        db=request.app.state.db
+        key=("address_trades",db.revision,address,sort,limit,offset,through,as_of,snapshot_hash.lower())
+        def build(db):
+            if pinned:
+                data=trade_page(db,through=through,as_of=as_of,snapshot_hash=snapshot_hash.lower(),
+                                q=address,side="all",sort=sort,limit=limit,offset=offset)
+                if not data["ready"]:
+                    raise HTTPException(409,"Снимок этой истории больше недоступен. Нажмите «Обновить».")
+            else:
+                full=flow_analysis(db,q=address,side="all",sort=sort,limit=limit,offset=offset)
+                # Address views need full-history aggregates/chart, never all other minters/holders.
+                fields=("ready","now","timezone","snapshot","coverage","status","summary","pools",
+                        "address_balance","address_history","trades","total","offset","limit","has_more","sort")
+                data={name:full[name] for name in fields}
+                data["as_of"]=full["now"]
+            return data
+        return await request.app.state.read_api.run(build,key=key,ttl=8)
 
     @app.get("/api/mints/bridge")
     async def bridge_feed(request:Request,minimum:int=Query(10000,ge=0,le=10**12),
@@ -235,50 +244,53 @@ def create_app(settings=None):
                           limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000)):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
         key=("bridge",minimum,hours,q.lower(),sort,limit,offset)
-        if len(cache)>1000: cache.clear()
-        if key not in cache or time.time()-cache[key][0]>3:
-            cache[key]=(time.time(),bridge_listing(request.app.state.db,minimum,hours,q.lower(),sort,limit,offset))
-        return cache[key][1]
+        return await request.app.state.read_api.run(
+            lambda db: bridge_listing(db,minimum,hours,q.lower(),sort,limit,offset),key=key,ttl=3)
 
     @app.get("/api/mints/bridge/export.csv")
     async def bridge_export(request:Request,minimum:int=Query(10000,ge=0,le=10**12),
                             sort:str=Query("newest",pattern=BRIDGE_SORT_PATTERN)):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        data=bridge_listing(request.app.state.db,minimum=minimum,sort=sort,limit=50000)
-        if not data["ready"]: raise HTTPException(503,"Сверенный снимок моста ещё не готов")
-        if data["has_more"]: raise HTTPException(413,"Слишком много событий для одного CSV")
-        output=io.StringIO()
-        fields=["kind","time_local","address","amount","amount_raw","tx_hash","log_index","height","finalized"]
-        writer=csv.DictWriter(output,fieldnames=fields);writer.writeheader()
-        for e in data["items"]:
-            writer.writerow({k:local_time(e["ts"]) if k=="time_local" else e[k] for k in fields})
-        return Response(output.getvalue(),media_type="text/csv",
-                        headers={"Content-Disposition":'attachment; filename="wgnk-bridge.csv"'})
+        def build(db):
+            data=bridge_listing(db,minimum=minimum,sort=sort,limit=50000)
+            if not data["ready"]: raise HTTPException(503,"Сверенный снимок моста ещё не готов")
+            if data["has_more"]: raise HTTPException(413,"Слишком много событий для одного CSV")
+            output=io.StringIO()
+            fields=["kind","time_local","address","amount","amount_raw","tx_hash","log_index","height","finalized"]
+            writer=csv.DictWriter(output,fieldnames=fields);writer.writeheader()
+            for e in data["items"]:
+                writer.writerow({k:local_time(e["ts"]) if k=="time_local" else e[k] for k in fields})
+            return Response(output.getvalue(),media_type="text/csv",
+                            headers={"Content-Disposition":'attachment; filename="wgnk-bridge.csv"'})
+        return await request.app.state.read_api.run(build)
 
     @app.get("/api/mints/provenance")
     async def mint_provenance(request:Request,address:str=Query("",pattern="^(|0x[0-9a-fA-F]{40})$")):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        return provenance_overview(request.app.state.db,address.lower() or None)
+        return await request.app.state.read_api.run(lambda db: provenance_overview(db,address.lower() or None))
 
     @app.get("/api/mints/gonka/{address}")
     async def gonka_incoming(request:Request,address:str,
                             sort:str=Query("time_desc",pattern="^(time|amount|sender|kind|tx)_(asc|desc)$")):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
         if not GNK.fullmatch(address): raise HTTPException(400,"Нужен полный адрес Gonka")
-        db=request.app.state.db
-        if address not in native_addresses(db):
-            raise HTTPException(404,"Адрес ещё не связан с подтверждённым переводом через мост WGNK")
-        return incoming_history(db,address,sort)
+        def build(db):
+            if address not in native_addresses(db):
+                raise HTTPException(404,"Адрес ещё не связан с подтверждённым переводом через мост WGNK")
+            return incoming_history(db,address,sort)
+        return await request.app.state.read_api.run(build)
 
     @app.get("/api/mints/tx/{tx_hash}")
     async def mint_transaction(request:Request,tx_hash:str):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор чеканки отключён")
         if not re.fullmatch(r"0x[0-9a-fA-F]{64}",tx_hash): raise HTTPException(400,"Нужен хеш Ethereum-транзакции")
-        rows=request.app.state.db.conn.execute("SELECT * FROM wgnk_mints WHERE tx_hash=? ORDER BY log_index",
-                                               (tx_hash.lower(),)).fetchall()
-        if not rows: raise HTTPException(404,"Чеканка в этой транзакции не найдена в индексе")
-        return {"contract":MINT_TOKEN,"tx_hash":tx_hash.lower(),"items":[mint_event(r) for r in rows],
-                "native_links":[e for e in links_for(request.app.state.db) if e["tx_hash"]==tx_hash.lower()]}
+        def build(db):
+            rows=db.conn.execute("SELECT * FROM wgnk_mints WHERE tx_hash=? ORDER BY log_index",
+                                  (tx_hash.lower(),)).fetchall()
+            if not rows: raise HTTPException(404,"Чеканка в этой транзакции не найдена в индексе")
+            return {"contract":MINT_TOKEN,"tx_hash":tx_hash.lower(),"items":[mint_event(r) for r in rows],
+                    "native_links":[e for e in links_for(db) if e["tx_hash"]==tx_hash.lower()]}
+        return await request.app.state.read_api.run(build)
 
     @app.get("/api/mints/export.csv")
     async def export_mints(request:Request,minimum:int=Query(0,ge=0,le=10**12),
@@ -287,26 +299,24 @@ def create_app(settings=None):
                            finality:str=Query("finalized",pattern="^(finalized|all)$"),
                            sort:str=Query("newest",pattern=MINT_SORT_PATTERN)):
         if cfg.mode!="mints": raise HTTPException(404,"Монитор чеканки отключён")
-        data=mint_listing(request.app.state.db,minimum,hours,q.lower(),finality,sort,50000,0)
-        if data["has_more"]: raise HTTPException(413,"Более 50 000 выпусков. Уменьшите период.")
-        output=io.StringIO()
-        columns=["tx_hash","log_index","height","block_hash","ts","time_local","timezone","recipient","amount","amount_raw",
-                 "epoch_id","request_id","finalized","source"]
-        writer=csv.DictWriter(output,columns,extrasaction="ignore")
-        writer.writeheader()
-        for e in data["items"]: writer.writerow({**e,"time_local":local_time(e["ts"]),"timezone":TIME_ZONE})
-        return Response("\ufeff"+output.getvalue(),media_type="text/csv; charset=utf-8",
-                        headers={"Content-Disposition":'attachment; filename="wgnk-mints.csv"'})
+        def build(db):
+            data=mint_listing(db,minimum,hours,q.lower(),finality,sort,50000,0)
+            if data["has_more"]: raise HTTPException(413,"Более 50 000 выпусков. Уменьшите период.")
+            output=io.StringIO()
+            columns=["tx_hash","log_index","height","block_hash","ts","time_local","timezone","recipient","amount","amount_raw",
+                     "epoch_id","request_id","finalized","source"]
+            writer=csv.DictWriter(output,columns,extrasaction="ignore")
+            writer.writeheader()
+            for e in data["items"]: writer.writerow({**e,"time_local":local_time(e["ts"]),"timezone":TIME_ZONE})
+            return Response("\ufeff"+output.getvalue(),media_type="text/csv; charset=utf-8",
+                            headers={"Content-Disposition":'attachment; filename="wgnk-mints.csv"'})
+        return await request.app.state.read_api.run(build)
 
     @app.get("/api/overview")
     async def get_overview(request: Request, hours: int = Query(24, ge=1, le=168),
                            since: int | None = Query(None, ge=0, le=4102444800)):
         key = ("overview",hours,since)
-        if len(cache)>1000:
-            cache.clear()
-        if key not in cache or time.time()-cache[key][0] > 4:
-            cache[key] = (time.time(), overview(request.app.state.db,hours,since))
-        return cache[key][1]
+        return cache.get_or_create(key,4,lambda: overview(request.app.state.db,hours,since))
 
     @app.get("/api/events")
     async def get_events(request: Request, hours: int = Query(24,ge=1,le=168),
@@ -364,7 +374,8 @@ def create_app(settings=None):
             raise HTTPException(400,"Нужен полный адрес Gonka (gonka1…) или Ethereum (0x…).")
         db, net = request.app.state.db, request.app.state.indexer.net
         key = ("balance",address)
-        if key not in cache or time.time()-cache[key][0] > 45:
+        balance_data = cache.get(key)
+        if balance_data is None:
             try:
                 if address.startswith("0x"):
                     raw = await net.call(TOKEN,"balanceOf(address)",address[2:].zfill(64))
@@ -372,19 +383,17 @@ def create_app(settings=None):
                 else:
                     result = await net.api("/cosmos/bank/v1beta1/balances/"+address+"/by_denom",{"denom":"ngonka"})
                     balance = {"asset":"GNK","amount":tokens(result["balance"]["amount"])}
-                cache[key] = (time.time(),{"balance":balance,"updated_at":int(time.time()),"error":None})
+                balance_data = {"balance":balance,"updated_at":int(time.time()),"error":None}
             except Exception:
-                cache[key] = (time.time(),{"balance":None,"updated_at":None,
-                                         "error":"RPC не вернул баланс; это не нулевой баланс."})
-            if len(cache)>1000:
-                for stale in list(cache)[:200]:
-                    cache.pop(stale,None)
+                balance_data = {"balance":None,"updated_at":None,
+                                "error":"RPC не вернул баланс; это не нулевой баланс."}
+            cache.put(key,balance_data,45)
         activity = db.events(int(time.time())-hours*3600 if since is None else since,address=address,limit=100)
         linked = []
         for b in bridges(db,hours,limit=5000000,since=since)["items"]:
             if address in (b["source"],b["target"]):
                 linked.append(b)
-        return {"address":address,**cache[key][1],"label":db.labels().get(address),
+        return {"address":address,**balance_data,"label":db.labels().get(address),
                 "events":activity,"bridges":linked[:50],"hours":hours}
 
     @app.get("/api/export.csv")

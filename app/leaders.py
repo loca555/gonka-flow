@@ -1,5 +1,8 @@
 """Address leaderboards and price distributions from the same verified swap snapshot."""
 import re
+import threading
+import time as clock
+from copy import deepcopy
 from datetime import date, datetime, time
 from .config import ZERO
 from .db import tokens
@@ -8,10 +11,32 @@ from .timezones import CYPRUS, local_day
 from .bridge_volume import bridge_price_bands, bridge_since
 
 
+LEADER_BASE_TTL = 30.0
+
+
+def base_analysis(db):
+    """One read-only all-history base per DB, shared by dates and grouping modes."""
+    if db is None:
+        return analysis(db, side="all", limit=None, include_bridge=True)
+    state = db.__dict__.setdefault("_leader_base", {"lock": threading.Lock(), "entry": None})
+    with state["lock"]:
+        stamp = db.revision
+        entry = state["entry"]
+        if entry and entry["stamp"] == stamp and clock.monotonic() < entry["until"]:
+            return entry["data"]
+        # Never turn an exception/unready snapshot into a cached zero result.
+        data = analysis(db, side="all", limit=None, include_bridge=True)
+        if data["ready"] and stamp == db.revision:
+            state["entry"] = {"stamp": stamp, "until": clock.monotonic() + LEADER_BASE_TTL, "data": data}
+        else:
+            state["entry"] = None
+        return data
+
+
 def trade_leaders(db, start_date=None, grouped=True):
     since = int(datetime.combine(date.fromisoformat(start_date), time.min, CYPRUS).timestamp()) if start_date else None
-    data = analysis(db, side="all", limit=None, include_bridge=True)
-    result = {key: data[key] for key in ("ready", "now", "timezone", "snapshot", "coverage", "status", "pools")}
+    data = base_analysis(db)
+    result = {key: deepcopy(data[key]) for key in ("ready", "now", "timezone", "snapshot", "coverage", "status", "pools")}
     result.update(buyers=[], sellers=[], summary=None, excluded=None, price_distribution=None, price_days=None, price_bridge=None, bridge=None,
                   attribution="initiator_net_tx_net_initiator_only", period="since_date" if start_date else "all_history", start_date=start_date, since=since,
                   grouped=bool(grouped), groups=[],
@@ -65,7 +90,7 @@ def trade_leaders(db, start_date=None, grouped=True):
     price_days, price_bridge = {}, {}
     bridge = bridge_since(data.get("bridge"), start_date)
     if bridge:
-        result["bridge"] = {key: value for key, value in bridge.items() if key != "daily"}
+        result["bridge"] = {key: deepcopy(value) for key, value in bridge.items() if key != "daily"}
     for step, days in day_bins.items():
         counts, winners = {}, {}
         for day, volumes in days.items():

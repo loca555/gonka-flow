@@ -79,6 +79,7 @@ def tokens(raw, decimals=9):
 
 class Database:
     def __init__(self, path):
+        self.path = Path(path).resolve()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -95,11 +96,12 @@ class Database:
         row = self.conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else default
 
-    def put(self, key, value):
+    def put(self, key, value, *, data_change=True):
         with self.conn:
             self.conn.execute("INSERT OR REPLACE INTO kv VALUES(?,?)",
                               (key, json.dumps(value, ensure_ascii=False)))
-        self.revision += 1
+        if data_change:
+            self.revision += 1
 
     def snapshot(self, key, data):
         self.put(key, {"updated_at": int(time.time()), "data": data})

@@ -9,6 +9,7 @@ from app.db import Database
 from app.main import create_app
 from app.mints import initialize
 from app.leaders import trade_leaders
+from app.leaders import base_analysis
 from app.flows import analysis
 from test_flows import A, POOL, UNIT, block, event
 
@@ -220,6 +221,68 @@ class LeaderTests(unittest.TestCase):
                 self.assertIn('id="leaders-view"',html)
                 self.assertEqual(client.get("/static/leaders.js").status_code,200)
                 self.assertEqual(client.get("/static/leaders.css").status_code,200)
+
+
+class LeaderBaseCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.db=Database(Path(self.temp.name)/'cache.sqlite3')
+        initialize(self.db)
+        self.data=source([trade('buy',A,UNIT,1000000,ts=1793000000)])
+
+    def tearDown(self):
+        self.db.close();self.temp.cleanup()
+
+    def test_dates_and_grouping_share_base_without_mutation(self):
+        from copy import deepcopy
+        before=deepcopy(self.data)
+        with patch('app.leaders.analysis',return_value=self.data) as read:
+            first=trade_leaders(self.db,grouped=True)
+            trade_leaders(self.db,start_date='2026-10-01',grouped=False)
+            trade_leaders(self.db,start_date='2026-10-02',grouped=True)
+            first['snapshot']['height']=999
+            self.assertEqual(trade_leaders(self.db,grouped=False)['snapshot']['height'],12)
+        self.assertEqual(read.call_count,1)
+        self.assertEqual(self.data,before)
+
+    def test_ttl_and_source_revision_invalidate(self):
+        with patch('app.leaders.analysis',return_value=self.data) as read,patch('app.leaders.clock.monotonic',return_value=100) as now:
+            base_analysis(self.db)
+            now.return_value=129;base_analysis(self.db)
+            self.assertEqual(read.call_count,1)
+            now.return_value=131;base_analysis(self.db)
+            self.assertEqual(read.call_count,2)
+            self.db.put('flow:snapshot',{'height':13});base_analysis(self.db)
+            self.assertEqual(read.call_count,3)
+
+    def test_errors_and_unready_results_are_not_cached_as_success(self):
+        with patch('app.leaders.analysis',side_effect=[RuntimeError('RPC unavailable'),source([],False),self.data,self.data]) as read:
+            with self.assertRaises(RuntimeError):base_analysis(self.db)
+            self.assertFalse(base_analysis(self.db)['ready'])
+            self.assertTrue(base_analysis(self.db)['ready'])
+            self.assertTrue(base_analysis(self.db)['ready'])
+            self.assertEqual(read.call_count,3)
+
+    def test_databases_are_isolated_and_one_rebuild_serves_concurrent_readers(self):
+        from concurrent.futures import ThreadPoolExecutor
+        other=Database(Path(self.temp.name)/'other.sqlite3')
+        initialize(other)
+        try:
+            with patch('app.leaders.analysis',return_value=self.data) as read:
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    self.assertTrue(all(x['ready'] for x in pool.map(lambda _:base_analysis(self.db),range(8))))
+                self.assertEqual(read.call_count,1)
+                base_analysis(other)
+                self.assertEqual(read.call_count,2)
+        finally:other.close()
+
+    def test_data_changed_during_computation_is_not_cached(self):
+        def compute(*args,**kwargs):
+            self.db.put('flow:status',{'latest_height':13})
+            return self.data
+        with patch('app.leaders.analysis',side_effect=compute) as read:
+            base_analysis(self.db);base_analysis(self.db)
+            self.assertEqual(read.call_count,2)
 
 
 if __name__=="__main__":

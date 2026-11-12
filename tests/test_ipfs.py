@@ -18,7 +18,7 @@ class IpfsExportTests(unittest.TestCase):
             self.assertEqual(build(second), manifest)
             paths = sorted(p.relative_to(first).as_posix() for p in first.rglob('*') if p.is_file())
             self.assertEqual(set(paths), set(manifest['files']) | {'ipfs-build.json'})
-            self.assertEqual(len(paths), 18)
+            self.assertEqual(len(paths), 16)
             for name in paths:
                 content = (first / name).read_bytes()
                 self.assertEqual(content, (second / name).read_bytes())
@@ -27,6 +27,9 @@ class IpfsExportTests(unittest.TestCase):
                     self.assertEqual(sha256(content).hexdigest(), manifest['files'][name])
             index = (first / 'index.html').read_text(encoding='utf-8')
             self.assertIn('href="#trading"', index)
+            self.assertIn('href="https://gonkamarket.eth.limo/">OTC</a>', index)
+            self.assertNotIn('static/otc.js', index)
+            self.assertNotIn('static/otc.css', index)
             self.assertIn('href="./api-docs.html"', index)
             self.assertIn('href="./"', index)
             self.assertIn('connect-src', index)

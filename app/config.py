@@ -52,8 +52,35 @@ class Settings:
     snapshot_min_blocks: int = field(default_factory=lambda: max(0, int(os.getenv("SNAPSHOT_MIN_BLOCKS", "20000"))))
     snapshot_restore: bool = field(default_factory=lambda: os.getenv("SNAPSHOT_RESTORE", "true").lower() == "true")
     powder_enabled: bool = field(default_factory=lambda: os.getenv("POWDER_ENABLED", "true").lower() == "true")
+    api_client_per_minute: int = field(default_factory=lambda: int(os.getenv("API_CLIENT_PER_MINUTE", "120")))
+    api_global_per_minute: int = field(default_factory=lambda: int(os.getenv("API_GLOBAL_PER_MINUTE", "600")))
+    api_heavy_per_minute: int = field(default_factory=lambda: int(os.getenv("API_HEAVY_PER_MINUTE", "30")))
+    api_heavy_global_per_minute: int = field(default_factory=lambda: int(os.getenv("API_HEAVY_GLOBAL_PER_MINUTE", "180")))
+    api_export_per_minute: int = field(default_factory=lambda: int(os.getenv("API_EXPORT_PER_MINUTE", "2")))
+    api_export_global_per_minute: int = field(default_factory=lambda: int(os.getenv("API_EXPORT_GLOBAL_PER_MINUTE", "10")))
+    api_max_concurrent: int = field(default_factory=lambda: int(os.getenv("API_MAX_CONCURRENT", "4")))
+    api_max_clients: int = field(default_factory=lambda: int(os.getenv("API_MAX_CLIENTS", "2048")))
+    api_max_query_bytes: int = field(default_factory=lambda: int(os.getenv("API_MAX_QUERY_BYTES", "2048")))
+    api_cache_entries: int = field(default_factory=lambda: int(os.getenv("API_CACHE_ENTRIES", "128")))
+    api_cache_bytes: int = field(default_factory=lambda: int(os.getenv("API_CACHE_BYTES", "8388608")))
+    api_allowed_origins: list = field(default_factory=lambda: urls("API_ALLOWED_ORIGINS", "*"))
 
     def __post_init__(self):
+        for name in ("api_client_per_minute", "api_global_per_minute", "api_heavy_per_minute",
+                     "api_heavy_global_per_minute", "api_export_per_minute", "api_export_global_per_minute",
+                     "api_max_concurrent", "api_max_clients", "api_max_query_bytes", "api_cache_entries", "api_cache_bytes"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be positive")
+        from urllib.parse import urlsplit
+        if not self.api_allowed_origins or ("*" in self.api_allowed_origins and self.api_allowed_origins != ["*"]):
+            raise ValueError("API_ALLOWED_ORIGINS must be * or explicit origins")
+        for origin in self.api_allowed_origins:
+            if origin == "*":
+                continue
+            parsed = urlsplit(origin)
+            if (parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username
+                    or parsed.password or parsed.path or parsed.query or parsed.fragment):
+                raise ValueError("API_ALLOWED_ORIGINS must contain origins without credentials or paths")
         if self.mode not in ("full", "mints"):
             raise ValueError("APP_MODE must be full or mints")
         if self.history_from and self.mode == "full":

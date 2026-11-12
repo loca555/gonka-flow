@@ -202,17 +202,29 @@ def daily_bands(db):
 
 def rebuild_if_stale(db):
     """Recompute the series only when the underlying events changed."""
+    result = prepare_if_stale(db)
+    if result is None:
+        return False
+    db.put("flow:depth_history", result)
+    return True
+
+
+def fingerprint(db):
     counts = db.conn.execute("SELECT count(*), coalesce(max(height),0) FROM lp_ticks").fetchone()
     swaps = db.conn.execute(
         "SELECT count(*), coalesce(max(height),0) FROM events WHERE chain='ethereum' "
         "AND finalized=1 AND kind IN ('buy','sell') AND pool=?", (POOL,)).fetchone()
-    fingerprint = (counts[0], counts[1], swaps[0], swaps[1])
+    return (counts[0], counts[1], swaps[0], swaps[1])
+
+
+def prepare_if_stale(db):
+    """Pure read phase; safe on an isolated reader in the analysis worker."""
+    stamp = fingerprint(db)
     saved = db.get("flow:depth_history") or {}
     # kv round-trips the tuple as a JSON list.
-    if tuple(saved.get("fingerprint") or ()) == fingerprint:
-        return False
-    db.put("flow:depth_history", daily_bands(db))
-    return True
+    if tuple(saved.get("fingerprint") or ()) == stamp:
+        return None
+    return daily_bands(db)
 
 
 def current_net(db):

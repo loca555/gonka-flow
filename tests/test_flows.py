@@ -115,6 +115,48 @@ class FlowTests(unittest.TestCase):
         self.db._range("ethereum",1,5);self.db._range("ethereum",7,12);self.db.conn.commit()
         self.assertIsNone(analysis(self.db)["holder_history"])
 
+    def test_holder_history_matches_verified_live_tail_and_cards(self):
+        # The live collector verifies this exact tail against supply/pool balances.
+        # Its transfers are not finalized yet, but are already in the card ledger.
+        prior = self.db.get("flow:snapshot")
+        for kind, source, destination, supply, pooled in (
+                ("transfer", POOL, A, 95, 40),
+                ("bridge_mint", ZERO, A, 105, 50),
+                ("bridge_burn", A, ZERO, 85, 50)):
+            with self.subTest(kind=kind):
+                tail = [{**event(13, kind, 10, source, destination), "finalized": 0}]
+                tail.append({**event(14, "buy", 100, actor=A, pool=POOL,
+                    meta={"attribution": "initiator_net"}), "finalized": 0})
+                snapshot = {**prior, **block(14), "supply_raw": str(supply*UNIT),
+                    "pools": [{**prior["pools"][0], "balance_raw": str(pooled*UNIT)}]}
+                self.db.put("flow:live", {"current": {"base": 12,
+                    "snapshot": snapshot, "events": tail}, "history": []})
+                self.db.put("mints:status", {"finalized_height": 12, "latest_height": 14})
+                data = analysis(self.db)
+                history, cards = data["holder_history"], data["outside_holders"]
+                self.assertTrue(cards["ready"])
+                self.assertTrue(history["ready"], history["reason"])
+                self.assertEqual(history["points"][-1]["total_raw"], cards["total_raw"])
+                for group in cards["groups"]:
+                    self.assertEqual(history["points"][-1][group["id"]+"_raw"], group["balance_raw"])
+                    self.assertEqual(history["points"][-1]["addresses"][group["id"]], group["addresses"])
+                # Pending trades must not reclassify the cards or their history.
+                self.assertEqual(cards["groups"][1]["balance_raw"], str((supply-pooled)*UNIT))
+
+    def test_holder_history_rebuilds_after_live_tail_replacement(self):
+        prior = self.db.get("flow:snapshot")
+        for quantity in (10, 3):
+            snapshot = {**prior, **block(14),
+                "hash": "0x"+format(quantity, "064x"),
+                "pools": [{**prior["pools"][0], "balance_raw": str((50-quantity)*UNIT)}]}
+            tail = [{**event(13, "transfer", quantity, POOL, A), "finalized": 0}]
+            self.db.put("flow:live", {"current": {"base": 12, "snapshot": snapshot,
+                "events": tail}, "history": []})
+            self.db.put("mints:status", {"finalized_height": 12, "latest_height": 14})
+            data = analysis(self.db)
+            self.assertTrue(data["holder_history"]["ready"])
+            self.assertEqual(data["holder_history"]["points"][-1]["total_raw"], str((45+quantity)*UNIT))
+
     def test_outside_holders_use_all_history_and_current_balance(self):
         groups=analysis(self.db)["outside_holders"]
         self.assertTrue(groups["ready"])
@@ -330,7 +372,8 @@ class FlowTests(unittest.TestCase):
         from fastapi.testclient import TestClient
         from app.config import Settings
         from app.main import create_app
-        cfg=Settings(mode="mints",data_dir=Path(self.temp.name)/"page-api",indexer_enabled=False,history_from="")
+        cfg=Settings(mode="mints",data_dir=Path(self.temp.name)/"page-api",indexer_enabled=False,history_from="",
+                     api_heavy_per_minute=100,api_export_per_minute=100,api_export_global_per_minute=100)
         with TestClient(create_app(cfg)) as client:
             db=client.app.state.db
             db.put("mints:deployment",block(1));db.put("mints:status",{"finalized_height":12})
@@ -365,7 +408,7 @@ class FlowTests(unittest.TestCase):
             empty=client.get("/api/mints/trades",params={**params,"q":"0x"+"f"*40}).json()
             self.assertTrue(empty["ready"]);self.assertEqual((empty["total"],empty["trades"]),(0,[]))
 
-    def test_address_endpoint_returns_all_trades_beyond_normal_page_limit(self):
+    def test_address_endpoint_returns_bounded_snapshot_pages(self):
         from fastapi.testclient import TestClient
         from app.config import Settings
         from app.main import create_app
@@ -379,15 +422,41 @@ class FlowTests(unittest.TestCase):
             db.save_batch("ethereum",1,12,self.events+extra,[block(h) for h in range(1,13)])
             db.put("flow:snapshot",self.db.get("flow:snapshot"))
             data=client.get("/api/mints/address/"+A).json()
-            self.assertTrue(data["ready"]);self.assertFalse(data["has_more"])
-            self.assertEqual((data["total"],len(data["trades"]),data["offset"]),(232,232,0))
+            self.assertTrue(data["ready"]);self.assertTrue(data["has_more"])
+            self.assertEqual((data["total"],len(data["trades"]),data["offset"],data["limit"]),(232,50,0,50))
             self.assertEqual(data["address_balance"]["amount"],"45")
             self.assertEqual(data["summary"]["buys_count"],230)
+            expected=analysis(db,q=A,side="all",limit=None)["trades"]
+            params={"through":data["snapshot"]["height"],"snapshot_hash":data["snapshot"]["hash"],"as_of":data["as_of"]}
+            ids=[e["id"] for e in data["trades"]]
+            # Subsequent pages must not replay balances/minters/charts.
+            from unittest.mock import patch
+            with patch('app.main.flow_analysis',side_effect=AssertionError('Full analysis on a page')):
+                for offset in range(50,232,50):
+                    page=client.get("/api/mints/address/"+A,params={**params,"offset":offset}).json()
+                    self.assertLessEqual(len(page["trades"]),50)
+                    self.assertNotIn("address_history",page)
+                    ids.extend(e["id"] for e in page["trades"])
+            self.assertEqual(ids,[e["id"] for e in expected]);self.assertEqual(len(ids),len(set(ids)))
             asc=client.get("/api/mints/address/"+A+"?sort=time_asc").json()
-            self.assertEqual([e["id"] for e in asc["trades"]],list(reversed([e["id"] for e in data["trades"]])))
+            self.assertEqual([e["id"] for e in asc["trades"]],list(reversed([e["id"] for e in expected]))[:50])
             self.assertEqual(client.get("/api/mints/flows?q="+A+"&side=all").json()["limit"],25)
             self.assertEqual(client.get("/api/mints/address/0x123").status_code,400)
             self.assertEqual(client.get("/api/mints/address/"+A+"?sort=unsafe").status_code,422)
+            for query in ({"limit":0},{"limit":201},{"offset":-1},{"offset":5000001}):
+                self.assertEqual(client.get("/api/mints/address/"+A,params=query).status_code,422)
+            self.assertEqual(client.get("/api/mints/address/"+A,params={"through":12}).status_code,400)
+            # A later head must not mix a newer trade into the pinned history.
+            new=blank("ethereum",block(13),"0x"+"a"*64,0,"buy",UNIT,actor=A,pool=POOL,
+                      quote_raw="1000000",quote_asset="USDT",meta={"attribution":"initiator_net"})
+            db.save_batch("ethereum",13,14,[new],[block(13),block(14)])
+            db.put("mints:status",{"finalized_height":14})
+            db.put("flow:snapshot",{**self.db.get("flow:snapshot"),**block(14)})
+            pinned=client.get("/api/mints/address/"+A,params={**params,"offset":200}).json()
+            self.assertEqual(pinned["total"],232)
+            self.assertEqual([e["id"] for e in pinned["trades"]],[e["id"] for e in expected[200:]])
+            db.conn.execute("UPDATE blocks SET hash=? WHERE chain='ethereum' AND height=12",('0x'+'f'*64,));db.conn.commit();db.revision+=1
+            self.assertEqual(client.get("/api/mints/address/"+A,params={**params,"offset":50}).status_code,409)
             empty=client.get("/api/mints/address/"+"0x"+"f"*40).json()
             self.assertEqual((empty["total"],empty["trades"],empty["address_balance"]["amount"]),(0,[],"0"))
 

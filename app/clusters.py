@@ -172,14 +172,23 @@ def compute(db, addresses, pools=()):
 
 def cached(db, addresses, pools=()):
     """compute() behind a kv cache keyed by the address set and row counts."""
-    fingerprint = (sorted(addresses), sorted(pools),
+    fingerprint = [sorted(addresses), sorted(pools),
                    db.conn.execute("SELECT count(*) FROM gonka_mint_links").fetchone()[0],
                    (lambda rows: rows[0][0] if rows else 0)(_powder_rows(db, "SELECT count(*) FROM powder_transfers")),
-                   db.conn.execute("SELECT count(*) FROM events WHERE kind='transfer'").fetchone()[0])
-    saved = db.get("clusters:cache") or {}
+                   db.conn.execute("SELECT count(*) FROM events WHERE kind='transfer'").fetchone()[0]]
+    # HTTP readers cannot write to the indexer's database. Keep their one-entry
+    # derived memo in the serialized reader worker instead. Lists also survive
+    # the normal KV JSON round trip (a tuple never matched the restored list).
+    memo = getattr(db, 'analysis_memo', None)
+    saved = (memo or {}).get('clusters:cache') or db.get("clusters:cache") or {}
     now = time.time()
     if saved.get("fingerprint") == fingerprint and now - saved.get("checked_at", 0) < CACHE_SECONDS:
         return saved["data"]
     data = compute(db, addresses, pools)
-    db.put("clusters:cache", {"fingerprint": fingerprint, "checked_at": now, "data": data})
+    # A derived cache write must not invalidate other caches of the same source data.
+    entry = {"fingerprint": fingerprint, "checked_at": now, "data": data}
+    if memo is None:
+        db.put("clusters:cache", entry, data_change=False)
+    else:
+        memo['clusters:cache'] = entry
     return data

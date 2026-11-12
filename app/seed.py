@@ -25,6 +25,7 @@ META_FIELDS = {"contract", "topic", "epoch", "sender", "recipient", "initiator",
                "initiator_net_raw", "attribution", "attributed", "attributed_net_raw",
                "quote_decimals", "transaction_index", "sqrt_price_raw", "liquidity_raw"}
 DEFAULT_ARCHIVE = Path(__file__).parent / "seed-data" / "wgnk.sqlite3.gz"
+MAX_UNPACKED_SEED_BYTES = 256 * 1024 * 1024
 
 LINK_FIELDS = set("tx_hash log_index eth_address eth_height eth_ts request_id epoch_id amount_raw gnk_address gnk_tx_hash gnk_height gnk_ts gnk_block_hash event_index native_request_id verified_at verification".split())
 BURN_LINK_FIELDS = set('event_id tx_hash log_index eth_address eth_height eth_ts eth_block_hash receipt_index amount_raw gnk_address request_id epoch_id status verification evidence_url verified_at gnk_tx_hash gnk_ts'.split())
@@ -293,6 +294,9 @@ def restore_seed(target, archive=DEFAULT_ARCHIVE):
         raise ValueError("Unsupported seed manifest")
     if hashlib.sha256(archive.read_bytes()).hexdigest() != manifest["sha256"]:
         raise ValueError("Seed archive checksum mismatch")
+    if (type(manifest.get("unpacked_bytes")) is not int
+            or not 0 < manifest["unpacked_bytes"] <= MAX_UNPACKED_SEED_BYTES):
+        raise ValueError("Seed archive exceeds size limit")
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix="wgnk-seed-", suffix=".sqlite3", dir=target.parent)
     staged = Path(tmp)
@@ -301,7 +305,7 @@ def restore_seed(target, archive=DEFAULT_ARCHIVE):
             total = 0
             while chunk := src.read(1024*1024):
                 total += len(chunk)
-                if total > min(manifest["unpacked_bytes"], 128*1024*1024):
+                if total > min(manifest["unpacked_bytes"], MAX_UNPACKED_SEED_BYTES):
                     raise ValueError("Seed archive exceeds declared size")
                 dst.write(chunk)
         if total != manifest["unpacked_bytes"]:

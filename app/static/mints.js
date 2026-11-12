@@ -135,12 +135,41 @@ function renderChart(d){
    {color:"#f2801e",label:"Среднее за 7 дней"},
    {color:"#4db8ff",label:"Цена, USDT"},
    {color:"#9b59b6",label:"Вес сети"},
-   {color:"#d63384",label:"AI-токены за 24 ч"}]};
+   {color:"#d63384",label:"AI-токены за эпоху (~24 ч)"}]};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
- let window_note=(d.coverage.complete?"Финальная история":"Есть пропуски истории")+" · текущий день может быть неполным · оранжевая линия — среднее за 7 дней · голубая — цена дня (правая ось) · фиолетовая — вес сети майнеров (внешняя ось) · зелёная — AI-токены за 24 ч";
- if(daily.length!==d.daily.length)
-  window_note+=" · 09.06.2026 исключён из графика: аномальный выброс 3 268 769 WGNK разминочного выпуска";
- el("chart-window").textContent=window_note;
+ const heading=chart.closest('article').querySelector('.panel-title');
+ if(!el('download-mint-chart')){
+  const button=document.createElement('button');button.id='download-mint-chart';button.type='button';
+  button.title='Скачать график PNG';button.setAttribute('aria-label',button.title);
+  button.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>';
+  button.addEventListener('click',async()=>{button.disabled=true;try{await downloadMintChart();}catch(error){notify('Не удалось сохранить график: '+error.message);}finally{button.disabled=false;}});
+  heading.append(button);
+ }
+}
+async function downloadMintChart(){
+ const host=el('mint-chart'),source=host.querySelector('svg'),clone=source.cloneNode(true);
+ const originals=[source,...source.querySelectorAll('*')],copies=[clone,...clone.querySelectorAll('*')];
+ originals.forEach((node,i)=>{
+  const style=getComputedStyle(node);
+  for(const key of ['fill','stroke','stroke-width','stroke-dasharray','opacity','font-family','font-size','font-weight','visibility'])copies[i].style.setProperty(key,style.getPropertyValue(key));
+ });
+ clone.querySelector('.chart-cursor')?.remove();clone.querySelector('.chart-hit')?.remove();
+ const {width,height}=source.viewBox.baseVal;
+ clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width',width);clone.setAttribute('height',height);
+ const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d'),header=100;
+ canvas.width=width*2;canvas.height=(height+header)*2;ctx.scale(2,2);
+ const theme=getComputedStyle(host);ctx.fillStyle=theme.getPropertyValue('--panel');ctx.fillRect(0,0,width,height+header);
+ ctx.fillStyle=theme.getPropertyValue('--text');ctx.font='bold 20px Segoe UI';ctx.fillText('Ритм чеканки · Gonka Flow',18,30);
+ ctx.font='12px Segoe UI';let lx=18,ly=56;
+ host.querySelectorAll('.chart-legend-item').forEach(item=>{
+  const label=item.textContent,w=ctx.measureText(label).width+32;if(lx+w>width-18){lx=18;ly+=22;}
+  ctx.fillStyle=getComputedStyle(item.querySelector('i')).backgroundColor;ctx.fillRect(lx,ly-8,8,8);
+  ctx.fillStyle=theme.getPropertyValue('--text');ctx.fillText(label,lx+14,ly);lx+=w;
+ });
+ const img=new Image();img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(new XMLSerializer().serializeToString(clone));
+ await img.decode();ctx.drawImage(img,0,header,width,height);
+ const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG недоступен');
+ const downloadUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=downloadUrl;link.download='gonka-mint-chart.png';link.click();setTimeout(()=>URL.revokeObjectURL(downloadUrl),10000);
 }
 function renderRecipients(d){
  setLiveHTML(el("recipient-list"),d.recipients.length?d.recipients.map((r,i)=>
@@ -218,3 +247,4 @@ showView();refresh();
 window.addEventListener("resize",()=>{if(state.data)renderChart(state.data);});
 setInterval(()=>{if(!document.hidden&&!state.fetching)refresh();},15000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&!state.fetching)refresh();});
+

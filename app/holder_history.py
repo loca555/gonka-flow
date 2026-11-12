@@ -1,4 +1,4 @@
-"""Point-in-time holder groups, replayed from the complete finalized WGNK ledger."""
+"""Point-in-time holder groups replayed through the verified WGNK snapshot."""
 import json
 import re
 from collections import defaultdict
@@ -9,20 +9,27 @@ from .holder_groups import GROUPS, category
 from .timezones import TIME_ZONE, local_day
 
 
-def holder_history(rows, ledger, snapshot, deployment, current):
+def holder_history(rows, ledger, snapshot, deployment, current, *, verified_live_base=None):
     """Caller provides contiguous deployment-to-snapshot events, before any filters.
 
     Every historical address is included, even if it has since emptied its wallet.
     Category changes move its entire then-current balance, not just that day's flow.
-    No current category or future trade is projected backwards.
+    No current category or future trade is projected backwards. A verified live
+    packet may include pending balance transfers after its finalized base. Trade
+    classification still uses finalized trades, exactly like the current cards.
     """
     result = {"ready": False, "reason": "ledger_unverified", "points": [],
               "height": snapshot["height"], "ts": snapshot.get("ts"),
               "start_height": deployment["height"], "start_ts": deployment.get("ts"),
               "timezone": TIME_ZONE, "source": "verified_transfer_ledger", "interval": "day",
               "classification_basis": "cumulative_trades_as_of_day",
-              "balance_basis": "end_of_day_or_snapshot", "scope": "all_historical_addresses_outside_tracked_pools"}
+              "balance_basis": "end_of_day_or_snapshot", "scope": "all_historical_addresses_outside_tracked_pools",
+              "finalized_through": snapshot["height"] if verified_live_base is None else verified_live_base,
+              "latest_point_provisional": verified_live_base is not None and verified_live_base < snapshot["height"]}
     if not current.get("ready") or deployment.get("ts") is None or snapshot.get("ts") is None:
+        return result
+    if verified_live_base is not None and not deployment["height"]-1 <= verified_live_base <= snapshot["height"]:
+        result["reason"] = "invalid_live_boundary"
         return result
     first, last = local_day(deployment["ts"]), local_day(snapshot["ts"])
     if snapshot["ts"] < deployment["ts"]:
@@ -31,7 +38,9 @@ def holder_history(rows, ledger, snapshot, deployment, current):
     pools = {p["address"] for p in snapshot["pools"]}
     days = defaultdict(list)
     for event in rows:
-        if not event["finalized"] or not deployment["height"] <= event["height"] <= snapshot["height"]:
+        if not deployment["height"] <= event["height"] <= snapshot["height"]:
+            continue
+        if not event["finalized"] and (verified_live_base is None or event["height"] <= verified_live_base):
             continue
         if not deployment["ts"] <= event["ts"] <= snapshot["ts"]:
             result["reason"] = "invalid_event_timestamp"
@@ -58,7 +67,7 @@ def holder_history(rows, ledger, snapshot, deployment, current):
             elif kind == "transfer":
                 balances[event["src"]] -= quantity
                 balances[event["dst"]] += quantity
-            elif (kind in ("buy", "sell") and event["pool"] in pools
+            elif (event["finalized"] and kind in ("buy", "sell") and event["pool"] in pools
                   and re.fullmatch(r"0x[0-9a-f]{40}", event["actor"] or "")
                   and event["actor"] != ZERO
                   and json.loads(event["meta"]).get("attribution") == "initiator_net"):

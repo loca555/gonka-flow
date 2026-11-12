@@ -222,7 +222,7 @@ class Sources:
             interval = self.eth_intervals.get(endpoint, self.settings.eth_rpc_interval)
             self.eth_intervals[endpoint] = min(max(10, self.settings.eth_rpc_interval), interval * 2)
             self.eth_successes[endpoint] = 0
-        elif error.category == "unsupported":
+        elif error.category in ("unsupported", "historical_state"):
             self.eth_method_cooldown[(endpoint, lane, method)] = now + max(3600, delay)
         elif error.category == "access":
             # A public endpoint can serve live data while refusing historical data.
