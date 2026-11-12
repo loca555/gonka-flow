@@ -33,7 +33,7 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   const apply=async day=>{
    await page.locator('#leaders-start-date').fill(day);
    const response=page.waitForResponse(r=>isPeriod(r,day));
-   await page.getByRole('button',{name:'Применить',exact:true}).click();
+   await page.getByRole('button',{name:'Apply',exact:true}).click();
    await response;await settled();
   };
   const checkRows=async data=>{
@@ -44,7 +44,7 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
    }
   };
   await page.goto(base+'/#leaders');await page.locator('#leaders-buy-chart svg').waitFor();
-  await checkRows(all);assert.equal(await page.locator('#leaders-period').innerText(),'Вся история');
+  await checkRows(all);assert.equal(await page.locator('#leaders-period').innerText(),'All history');
   await page.waitForFunction(()=>document.title.includes(' · WGNK — Gonka Flow'));
   const quote=await page.title();
   const calendar=page.locator('#leaders-start-date');
@@ -55,17 +55,17 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   assert(await calendar.evaluate(e=>!e.matches(':open')));
   await calendar.fill('');
   await apply('2026-09-01');await checkRows(september);
-  assert.equal(await page.locator('#leaders-period').innerText(),'С 01.09.2026');
+  assert.equal(await page.locator('#leaders-period').innerText(),'From 09/01/2026');
   assert.equal(await page.locator('#leaders-buy-table tbody tr').first().getAttribute('data-address'),september.buyers[0].address);
-  assert((await page.locator('#leaders-buy-price-summary').innerText()).includes('с 01.09.2026'));
-  assert(!(await page.locator('#leaders-buy-price-summary').innerText()).includes('вся история'));
+  assert((await page.locator('#leaders-buy-price-summary').innerText()).includes('from 09/01/2026'));
+  assert(!(await page.locator('#leaders-buy-price-summary').innerText()).includes('all history'));
   await page.locator('#leaders-price-step').selectOption('10');
   await page.locator('#leaders-buy-chart svg').press('Home');
   assert.equal(await page.locator('#leaders-buy-chart .chart-tooltip').getAttribute('data-bridge-in'),september.price_bridge['10'].bands[0].in_raw);
   await page.locator('#leaders-buy-table th[data-sort="swaps"] button').click();
   await checkRows(september);
-  await page.getByRole('link',{name:'Торговля',exact:true}).click();
-  await page.getByRole('link',{name:'Крупные трейдеры',exact:true}).click();
+  await page.getByRole('link',{name:'Trading',exact:true}).click();
+  await page.getByRole('link',{name:'Top traders',exact:true}).click();
   await settled();assert.equal(await page.locator('#leaders-start-date').inputValue(),'2026-09-01');
   await page.reload();await page.locator('#leaders-buy-chart svg').waitFor();
   assert.equal(await page.locator('#leaders-start-date').inputValue(),'2026-09-01');await checkRows(september);
@@ -76,23 +76,23 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   await apply('2026-09-02');
   assert.equal(await page.locator('#leaders-content').isVisible(),false);
   assert.equal(await page.locator('#leaders-period-form').isVisible(),true);
-  assert((await page.locator('#leaders-status').innerText()).includes('Не удалось'));
+  assert((await page.locator('#leaders-status').innerText()).includes('Failed'));
   await page.unroute(failed);
   await apply('2026-09-02');assert.equal(await page.locator('#leaders-content').isVisible(),true);
   // An older, slow request may finish only after a newer period was selected.
   let unblock,arrived;const gate=new Promise(resolve=>unblock=resolve),held=new Promise(resolve=>arrived=resolve);
   await page.route('**/api/mints/leaders?start_date=2026-08-01',async route=>{arrived();await gate;await route.fulfill({json:all}).catch(()=>{});});
   await page.locator('#leaders-start-date').fill('2026-08-01');
-  await page.getByRole('button',{name:'Применить',exact:true}).click();await held;
+  await page.getByRole('button',{name:'Apply',exact:true}).click();await held;
   await apply('2026-09-01');unblock();await checkRows(september);
   await page.unroute('**/api/mints/leaders?start_date=2026-08-01');
-  assert.equal(await page.locator('#leaders-period').innerText(),'С 01.09.2026');
+  assert.equal(await page.locator('#leaders-period').innerText(),'From 09/01/2026');
   await apply('2099-01-01');
   assert.equal(await page.locator('#leaders-content').isVisible(),true);
   assert.equal(await page.locator('#leaders-buy-chart svg').count(),0);
-  assert((await page.locator('#leaders-buy-rows').innerText()).includes('за выбранный период'));
+  assert((await page.locator('#leaders-buy-rows').innerText()).includes('in the selected period'));
   const resetResponse=page.waitForResponse(r=>isPeriod(r,''));
-  await page.getByRole('button',{name:'Вся история',exact:true}).click();await resetResponse;await settled();
+  await page.getByRole('button',{name:'All history',exact:true}).click();await resetResponse;await settled();
   await checkRows(all);assert.equal(await page.locator('#leaders-start-date').inputValue(),'');
   await page.reload();await page.locator('#leaders-buy-chart svg').waitFor();await checkRows(all);
   await apply('2026-09-01');
@@ -103,7 +103,7 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   for(const width of [390,320]){
    await page.setViewportSize({width,height:950});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'horizontal overflow at '+width);
-   assert(await page.getByRole('button',{name:'Применить',exact:true}).isVisible());
+   assert(await page.getByRole('button',{name:'Apply',exact:true}).isVisible());
    await page.screenshot({path:'test-results/leaders-date-'+width+'.png'});
   }
   assert.deepEqual(errors,[]);

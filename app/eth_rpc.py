@@ -42,22 +42,22 @@ def rpc_result(response):
     wait = retry_after(response.headers.get("Retry-After"))
     # Authorization and rate limits must not trigger exponential subdivision of getLogs.
     if status == 429:
-        category, reason = "rate_limit", "лимит RPC; ожидаем разрешённый повтор"
+        category, reason = "rate_limit", "RPC limit; waiting for the allowed retry"
     elif status in (401, 403) or any(s in message for s in ("personal token", "api key required", "unauthorized")):
-        category, reason = "access", "доступ к RPC/архиву ограничен; нужен разрешённый endpoint"
+        category, reason = "access", "RPC/archive access is restricted; a permitted endpoint is required"
     elif any(s in message for s in ("rate limit", "rate exceeded", "too many requests", "quota exceeded", "daily limit")):
-        category, reason = "rate_limit", "лимит RPC; ожидаем разрешённый повтор"
+        category, reason = "rate_limit", "RPC limit; waiting for the allowed retry"
     elif code == -32601 or "method not found" in message or "method is not supported" in message:
-        category, reason = "unsupported", "RPC не поддерживает этот метод"
+        category, reason = "unsupported", "RPC does not support this method"
     elif any(s in message for s in ("too many results", "query returned more", "response size",
                                    "maximum block range", "limited to a", "block range", "block range limit",
                                    "block range is too", "exceeds max", "exceed the maximum block",
                                    "please limit the query", "range should be less")):
-        category, reason = "range", "слишком большой диапазон или ответ getLogs"
+        category, reason = "range", "getLogs range or response is too large"
     elif any(s in message for s in ("missing trie node", "historical state")):
-        category, reason = "historical_state", "историческое состояние недоступно на этом RPC"
+        category, reason = "historical_state", "historical state is unavailable on this RPC"
     elif any(s in message for s in ("pruned", "archive requests")):
-        category, reason = "access", "исторические данные недоступны на этом RPC"
+        category, reason = "access", "historical data is unavailable on this RPC"
     else:
-        category, reason = "unavailable", "RPC временно не ответил корректно"
+        category, reason = "unavailable", "RPC temporarily did not respond correctly"
     raise EthereumRPCError(f"{reason} ({detail})", category, wait)

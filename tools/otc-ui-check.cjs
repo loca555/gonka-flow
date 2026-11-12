@@ -50,7 +50,7 @@ const fs=require('node:fs/promises');
   const count=await page.locator('#otc-count').textContent();await page.reload();await idle();
   assert.equal(await page.locator('#otc-count').textContent(),count);
   assert((await page.locator('#otc-deal').innerText()).includes('Обмен выполнен'));
-  await page.getByRole('link',{name:'Торговля',exact:true}).click();await page.locator('#otc-view').waitFor({state:'hidden'});
+  await page.getByRole('link',{name:'Trading',exact:true}).click();await page.locator('#otc-view').waitFor({state:'hidden'});
   await page.getByRole('link',{name:'OTC · локально',exact:true}).click();await page.locator('#otc-view').waitFor({state:'visible'});
   await page.locator('#theme-toggle').click();await page.locator('#otc-view').screenshot({path:'test-results/otc-dark.png'});
   await page.setViewportSize({width:390,height:844});

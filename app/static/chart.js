@@ -5,18 +5,18 @@ window.GonkaChart=(()=>{
   const n=BigInt(raw),factor=1000000n,rounded=(n+factor/2n)/factor;
   if(n>0n&&rounded===0n)return "< 0.000001";
   const fraction=(rounded%factor).toString().padStart(6,"0").replace(/0+$/,"");
-  return (rounded/factor).toLocaleString("ru-RU")+(fraction?"."+fraction:"");
+  return (rounded/factor).toLocaleString("en-US")+(fraction?"."+fraction:"");
  }
  const escape=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
  function exact(raw,decimals){
   const n=BigInt(raw),base=10n**BigInt(decimals);
-  return n>0n&&n<base?"< 1":(n/base).toLocaleString("ru-RU");
+  return n>0n&&n<base?"< 1":(n/base).toLocaleString("en-US");
  }
  function axis(raw,decimals){
   const n=BigInt(raw),base=10n**BigInt(decimals);
   if(n<0n)return '−'+axis(-n,decimals);
-  for(const [scale,suffix] of [[1000000000000n,'трлн'],[1000000000n,'млрд'],[1000000n,'млн'],[1000n,'тыс']]){
-   if(n>=scale*base){const tenths=n*10n/(scale*base);return (tenths/10n).toString()+(tenths%10n?','+(tenths%10n):'')+' '+suffix;}
+  for(const [scale,suffix] of [[1000000000000n,'T'],[1000000000n,'B'],[1000000n,'M'],[1000n,'K']]){
+   if(n>=scale*base){const tenths=n*10n/(scale*base);return (tenths/10n).toString()+(tenths%10n?'.'+(tenths%10n):'')+' '+suffix;}
   }
   return exact(n,decimals);
  }
@@ -25,11 +25,11 @@ window.GonkaChart=(()=>{
   const step=(n+3n)/4n,power=10n**BigInt(step.toString().length-1);
   return [1n,2n,5n,10n].find(x=>x*power>=step)*power*4n;
  }
- const label=d=>d.slice(8)+"."+d.slice(5,7);
- const fullDate=d=>label(d)+"."+d.slice(0,4);
+ const label=d=>d.slice(5,7)+"/"+d.slice(8);
+ const fullDate=d=>label(d)+"/"+d.slice(0,4);
  function render(host,options){
-  const {points=[],unit="WGNK",decimals=9,type="line",complete=false,title="Объём по дням",countLabel="Событий",legend=null}=options;
-  if(!points.length){host.innerHTML='<p class="empty">Нет данных по выбранным фильтрам.</p>';return;}
+  const {points=[],unit="WGNK",decimals=9,type="line",complete=false,title="Volume by day",countLabel="Events",legend=null}=options;
+  if(!points.length){host.innerHTML='<p class="empty">No data for the selected filters.</p>';return;}
   const lookup=new Map(points.map(p=>[p.date,p]));
   const start=Date.parse(points[0].date+"T00:00:00Z"),end=Date.parse(points[points.length-1].date+"T00:00:00Z");
   const rows=[];
@@ -74,7 +74,7 @@ window.GonkaChart=(()=>{
   const y=raw=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
   const legendHtml=Array.isArray(legend)?'<div class="chart-legend">'+legend.map(item=>
    '<span class="chart-legend-item">'+(item.bar?'<i class="chart-swatch-bar" style="background:'+item.color+'"></i>':'<i class="chart-swatch-line" style="background:'+item.color+'"></i>')+escape(item.label)+'</span>').join('')+'</div>':'';
-  let svg=legendHtml+'<svg viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="'+escape(title)+'. Стрелки влево и вправо выбирают день."><defs><linearGradient id="'+host.id+'-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity=".28"/><stop offset="100%" stop-color="var(--accent)" stop-opacity=".015"/></linearGradient></defs>';
+  let svg=legendHtml+'<svg viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="'+escape(title)+'. Left and right arrows select a day."><defs><linearGradient id="'+host.id+'-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity=".28"/><stop offset="100%" stop-color="var(--accent)" stop-opacity=".015"/></linearGradient></defs>';
   svg+='<text x="'+left+'" y="13" class="chart-unit">'+escape(unit)+'</text>';
   for(let i=0;i<=4;i++){
    const raw=high*BigInt(i)/4n,py=y(raw);
@@ -103,7 +103,7 @@ window.GonkaChart=(()=>{
   }
   if(hasWeight){
    const axX=baseLeft-8;
-   svg+='<text class="chart-weight-axis" x="'+axX+'" y="13" text-anchor="end">Вес сети</text>';
+   svg+='<text class="chart-weight-axis" x="'+axX+'" y="13" text-anchor="end">Network weight</text>';
    for(let k=0;k<=2;k++){
     const wv=wMin+(wMax-wMin)*BigInt(k)/2n,wy=yWeight(wv);
     svg+='<text class="chart-weight-axis" x="'+axX+'" y="'+(wy+4)+'" text-anchor="end">'+escape(axis(wv,0))+'</text>';
@@ -120,7 +120,7 @@ window.GonkaChart=(()=>{
   }
   if(hasTokens){
    const axX=baseLeft+axWeight-8;
-   svg+='<text class="chart-tokens-axis" x="'+axX+'" y="13" text-anchor="end">AI-токены</text>';
+   svg+='<text class="chart-tokens-axis" x="'+axX+'" y="13" text-anchor="end">AI tokens</text>';
    for(let k=0;k<=2;k++){
     const tv=tMin+(tMax-tMin)*BigInt(k)/2n,ty=yTokens(tv);
     svg+='<text class="chart-tokens-axis" x="'+axX+'" y="'+(ty+4)+'" text-anchor="end">'+escape(axis(tv,0))+'</text>';
@@ -176,11 +176,11 @@ window.GonkaChart=(()=>{
    if(tokenDot){tokenDot.setAttribute('cx',px);tokenDot.setAttribute('cy',tokens[selected]===null?bottom:yTokens(tokens[selected]));tokenDot.setAttribute('visibility',tokens[selected]===null?'hidden':'visible');}
    cursor.querySelector("rect").setAttribute("x",dateX-50);
    cursor.querySelector("text").setAttribute("x",dateX);cursor.querySelector("text").textContent=fullDate(row.date);
-   tooltip.innerHTML='<span>'+fullDate(row.date)+'</span><strong>'+(row.raw===null?"Нет подтверждённых данных":escape(exact(row.raw,decimals))+' <small>'+escape(unit)+'</small>')+'</strong><span>'+(row.raw===null?"Покрытие неполное":escape(countLabel)+": "+Number(row.events||0).toLocaleString("ru-RU"))+'</span>'+
-    (row.raw!==null&&ma[selected]!==null?'<span>среднее за 7 дней: '+escape(exact(ma[selected],decimals))+' '+escape(unit)+'</span>':'')+
-    (row.raw!==null&&prices[selected]!==null?'<span class="chart-price-axis">цена: '+escape(formatPrice(prices[selected]))+' USDT</span>':'')+
-    (row.weight!=null?'<span class="chart-weight-axis">вес сети: '+Number(row.weight).toLocaleString("ru-RU")+'</span>':'')+
-    (hasTokens?'<span class="chart-tokens-axis">AI-токены за эпоху: '+(row.tokens!=null?Number(row.tokens).toLocaleString("ru-RU"):'нет данных')+'</span>':'');
+   tooltip.innerHTML='<span>'+fullDate(row.date)+'</span><strong>'+(row.raw===null?"No confirmed data":escape(exact(row.raw,decimals))+' <small>'+escape(unit)+'</small>')+'</strong><span>'+(row.raw===null?"Coverage incomplete":escape(countLabel)+": "+Number(row.events||0).toLocaleString("en-US"))+'</span>'+
+    (row.raw!==null&&ma[selected]!==null?'<span>7-day average: '+escape(exact(ma[selected],decimals))+' '+escape(unit)+'</span>':'')+
+    (row.raw!==null&&prices[selected]!==null?'<span class="chart-price-axis">price: '+escape(formatPrice(prices[selected]))+' USDT</span>':'')+
+    (row.weight!=null?'<span class="chart-weight-axis">network weight: '+Number(row.weight).toLocaleString("en-US")+'</span>':'')+
+    (hasTokens?'<span class="chart-tokens-axis">AI tokens per epoch: '+(row.tokens!=null?Number(row.tokens).toLocaleString("en-US"):'no data')+'</span>':'');
    tooltip.hidden=false;
    const boxWidth=tooltip.offsetWidth;
    tooltip.style.left=Math.max(6,Math.min(W-boxWidth-6,px>W/2?px-boxWidth-14:px+14))+"px";
@@ -207,7 +207,7 @@ window.GonkaChart=(()=>{
   });
  }
  function renderMarket(host,points,{side="all"}={}){
-  if(!points.length){host.innerHTML='<p class="empty">Нет сделок по выбранным фильтрам.</p>';return;}
+  if(!points.length){host.innerHTML='<p class="empty">No trades for the selected filters.</p>';return;}
   const lookup=new Map(points.map(p=>[p.date,p])),rows=[];
   const end=Date.parse(points[points.length-1].date+"T00:00:00Z");
   for(let ts=Date.parse(points[0].date+"T00:00:00Z");ts<=end;ts+=86400000){
@@ -223,9 +223,9 @@ window.GonkaChart=(()=>{
   const priceHigh=ceiling(rows.reduce((a,r)=>r.price!==null&&r.price>a?r.price:a,0n));
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
   const y=(raw,high)=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
-  const kinds=side==="all"?["buy","sell"]:[side],names={buy:"Покупки",sell:"Продажи"};
-  let svg='<svg class="market-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Цена линией. '+(side==="all"?"Покупки и продажи WGNK раздельными частями дневных столбцов":names[side]+" WGNK столбцами по дням")+'. Цена в USDT за 1 WGNK. Стрелки выбирают день.">';
-  svg+='<text class="chart-unit price-axis" x="'+left+'" y="14">USDT / 1 WGNK</text><text class="chart-unit volume-axis" x="'+(W-right)+'" y="'+(W<500?33:14)+'" text-anchor="end">Объём · WGNK</text>';
+  const kinds=side==="all"?["buy","sell"]:[side],names={buy:"Buys",sell:"Sells"};
+  let svg='<svg class="market-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Price as a line. '+(side==="all"?"WGNK buys and sells as separate parts of daily bars":names[side]+" of WGNK as daily bars")+'. Price in USDT per 1 WGNK. Arrows select a day.">';
+  svg+='<text class="chart-unit price-axis" x="'+left+'" y="14">USDT / 1 WGNK</text><text class="chart-unit volume-axis" x="'+(W-right)+'" y="'+(W<500?33:14)+'" text-anchor="end">Volume · WGNK</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
    svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text class="price-axis" x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(formatPrice(priceHigh*BigInt(i)/4n))+'</text><text class="volume-axis" x="'+(W-right+9)+'" y="'+(py+4)+'">'+escape(axis(volumeHigh*BigInt(i)/4n,9))+'</text>';
@@ -262,9 +262,9 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
    const dot=cursor.querySelector("circle");dot.setAttribute("cx",px);dot.setAttribute("cy",r.price===null?bottom:y(r.price,priceHigh));dot.setAttribute("visibility",r.price===null?"hidden":"visible");
-   tooltip.innerHTML='<span>'+fullDate(r.date)+'</span><strong>Цена: '+(r.price===null?"нет сделок":escape(formatPrice(r.price)))+'</strong><span>USDT за 1 WGNK · средневзвешенная</span>'+
-    '<div class="market-tooltip-sides">'+kinds.map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(r[kind],9))+' WGNK</b><small>'+escape(exact(r[kind+"Quote"],6))+' USDT · '+(kind==="buy"?r.buys:r.sales).toLocaleString("ru-RU")+' исп.</small></div>').join("")+'</div>'+
-    '<strong>Объём: '+escape(exact(r.volume,9))+' <small>WGNK</small></strong><span>Исполнений: '+r.events.toLocaleString("ru-RU")+'</span>';
+   tooltip.innerHTML='<span>'+fullDate(r.date)+'</span><strong>Price: '+(r.price===null?"no trades":escape(formatPrice(r.price)))+'</strong><span>USDT per 1 WGNK · volume-weighted</span>'+
+    '<div class="market-tooltip-sides">'+kinds.map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(r[kind],9))+' WGNK</b><small>'+escape(exact(r[kind+"Quote"],6))+' USDT · '+(kind==="buy"?r.buys:r.sales).toLocaleString("en-US")+' exec.</small></div>').join("")+'</div>'+
+    '<strong>Volume: '+escape(exact(r.volume,9))+' <small>WGNK</small></strong><span>Executions: '+r.events.toLocaleString("en-US")+'</span>';
    tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
@@ -283,9 +283,9 @@ window.GonkaChart=(()=>{
   });
  }
  function renderLiquidity(host,bands,{levels=["2"],prices=null,fee=3000}={}){
-  if(!bands||!Object.keys(bands).length){host.innerHTML='<p class="empty">Ликвидность пула ещё собирается: нужна история Mint/Burn событий пула.</p>';return;}
+  if(!bands||!Object.keys(bands).length){host.innerHTML='<p class="empty">Pool liquidity is still being collected: the history of pool Mint/Burn events is required.</p>';return;}
   const chosen=levels.filter(l=>bands[l]);
-  if(!chosen.length){host.innerHTML='<p class="empty">Выберите хотя бы один уровень диапазона.</p>';return;}
+  if(!chosen.length){host.innerHTML='<p class="empty">Select at least one range level.</p>';return;}
   // Merge levels by date, carrying the last known depth across quiet days.
   const byDate=new Map();
   chosen.forEach(level=>bands[level].forEach(p=>{
@@ -314,16 +314,16 @@ window.GonkaChart=(()=>{
   rows.forEach(r=>chosen.forEach(l=>{if(r[l]){
    for(const key of ['up_usdt_raw','down_usdt_raw']){const value=BigInt(r[l][key]);if(value>high)high=value;}
   }}));
-  if(high<=0n){host.innerHTML='<p class="empty">Нет данных ликвидности.</p>';return;}
+  if(high<=0n){host.innerHTML='<p class="empty">No liquidity data.</p>';return;}
   high=ceiling(high);
   const W=Math.max(280,host.clientWidth),H=W<500?300:330;
   const left=W<500?68:84,right=hasPrice?78:20,top=42,bottom=H-42,plot=W-left-right;
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1);
   const yVolume=v=>bottom-Number(v*1000000n/high)/1000000*(bottom-top);
   const yPrice=v=>bottom-(v-pMin)/(pMax-pMin)*(bottom-top);
-  let svg='<svg class="liquidity-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Объём покупки и продажи в USDT, единая шкала слева. Цена WGNK, шкала справа. Стрелки выбирают день.">';
-  svg+='<text class="chart-unit" x="'+left+'" y="15">Объём · USDT</text>';
-  if(hasPrice)svg+='<text class="chart-unit" x="'+(W-right)+'" y="30" text-anchor="end">Цена · USDT / WGNK</text>';
+  let svg='<svg class="liquidity-chart" viewBox="0 0 '+W+" "+H+'" role="img" tabindex="0" aria-label="Buy and sell volume in USDT, shared scale on the left. WGNK price, scale on the right. Arrows select a day.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="15">Volume · USDT</text>';
+  if(hasPrice)svg+='<text class="chart-unit" x="'+(W-right)+'" y="30" text-anchor="end">Price · USDT / WGNK</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
    svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(high*BigInt(i)/4n,6))+'</text>'+
@@ -342,7 +342,7 @@ window.GonkaChart=(()=>{
    if(latest){
     const value=BigInt(latest.down_usdt_raw),py=yVolume(value);
     svg+='<line class="liq-current liq-line liq-l'+level+'" data-level="'+level+'" data-raw="'+value+'" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'" style="stroke-dasharray:6 5;stroke-width:1;opacity:.8;pointer-events:none"/>';
-    svg+='<text class="liq-current-label" x="'+(left+6)+'" y="'+(py-7)+'" style="paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round">Продажа −'+level+'%: '+escape(exact(value,6))+' USDT</text>';
+    svg+='<text class="liq-current-label" x="'+(left+6)+'" y="'+(py-7)+'" style="paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round">Sell −'+level+'%: '+escape(exact(value,6))+' USDT</text>';
    }
   });
   if(hasPrice){
@@ -364,10 +364,10 @@ window.GonkaChart=(()=>{
    cursor.setAttribute("visibility","visible");
    const line=cursor.querySelector("line");line.setAttribute("x1",px);line.setAttribute("x2",px);
    tooltip.innerHTML='<span>'+fullDate(r.date)+'</span>'+
-    (hasPrice&&priceSeries[selected]!==null?'<div class="market-tooltip-band liq-price-band"><span>Цена дня</span><b>$'+priceSeries[selected].toFixed(4)+' <em>USDT</em></b></div>':'')+
-    chosen.map(l=>r[l]&&r[l].up_usdt_raw?'<div class="market-tooltip-band liq-b'+l+'" title="Цена после сделки: ↑ $'+(+r[l].up_final_price).toFixed(4)+' · ↓ $'+(+r[l].down_final_price).toFixed(4)+'"><span>±'+l+'%</span>'+
-     '<b>Покупка ↑ $'+escape(exact(BigInt(r[l].up_usdt_raw),6))+' <em>USDT</em></b>'+
-     '<b>Продажа ↓ $'+escape(exact(BigInt(r[l].down_usdt_raw),6))+' <em>USDT</em></b></div>':'').join("");
+    (hasPrice&&priceSeries[selected]!==null?'<div class="market-tooltip-band liq-price-band"><span>Day price</span><b>$'+priceSeries[selected].toFixed(4)+' <em>USDT</em></b></div>':'')+
+    chosen.map(l=>r[l]&&r[l].up_usdt_raw?'<div class="market-tooltip-band liq-b'+l+'" title="Price after trade: ↑ $'+(+r[l].up_final_price).toFixed(4)+' · ↓ $'+(+r[l].down_final_price).toFixed(4)+'"><span>±'+l+'%</span>'+
+     '<b>Buy ↑ $'+escape(exact(BigInt(r[l].up_usdt_raw),6))+' <em>USDT</em></b>'+
+     '<b>Sell ↓ $'+escape(exact(BigInt(r[l].down_usdt_raw),6))+' <em>USDT</em></b></div>':'').join("");
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-14:px+14))+"px";
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+"px";
    tooltip.hidden=false;
@@ -386,8 +386,8 @@ window.GonkaChart=(()=>{
   });
  }
  function renderAddress(host,history){
-  if(!history){host.innerHTML='<p class="empty">Подтверждённая история баланса пока недоступна.</p>';return;}
-  if(!history.points.length){host.innerHTML='<p class="empty">У адреса пока нет движений WGNK до проверенного снимка.</p>';return;}
+  if(!history){host.innerHTML='<p class="empty">Confirmed balance history is not available yet.</p>';return;}
+  if(!history.points.length){host.innerHTML='<p class="empty">The address has no WGNK movements before the verified snapshot yet.</p>';return;}
   const rows=history.points.map(p=>({...p,buy:BigInt(p.bought_raw),sell:BigInt(p.sold_raw),balance:BigInt(p.balance_raw)}));
   const W=Math.max(280,host.clientWidth),small=W<500,H=small?300:310;
   const left=small?54:76,right=small?58:80,top=48,bottom=H-38,plot=W-left-right;
@@ -395,9 +395,9 @@ window.GonkaChart=(()=>{
   const balanceHigh=ceiling(rows.reduce((max,r)=>r.balance>max?r.balance:max,4000000000n));
   const slot=plot/rows.length,x=i=>left+(i+.5)*slot;
   const y=(raw,high)=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
-  const names={buy:"Покупки",sell:"Продажи"};
-  let svg='<svg class="address-chart" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="Покупки и продажи WGNK по дням — зелёные и красные столбцы, шкала слева. Баланс WGNK — синяя линия, шкала справа. Стрелки выбирают день.">';
-  svg+='<text class="chart-unit" x="'+left+'" y="15">Объём / день</text><text class="chart-unit" x="'+left+'" y="33">WGNK</text><text class="chart-unit balance-axis" x="'+(W-right)+'" y="15" text-anchor="end">Баланс</text><text class="chart-unit balance-axis" x="'+(W-right)+'" y="33" text-anchor="end">WGNK</text>';
+  const names={buy:"Buys",sell:"Sells"};
+  let svg='<svg class="address-chart" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="WGNK buys and sells by day — green and red bars, scale on the left. WGNK balance — blue line, scale on the right. Arrows select a day.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="15">Volume / day</text><text class="chart-unit" x="'+left+'" y="33">WGNK</text><text class="chart-unit balance-axis" x="'+(W-right)+'" y="15" text-anchor="end">Balance</text><text class="chart-unit balance-axis" x="'+(W-right)+'" y="33" text-anchor="end">WGNK</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
    svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-8)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(volumeHigh*BigInt(i)/4n,9))+'</text><text class="balance-axis" x="'+(W-right+8)+'" y="'+(py+4)+'">'+escape(axis(balanceHigh*BigInt(i)/4n,9))+'</text>';
@@ -428,8 +428,8 @@ window.GonkaChart=(()=>{
    cursor.setAttribute('visibility','visible');
    const line=cursor.querySelector('line');line.setAttribute('x1',px);line.setAttribute('x2',px);
    const dot=cursor.querySelector('circle');dot.setAttribute('cx',px);dot.setAttribute('cy',y(row.balance,balanceHigh));
-   const time=new Date(Number(host.dataset.snapshotTs||history.ts)*1000).toLocaleTimeString('ru-RU',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
-   tooltip.innerHTML='<span>'+fullDate(row.date)+(onSnapshot?' · до '+escape(time):'')+'</span><strong class="balance-value">'+escape(exact(row.balance,9))+' <small>WGNK</small></strong><span>Баланс '+(onSnapshot?'на снимке':'на конец дня')+'</span><div class="address-tooltip-sides">'+['buy','sell'].map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(row[kind],9))+' WGNK</b><small>'+(kind==='buy'?row.buys_count:row.sales_count).toLocaleString('ru-RU')+' исп.</small><small class="address-day-price">Средняя цена: <b>'+escape(formatPrice(row[kind]>0n&&row[kind==='buy'?'buy_quote_raw':'sale_quote_raw']!=null?BigInt(row[kind==='buy'?'buy_quote_raw':'sale_quote_raw'])*10n**15n/row[kind]:null))+'</b> USDT</small></div>').join('')+'</div>';
+   const time=new Date(Number(host.dataset.snapshotTs||history.ts)*1000).toLocaleTimeString('en-US',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
+   tooltip.innerHTML='<span>'+fullDate(row.date)+(onSnapshot?' · until '+escape(time):'')+'</span><strong class="balance-value">'+escape(exact(row.balance,9))+' <small>WGNK</small></strong><span>Balance '+(onSnapshot?'at snapshot':'at end of day')+'</span><div class="address-tooltip-sides">'+['buy','sell'].map(kind=>'<div data-trade-kind="'+kind+'"><span class="trade-key '+kind+'">'+names[kind]+'</span><b>'+escape(exact(row[kind],9))+' WGNK</b><small>'+(kind==='buy'?row.buys_count:row.sales_count).toLocaleString('en-US')+' exec.</small><small class="address-day-price">Average price: <b>'+escape(formatPrice(row[kind]>0n&&row[kind==='buy'?'buy_quote_raw':'sale_quote_raw']!=null?BigInt(row[kind==='buy'?'buy_quote_raw':'sale_quote_raw'])*10n**15n/row[kind]:null))+'</b> USDT</small></div>').join('')+'</div>';
    tooltip.dataset.date=row.date;tooltip.dataset.balanceRaw=row.balance.toString();tooltip.hidden=false;
    tooltip.style.left=Math.max(6,Math.min(W-tooltip.offsetWidth-6,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';
    tooltip.style.top=Math.max(4,Math.min(top+8,H-tooltip.offsetHeight-8))+'px';
@@ -448,12 +448,12 @@ window.GonkaChart=(()=>{
   });
  }
  function renderGroups(host,history,kinds){
-  if(!history?.ready||!history.points?.length){host.innerHTML='<p class="empty">История категорий пока не подтверждена. Это не нулевые балансы.</p>';return;}
+  if(!history?.ready||!history.points?.length){host.innerHTML='<p class="empty">Category history is not confirmed yet. These are not zero balances.</p>';return;}
   const keys=Object.keys(kinds),rows=history.points.map(p=>({...p,values:Object.fromEntries(keys.map(k=>[k,BigInt(p[k+'_raw'])]))}));
   const W=Math.max(280,host.clientWidth),small=W<500,H=small?320:350,left=small?52:76,right=18,top=30,bottom=H-40,plot=W-left-right;
   const high=ceiling(rows.reduce((max,r)=>keys.reduce((m,k)=>r.values[k]>m?r.values[k]:m,max),4000000000n));
   const x=i=>rows.length===1?left+plot/2:left+i*plot/(rows.length-1),y=raw=>bottom-Number(raw*1000000n/high)/1000000*(bottom-top);
-  let svg='<svg class="holder-history-chart" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="Баланс четырёх категорий WGNK с момента создания моста. Категории на соответствующую дату. Стрелки выбирают день."><text class="chart-unit" x="'+left+'" y="15">Баланс · WGNK</text>';
+  let svg='<svg class="holder-history-chart" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="Balance of the four WGNK categories since the bridge was created. Categories as of each date. Arrows select a day."><text class="chart-unit" x="'+left+'" y="15">Balance · WGNK</text>';
   for(let i=0;i<=4;i++){
    const raw=high*BigInt(i)/4n,py=y(raw);
    svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(axis(raw,9))+'</text>';
@@ -475,11 +475,11 @@ window.GonkaChart=(()=>{
    selected=Math.max(0,Math.min(last,index));const row=rows[selected],px=x(selected),total=BigInt(row.total_raw);
    cursor.setAttribute('visibility','visible');const line=cursor.querySelector('line');line.setAttribute('x1',px);line.setAttribute('x2',px);
    keys.forEach(key=>{const dot=cursor.querySelector('[data-holder-kind="'+key+'"]');dot.setAttribute('cx',px);dot.setAttribute('cy',y(row.values[key]));});
-   const time=new Date(history.ts*1000).toLocaleTimeString('ru-RU',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
-   tooltip.innerHTML='<span class="holder-history-date">'+fullDate(row.date)+(selected===last?' · до '+escape(time):' · конец дня')+'</span><div class="holder-history-values">'+keys.map(key=>{
+   const time=new Date(history.ts*1000).toLocaleTimeString('en-US',{timeZone:history.timezone,hour:'2-digit',minute:'2-digit'});
+   tooltip.innerHTML='<span class="holder-history-date">'+fullDate(row.date)+(selected===last?' · until '+escape(time):' · end of day')+'</span><div class="holder-history-values">'+keys.map(key=>{
     const raw=row.values[key],percent=total?(raw>0n&&raw*100n<total?'< 1':(raw*100n/total).toString())+'%':'—';
-    return '<div class="holder-'+key+'" data-holder-kind="'+key+'" data-balance-raw="'+raw+'"><span><i></i>'+escape(kinds[key].label)+'</span><b>'+escape(exact(raw,9))+'</b><small>'+escape(percent)+' · адресов: '+row.addresses[key].toLocaleString('ru-RU')+'</small></div>';
-   }).join('')+'</div><div class="holder-history-total">Всего вне пулов <b>'+escape(exact(total,9))+' WGNK</b></div>';
+    return '<div class="holder-'+key+'" data-holder-kind="'+key+'" data-balance-raw="'+raw+'"><span><i></i>'+escape(kinds[key].label)+'</span><b>'+escape(exact(raw,9))+'</b><small>'+escape(percent)+' · addresses: '+row.addresses[key].toLocaleString('en-US')+'</small></div>';
+   }).join('')+'</div><div class="holder-history-total">Total outside pools <b>'+escape(exact(total,9))+' WGNK</b></div>';
    tooltip.dataset.date=row.date;tooltip.dataset.totalRaw=row.total_raw;tooltip.hidden=false;
    tooltip.style.left=Math.max(2,Math.min(W-tooltip.offsetWidth-2,px>W/2?px-tooltip.offsetWidth-12:px+12))+'px';
    tooltip.style.top=Math.max(2,Math.min(top+8,H-tooltip.offsetHeight-5))+'px';
@@ -496,20 +496,20 @@ window.GonkaChart=(()=>{
  }
  function priceTick(raw){
   const cents=BigInt(raw)/10000000000n;
-  return (cents/100n).toLocaleString("ru-RU")+","+(cents%100n).toString().padStart(2,"0");
+  return (cents/100n).toLocaleString("en-US")+"."+(cents%100n).toString().padStart(2,"0");
  }
  const priceRange=(from,to)=>priceTick(from)+"–"+priceTick(to);
  function formatShare(raw,total){
   const n=BigInt(raw),d=BigInt(total);if(!d)return "—";
   const tenths=n*1000n/d;
-  return n>0n&&!tenths?"< 0,1%":(tenths/10n).toString()+(tenths%10n?","+tenths%10n:"")+"%";
+  return n>0n&&!tenths?"< 0.1%":(tenths/10n).toString()+(tenths%10n?"."+tenths%10n:"")+"%";
  }
  function bandVolumeLabel(raw){
   const n=BigInt(raw);
-  for(const [unit,suffix] of [[1000000000000000n,"млн"],[1000000000000n,"тыс"]]){
+  for(const [unit,suffix] of [[1000000000000000n,"M"],[1000000000000n,"K"]]){
    if(n<unit)continue;
    const hundredths=(n*100n+unit/2n)/unit,fraction=(hundredths%100n).toString().padStart(2,"0").replace(/0+$/,"");
-   return (hundredths/100n).toLocaleString("ru-RU")+(fraction?","+fraction:"")+" "+suffix;
+   return (hundredths/100n).toLocaleString("en-US")+(fraction?"."+fraction:"")+" "+suffix;
   }
   return exact(n,9);
  }
@@ -520,7 +520,7 @@ window.GonkaChart=(()=>{
   return step*4n;
  }
  function renderPriceBands(host,points,{side,bounds,stepRaw,maximum,countMaximum=0,dayBands=null,bridgeBands=null,sparse=false}){
-  if(!points.length){host.innerHTML='<p class="empty">'+(side==="buy"?"Покупок":"Продаж")+' с подтверждённым адресом пока нет.</p>';return;}
+  if(!points.length){host.innerHTML='<p class="empty">'+(side==="buy"?"No buys":"No sells")+' with a confirmed address yet.</p>';return;}
   const lookup=new Map(points.map(p=>[p.from_price_raw,p]));
   const dayLookup=dayBands===null?null:new Map(dayBands.map(row=>[row.from_price_raw,row.days]));
   const bridgeLookup=bridgeBands===null?null:new Map(bridgeBands.map(row=>[row.from_price_raw,row]));
@@ -532,11 +532,11 @@ window.GonkaChart=(()=>{
   const x=i=>left+slot*(i+.5),y=raw=>bottom-Number(BigInt(raw)*1000000n/high)/1000000*(bottom-top);
   const countY=count=>bottom-Number(BigInt(count)*1000000n/countHigh)/1000000*(bottom-top);
   const labelStride=Math.max(1,Math.ceil(rows.length/Math.max(1,Math.floor(plot/34))));
-  let svg='<svg class="price-histogram '+side+'" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="'+(side==="buy"?"Покупки":"Продажи")+': объём WGNK столбцами, шкала слева. Количество сделок линией, шкала справа. В подсказке число сделок, дней на уровне и объём моста за эти дни. Стрелки выбирают диапазон цены.">';
-  svg+='<text class="chart-unit" x="'+left+'" y="17">Объём · WGNK</text><text class="chart-unit price-count-axis" x="'+(W-right)+'" y="17" text-anchor="end">Сделки</text>';
+  let svg='<svg class="price-histogram '+side+'" viewBox="0 0 '+W+' '+H+'" role="img" tabindex="0" aria-label="'+(side==="buy"?"Buys":"Sells")+': WGNK volume as bars, scale on the left. Trade count as a line, scale on the right. The tooltip shows the trade count, days at the level and bridge volume for those days. Arrows select a price range.">';
+  svg+='<text class="chart-unit" x="'+left+'" y="17">Volume · WGNK</text><text class="chart-unit price-count-axis" x="'+(W-right)+'" y="17" text-anchor="end">Trades</text>';
   for(let i=0;i<=4;i++){
    const py=bottom-i*(bottom-top)/4;
-   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(bandVolumeLabel(high*BigInt(i)/4n))+'</text><text class="price-count-axis" x="'+(W-right+9)+'" y="'+(py+4)+'">'+escape((countHigh*BigInt(i)/4n).toLocaleString('ru-RU'))+'</text>';
+   svg+='<line class="chart-grid" x1="'+left+'" x2="'+(W-right)+'" y1="'+py+'" y2="'+py+'"/><text x="'+(left-9)+'" y="'+(py+4)+'" text-anchor="end">'+escape(bandVolumeLabel(high*BigInt(i)/4n))+'</text><text class="price-count-axis" x="'+(W-right+9)+'" y="'+(py+4)+'">'+escape((countHigh*BigInt(i)/4n).toLocaleString('en-US'))+'</text>';
   }
   rows.forEach((row,i)=>{
    const py=y(row.volume_raw);
@@ -550,7 +550,7 @@ window.GonkaChart=(()=>{
   rows.forEach((row,i)=>{
    svg+='<circle class="price-count-point" data-kind="'+side+'" data-from="'+row.from_price_raw+'" data-to="'+row.to_price_raw+'" data-swaps="'+row.swaps+'" data-days="'+(row.days??'')+'" cx="'+x(i)+'" cy="'+countY(row.swaps)+'" r="3.5"/>';
   });
-  svg+='<text class="chart-unit" x="'+(left+plot/2)+'" y="'+(H-6)+'" text-anchor="middle">'+(sparse?'Диапазоны со сделками · ':'')+'Цена · USDT за 1 WGNK</text>';
+  svg+='<text class="chart-unit" x="'+(left+plot/2)+'" y="'+(H-6)+'" text-anchor="middle">'+(sparse?'Ranges with trades · ':'')+'Price · USDT per 1 WGNK</text>';
   svg+='<rect class="price-band-selection" visibility="hidden" y="'+top+'" height="'+(bottom-top)+'" width="'+slot+'" rx="4"/><rect class="chart-hit" x="'+left+'" y="'+top+'" width="'+plot+'" height="'+(bottom-top)+'" fill="transparent"/></svg><div class="chart-tooltip price-band-tooltip" role="status" hidden></div>';
   host.innerHTML=svg;
   const root=host.querySelector('svg'),selection=host.querySelector('.price-band-selection'),tooltip=host.querySelector('.chart-tooltip');
@@ -562,10 +562,10 @@ window.GonkaChart=(()=>{
    selection.setAttribute('x',left+slot*selected);selection.setAttribute('visibility','visible');
    host.querySelectorAll('.price-volume').forEach(bar=>bar.classList.toggle('is-selected',bar.dataset.from===row.from_price_raw));
    host.querySelectorAll('.price-count-point').forEach(dot=>dot.classList.toggle('is-selected',dot.dataset.from===row.from_price_raw));
-   tooltip.innerHTML='<strong>'+escape(priceRange(row.from_price_raw,row.to_price_raw))+' <small>USDT</small></strong><span>Цена за 1 WGNK · до верхней границы</span><div class="price-band-stats"><div class="price-count-stat"><b>'+row.swaps.toLocaleString('ru-RU')+'</b><span>Сделок</span></div><div><b>'+(row.days===null?'—':row.days.toLocaleString('ru-RU'))+'</b><span>Дней на уровне</span></div></div><strong>'+escape(exact(row.volume_raw,9))+' <small>WGNK</small></strong><span>'+escape(formatShare(row.volume_raw,total))+' всего объёма '+(side==='buy'?'покупок':'продаж')+'</span><span>Сумма: '+escape(exact(row.quote_raw,6))+' USDT</span><span>Средняя цена: '+escape(formatPrice(row.price_raw))+' USDT</span>';
-   tooltip.innerHTML+='<div class="price-bridge-stats"><span>Мост в эти дни · WGNK</span>'+(row.bridge?
-    '<div><span>Ввод</span><b class="bridge-in">'+escape(exact(row.bridge.in_raw,9))+'</b></div><div><span>Вывод</span><b class="bridge-out">'+escape(exact(row.bridge.out_raw,9))+'</b></div>':
-    '<span>Данные пока не подтверждены</span>')+'</div>';
+   tooltip.innerHTML='<strong>'+escape(priceRange(row.from_price_raw,row.to_price_raw))+' <small>USDT</small></strong><span>Price per 1 WGNK · up to the upper bound</span><div class="price-band-stats"><div class="price-count-stat"><b>'+row.swaps.toLocaleString('en-US')+'</b><span>Trades</span></div><div><b>'+(row.days===null?'—':row.days.toLocaleString('en-US'))+'</b><span>Days at level</span></div></div><strong>'+escape(exact(row.volume_raw,9))+' <small>WGNK</small></strong><span>'+escape(formatShare(row.volume_raw,total))+' of total '+(side==='buy'?'buy volume':'sell volume')+'</span><span>Amount: '+escape(exact(row.quote_raw,6))+' USDT</span><span>Average price: '+escape(formatPrice(row.price_raw))+' USDT</span>';
+   tooltip.innerHTML+='<div class="price-bridge-stats"><span>Bridge on these days · WGNK</span>'+(row.bridge?
+    '<div><span>Inflow</span><b class="bridge-in">'+escape(exact(row.bridge.in_raw,9))+'</b></div><div><span>Outflow</span><b class="bridge-out">'+escape(exact(row.bridge.out_raw,9))+'</b></div>':
+    '<span>Data not confirmed yet</span>')+'</div>';
    tooltip.dataset.from=row.from_price_raw;tooltip.dataset.swaps=String(row.swaps);tooltip.dataset.days=row.days===null?'':String(row.days);
    tooltip.dataset.bridgeIn=row.bridge?.in_raw??'';tooltip.dataset.bridgeOut=row.bridge?.out_raw??'';
    tooltip.hidden=false;

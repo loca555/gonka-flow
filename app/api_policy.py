@@ -65,30 +65,30 @@ class APIAdmission:
         general = self.global_bucket.general
         self.trim(general, now)
         if len(general) >= cfg.api_global_per_minute:
-            return 429, self.retry(general, now), 'Слишком много запросов. Повторите позже.'
+            return 429, self.retry(general, now), 'Too many requests. Try again later.'
         while self.clients and next(iter(self.clients.values())).last_seen <= now - WINDOW:
             self.clients.popitem(last=False)
         key = client_key(scope)
         bucket = self.clients.get(key)
         if bucket is None:
             if len(self.clients) >= cfg.api_max_clients:
-                return 429, 60, 'Слишком много активных клиентов. Повторите позже.'
+                return 429, 60, 'Too many active clients. Try again later.'
             bucket = self.clients[key] = Bucket(last_seen=now)
         bucket.last_seen = now
         self.clients.move_to_end(key)
         self.trim(bucket.general, now)
         if len(bucket.general) >= cfg.api_client_per_minute:
-            return 429, self.retry(bucket.general, now), 'Слишком много запросов. Повторите позже.'
+            return 429, self.retry(bucket.general, now), 'Too many requests. Try again later.'
         bucket.general.append(now)
         # A client already over its own quota cannot spend everyone else's quota.
         general.append(now)
         if len(scope.get('query_string', b'')) > cfg.api_max_query_bytes:
-            return 414, None, 'Слишком длинный запрос.'
+            return 414, None, 'Request is too long.'
         if scope['method'] not in ('GET', 'HEAD'):
-            return 405, None, 'Доступны только запросы чтения.'
+            return 405, None, 'Only read requests are available.'
         origins = [v.decode('latin1') for k, v in scope.get('headers', []) if k.lower() == b'origin']
         if '*' not in self.origins and origins and (len(origins) != 1 or origins[0] not in self.origins):
-            return 403, None, 'Этот браузерный источник не разрешён.'
+            return 403, None, 'This browser origin is not allowed.'
         kind = self.kind(scope['path'])
         if kind != 'general':
             local_queue = getattr(bucket, kind)
@@ -98,13 +98,13 @@ class APIAdmission:
             limit = cfg.api_export_per_minute if kind == 'export' else cfg.api_heavy_per_minute
             global_limit = cfg.api_export_global_per_minute if kind == 'export' else cfg.api_heavy_global_per_minute
             if len(local_queue) >= limit:
-                return 429, self.retry(local_queue, now), 'Лимит аналитики или выгрузок. Повторите позже.'
+                return 429, self.retry(local_queue, now), 'Analytics or export limit reached. Try again later.'
             if len(global_queue) >= global_limit:
-                return 429, self.retry(global_queue, now), 'Лимит аналитики или выгрузок. Повторите позже.'
+                return 429, self.retry(global_queue, now), 'Analytics or export limit reached. Try again later.'
             local_queue.append(now)
             global_queue.append(now)
         if self.active >= cfg.api_max_concurrent or (kind == 'export' and self.active_exports >= 1):
-            return 429, 1, 'Сервис занят. Повторите позже.'
+            return 429, 1, 'Service is busy. Try again later.'
         self.active += 1
         if kind == 'export':
             self.active_exports += 1

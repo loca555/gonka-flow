@@ -120,10 +120,10 @@ def estimate(roots, native, ethereum, mints, burns, pools, modules=(), native_co
         row['bought_raw']=sum(purchases[reference] for reference in bought_refs[a])
         row['category']=category(row['bought_raw'],row['sold_raw']) if row['bought_raw']+row['sold_raw'] else 'mining_pending' if row['reward_raw'] and not row['outgoing_raw'] and not row.get('has_bridge') else 'unknown'
         row.update(estimated=True,history_complete=False,flow_scope='merged_balances',
-                   classification_note='По общему потоку найденных цепочек GNK → мост → WGNK. После смешивания баланс считается единым: дальнейшие исполнения учитываются целиком, без пропорционального деления. Каждое исполнение считается один раз для исходного адреса. Объёмы разных исходных адресов могут пересекаться; это не личные сделки и не доказательство общего владельца. Пулы и системные модули не объединяют потоки. История GNK ещё неполная.')
+                   classification_note='Based on the combined flow of discovered GNK → bridge → WGNK chains. After mixing, the balance is treated as a single one: subsequent executions are counted in full, without proportional splitting. Each execution is counted once for the source address. Volumes of different source addresses may overlap; these are not personal trades or proof of a common owner. Pools and system modules do not merge flows. GNK history is still incomplete.')
         if row['reward_raw'] > 0 and row['sold_raw'] * 10 < row['reward_raw']:
             row.update(category='miners', history_complete=native_complete,
-                classification_note='Майнер: подтверждены награды самому участнику, а продажи связанного потока составляют строго менее 10% суммы этих наград. Ровно 10% не подходит. Переводы и мост сами по себе не являются продажами. Расчёт по найденной истории; она ещё может дополняться.')
+                classification_note='Miner: rewards to the participant itself are confirmed, and sales of the linked flow are strictly less than 10% of those rewards. Exactly 10% does not qualify. Transfers and the bridge are not sales by themselves. Calculated from the discovered history; it may still be extended.')
         row['miner_reward_basis_raw']=str(row['reward_raw'])
         for k in ('bought_raw','sold_raw','reward_raw','outgoing_raw'): row[k]=str(row[k])
     return result

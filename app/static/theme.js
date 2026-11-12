@@ -15,7 +15,7 @@
     const toggle = document.getElementById("theme-toggle");
     if (toggle) {
       toggle.setAttribute("aria-pressed", String(theme === "light"));
-      toggle.title = theme === "light" ? "Включить тёмную тему" : "Включить светлую тему";
+      toggle.title = theme === "light" ? "Switch to dark theme" : "Switch to light theme";
     }
   }
   apply();

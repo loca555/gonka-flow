@@ -137,10 +137,10 @@ class Sources:
             if self.native_batch_disabled.get(base, 0) > time.monotonic():
                 continue
             if lo < self.native_floor.get(base, 0):
-                errors.append(host + ": старые блоки удалены")
+                errors.append(host + ": old blocks pruned")
                 continue
             if self.native_cooldown.get(base, 0) > time.monotonic():
-                errors.append(host + ": пауза RPC")
+                errors.append(host + ": RPC pause")
                 continue
             now = time.monotonic()
             slot = max(now, self.native_next.get(base, now))
@@ -148,7 +148,7 @@ class Sources:
             self.native_next[base] = slot + 2
             await asyncio.sleep(max(0, slot-now))
             if self.native_cooldown.get(base, 0) > time.monotonic():
-                errors.append(host + ": пауза RPC")
+                errors.append(host + ": RPC pause")
                 continue
             try:
                 reply = await self.client.post(endpoint + "/", json=payload)
@@ -162,18 +162,18 @@ class Sources:
                     self.native_batch_disabled[base] = time.monotonic() + 3600
                     continue
                 if not isinstance(rows, list) or len(rows) != len(payload):
-                    raise ValueError("Неполный пакет RPC")
+                    raise ValueError("Incomplete RPC batch")
                 by_id = {row["id"]: row for row in rows}
                 if set(by_id) != expected or len(by_id) != len(rows):
-                    raise ValueError("Не совпадают ID ответов RPC")
+                    raise ValueError("RPC response IDs do not match")
                 for row in rows:
                     if row.get("error"):
                         floor = re.search(r"lowest height is (\d+)", str(row["error"]))
                         if floor:
                             self.native_floor[base] = max(self.native_floor.get(base, 0), int(floor[1]))
-                        raise ValueError("RPC не вернул один из блоков/результатов пакета")
+                        raise ValueError("RPC did not return one of the batch blocks/results")
                     if not isinstance(row.get("result"), dict):
-                        raise ValueError("Пустой результат RPC")
+                        raise ValueError("Empty RPC result")
                 self.current["gonka_archive"] = host
                 return [(by_id[f"block:{h}"], by_id[f"block_results:{h}"]) for h in range(lo, hi+1)]
             except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
@@ -244,14 +244,14 @@ class Sources:
                     # Check after taking the lock: already queued requests also obey a new 429.
                     wait = self.eth_wait(endpoint, lane, method)
                     if wait:
-                        errors.append(f"{host}: пауза {math.ceil(wait)} с")
+                        errors.append(f"{host}: pause {math.ceil(wait)} s")
                         waits.append(wait)
                         continue
                     try:
                         if endpoint not in self.verified_eth:
                             chain = await self.eth_post(endpoint, "eth_chainId", [])
                             if int(chain, 16) != 1:
-                                raise EthereumRPCError("нужен Ethereum mainnet", "wrong_chain")
+                                raise EthereumRPCError("Ethereum mainnet is required", "wrong_chain")
                             self.verified_eth.add(endpoint)
                         result = await self.eth_post(endpoint, method, params)
                         self.current["ethereum_archive" if archive else "ethereum"] = host
@@ -264,14 +264,14 @@ class Sources:
                         return result
                     except (httpx.HTTPError, ValueError, KeyError, TypeError, EthereumRPCError) as problem:
                         error = problem if isinstance(problem, EthereumRPCError) else EthereumRPCError(
-                            "ошибка соединения или ответа " + type(problem).__name__)
+                            "connection or response error " + type(problem).__name__)
                         self.eth_failed(endpoint, lane, method, error)
                         errors.append(host + ": " + str(error))
                         categories.append(error.category)
                         waits.append(self.eth_wait(endpoint, lane, method))
         category = "range" if "range" in categories else categories[0] if categories else "cooldown"
         delay = 0 if category == "range" else min(waits, default=30)
-        raise EthereumRPCError("Ethereum " + lane + ": " + ("; ".join(errors) or "RPC не настроен"),
+        raise EthereumRPCError("Ethereum " + lane + ": " + ("; ".join(errors) or "RPC is not configured"),
                                category, math.ceil(delay))
 
     async def eth_logs(self, query, *, archive=False):

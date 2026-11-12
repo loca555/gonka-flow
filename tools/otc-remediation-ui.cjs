@@ -95,7 +95,7 @@ function rpc(method,params){
   assert.equal(listed.size,101);
   assert(listed.has(address(0)));assert(listed.has(address(100)));
   result.allDealsAccessible=listed.size;
-  await page.getByRole('link',{name:'Торговля',exact:true}).click();await page.locator('#otc-view').waitFor({state:'hidden'});
+  await page.getByRole('link',{name:'Trading',exact:true}).click();await page.locator('#otc-view').waitFor({state:'hidden'});
   await page.getByRole('link',{name:'OTC · локально',exact:true}).click();await page.locator('#otc-view').waitFor({state:'visible'});
   await page.locator('#theme-toggle').click();await page.setViewportSize({width:390,height:844});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));

@@ -18,8 +18,8 @@ WGNK_FUNDING = "funding"
 STABLE_FUNDING = "stable_funder"
 EXECUTOR = "executor"
 # Type labels for the UI.
-LABELS = {BRIDGE: "общий мост", WGNK_FUNDING: "перевод WGNK",
-          STABLE_FUNDING: "общий финансист", EXECUTOR: "общий исполнитель"}
+LABELS = {BRIDGE: "shared bridge", WGNK_FUNDING: "WGNK transfer",
+          STABLE_FUNDING: "shared funder", EXECUTOR: "shared executor"}
 
 
 def _powder_rows(db, sql, args=()):
@@ -103,7 +103,7 @@ def compute(db, addresses, pools=()):
     for (_, gnk), members in _bridge_edges(db).items():
         rated = sorted(members & addresses)
         for other in rated[1:]:
-            union.union(rated[0], other, BRIDGE, f"общий gonka-адрес {gnk}")
+            union.union(rated[0], other, BRIDGE, f"shared gonka address {gnk}")
     for r in db.conn.execute(
             "SELECT src,dst,CAST(amount_raw AS INTEGER) a FROM events "
             "WHERE chain='ethereum' AND finalized=1 AND kind='transfer' AND CAST(amount_raw AS INTEGER)>=?",
@@ -111,7 +111,7 @@ def compute(db, addresses, pools=()):
         src, dst = r["src"], r["dst"]
         if src in addresses and dst in addresses and src != dst:
             union.union(src, dst, WGNK_FUNDING,
-                        f"перевод WGNK {r['a'] / 10**9:.0f} между адресами")
+                        f"WGNK transfer {r['a'] / 10**9:.0f} between addresses")
     by_funder, payer_for = _stable_edges(db, pools)
     for funder, targets in by_funder.items():
         if funder in addresses:
@@ -119,7 +119,7 @@ def compute(db, addresses, pools=()):
         rated = sorted(targets & addresses)
         for other in rated[1:]:
             union.union(rated[0], other, STABLE_FUNDING,
-                        f"один финансист {funder[:10]}… переводил стейблкоины обоим адресам")
+                        f"one funder {funder[:10]}… sent stablecoins to both addresses")
     # A rated address paying for another rated participant's purchase is strong
     # operator evidence; shared routers pay for everyone and must not merge users.
     for payer, targets in payer_for.items():
@@ -130,12 +130,12 @@ def compute(db, addresses, pools=()):
             for target in rated_targets:
                 if target != payer:
                     union.union(payer, target, EXECUTOR,
-                                f"адрес {payer[:10]}… оплачивал покупки из тех же транзакций")
+                                f"address {payer[:10]}… paid for buys from the same transactions")
         elif len(rated_targets) > 1 and len(targets) <= 2:
             rated = sorted(rated_targets)
             for other in rated[1:]:
                 union.union(rated[0], other, EXECUTOR,
-                            f"покупки обоих адресов оплачивал один и тот же адрес {payer[:10]}…")
+                            f"buys of both addresses were paid by the same address {payer[:10]}…")
     # Same executor (with own WGNK movement) attributing swaps to two addresses.
     attributions = defaultdict(set)
     for r in db.conn.execute(
@@ -148,7 +148,7 @@ def compute(db, addresses, pools=()):
         rated = sorted(targets & addresses)
         for other in rated[1:]:
             union.union(rated[0], other, EXECUTOR,
-                        f"один инициатор-исполнитель {initiator[:10]}… с собственным потоком WGNK")
+                        f"one initiator-executor {initiator[:10]}… with its own WGNK flow")
     clusters = defaultdict(list)
     for address in addresses:
         if address in union.parent:

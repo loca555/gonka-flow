@@ -297,15 +297,15 @@ def aggregate(db, qualified=None):
             "thresholds": {"track_quote": tokens(TRACK_QUOTE_RAW, 6),
                            "track_amount": tokens(TRACK_AMOUNT_RAW),
                            "funding": tokens(FUND_RAW, 6)},
-            "note": ("Покупатели — подтверждённые сделки (исполнители-круговики MEV и арбитраж "
-                     "не учитываются) с положительным чистым накоплением, удерживающие не менее "
-                     "половины купленного: баланс WGNK плюс чистый вывод через мост в своё "
-                     "хранение. Порох — стейблкоины USDT/USDC на основных адресах покупателей "
-                     "и их прямых финансистов; пыль до 1 000 USDT, кошельки бирж и инфраструктура "
-                     "исключены. Запасы продавцов — WGNK/GNK и эскроу моста. Для каждого участника "
-                     "считается только основной адрес вероятной группы — это снижает нагрузку на "
-                     "RPC; остальные адреса группы не суммируются. Связи по переводам — "
-                     "вероятность, не владелец.")}
+            "note": ("Buyers: addresses with confirmed trades (round-trip MEV executors and arbitrage "
+                     "are excluded) and positive net accumulation that hold at least "
+                     "half of what they bought: the WGNK balance plus net bridge withdrawal into their own "
+                     "custody. Dry powder is USDT/USDC stablecoins on the main addresses of buyers "
+                     "and their direct funders; dust below 1,000 USDT, exchange wallets and infrastructure "
+                     "are excluded. Seller inventory is WGNK/GNK and the bridge escrow. For each participant "
+                     "only the main address of the probable group is counted — this reduces the load on "
+                     "RPC; the other addresses of the group are not summed. Transfer links are "
+                     "a probability, not an owner.")}
 
 
 def save_snapshot(db, picture):

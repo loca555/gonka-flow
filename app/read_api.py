@@ -56,7 +56,7 @@ class ReadAPI:
     async def run(self, build, *, key=None, ttl=0, as_response=True):
         from fastapi import HTTPException
         if self.pending >= self.max_pending:
-            raise HTTPException(429, 'Очередь расчётов заполнена. Повторите позже.',
+            raise HTTPException(429, 'The calculation queue is full. Try again later.',
                                 headers={'Retry-After': '1'})
         def calculate():
             from fastapi.responses import JSONResponse, Response

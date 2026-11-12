@@ -1,36 +1,36 @@
 # Gonka Flow
 
-- Интерфейс и ответы — на русском.
-- Не запрашивать seed/private key и не добавлять подписание/отправку без отдельного запроса.
-- Не заменять ошибки RPC нулевыми балансами или объёмами.
-- Суммы — целочисленные строки; не использовать float для финансовых агрегатов.
-- Не считать мост/перевод/LP сделкой и адрес личностью.
-- Не заявлять полное покрытие по min/max: сохранять реальные интервалы.
-- Не продвигать курсоры неуспешного пакета.
-- Публикация на Render разрешена пользователем только на бесплатном плане; платные ресурсы не создавать.
-- GitHub — только loca555. Не публиковать .env, .tools, рабочие БД, ключи или исследования из родительской папки.
-- Не трогать исследовательские файлы родительской папки.
-- Перед сдачей: unittest, проверка API и визуальный/интерактивный тест UI.
+- The interface is in English; replies to the user are in Russian.
+- Do not ask for a seed/private key and do not add signing/sending without a separate request.
+- Do not replace RPC errors with zero balances or volumes.
+- Amounts are integer strings; do not use float for financial aggregates.
+- Do not treat a bridge/transfer/LP as a trade or an address as an identity.
+- Do not claim full coverage by min/max: keep the real intervals.
+- Do not advance cursors of a failed batch.
+- Publishing to Render is allowed by the user only on the free plan; do not create paid resources.
+- GitHub — loca555 only. Do not publish .env, .tools, working databases, keys or research from the parent folder.
+- Do not touch research files in the parent folder.
+- Before handing off: unittest, an API check and a visual/interactive UI test.
 
-## Известный сбой встроенного браузера Windows
+## Known failure of the built-in Windows browser
 
-- На этом компьютере регулярно падает Node REPL встроенного браузера: `windows sandbox failed: helper_unknown_error: apply deny-read ACLs` / `node_repl kernel exited unexpectedly` (подтверждено 07.09.2026; сохранить контекст для будущих задач).
-- Соблюдать обязательную процедуру browser skill, но после одной попытки с той же ошибкой не повторять запуск и диагностику по кругу. Для локального UI использовать разрешённый запасной вариант: отдельный headless Chrome через Playwright с чистым профилем, без реальных кошельков и пользовательских данных.
-- Не ослаблять sandbox/ACL, не обходить ограничения управления встроенной вкладкой. Отдельный тестовый браузер не выдавать за проверку пользовательского расширения.
+- On this computer the Node REPL of the built-in browser crashes regularly: `windows sandbox failed: helper_unknown_error: apply deny-read ACLs` / `node_repl kernel exited unexpectedly` (confirmed on September 7, 2026; keep this context for future tasks).
+- Follow the mandatory browser skill procedure, but after one attempt with the same error do not repeat the launch and diagnostics in a loop. For the local UI use the permitted fallback: a separate headless Chrome via Playwright with a clean profile, without real wallets or user data.
+- Do not weaken the sandbox/ACL and do not bypass the restrictions on controlling the built-in tab. Do not present a separate test browser as a check of the user extension.
 
-## Снимок базы перед обновлением Render
+## Database snapshot before a Render update
 
-- Перед каждым деплоем на Render обновлять сохранённый публичный снимок базы до свежего проверенного блока, чтобы после перезапуска сайт сразу показывал актуальную историю.
-- До публикации проверять целостность снимка, полноту сохранённой истории и восстановление из архива. Включать в выпуск обновлённый архив и его манифест.
-- Использовать очищенный публичный снимок; рабочую базу, секреты и приватные исследования не публиковать. При восстановлении не перезаписывать более свежую существующую базу.
+- Before every deploy to Render, update the saved public database snapshot to a fresh verified block so that after a restart the site immediately shows current history.
+- Before publishing, verify the snapshot integrity, the completeness of the saved history and restoration from the archive. Include the updated archive and its manifest in the release.
+- Use the sanitized public snapshot; do not publish the working database, secrets or private research. When restoring, do not overwrite a fresher existing database.
 
-## Локальная разработка перед публикацией
+## Local development before publishing
 
-- Все новые изменения сначала выполнять и проверять локально, затем показывать пользователю локальный результат.
-- Публиковать новые изменения на Render только после отдельного явного запроса пользователя. Предыдущий деплой не означает разрешения публиковать следующие изменения автоматически.
+- Make and verify all new changes locally first, then show the user the local result.
+- Publish new changes to Render only after a separate explicit request from the user. A previous deploy does not mean permission to publish subsequent changes automatically.
 
-## Режим работы с 04.10.2026
-- Только локальная разработка и запуск. На Render больше не публиковать.
-- Обновлять основной Docker-контейнер gonka-flow на http://127.0.0.1:8017 с сохранением тома gonka-flow-data.
+## Operating mode since October 4, 2026
+- Local development and running only. Do not publish to Render anymore.
+- Update the main Docker container gonka-flow at http://127.0.0.1:8017, keeping the gonka-flow-data volume.
 
-- Разработка и проверка запуска — через Docker. Основной контейнер gonka-flow на 8017; лишние серверы uvicorn вне Docker не оставлять.
+- Development and launch checks go through Docker. The main gonka-flow container is on 8017; do not leave extra uvicorn servers running outside Docker.

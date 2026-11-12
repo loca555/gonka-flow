@@ -70,7 +70,7 @@ def listing(db, asset, query='', limit=25, offset=0):
             return result
         classifications=db.get('holder_history:classification',{})
         labels=classifications.get('items',{})
-        items = [dict(**dict(r), **labels.get(r['address'],dict(category='unknown',classification_note='Проверяем историю переводов GNK и операции на стороне WGNK.')))
+        items = [dict(**dict(r), **labels.get(r['address'],dict(category='unknown',classification_note='Checking GNK transfer history and WGNK-side operations.')))
                  for r in db.conn.execute('SELECT address,balance_raw FROM public_gnk_holders')]
         result['classification']={k:v for k,v in classifications.items() if k!='items'}
         result['history_progress']=db.get('holder_history:progress')

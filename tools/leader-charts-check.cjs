@@ -44,11 +44,11 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
      assert.equal(await tip.getAttribute('data-from'),point.from);
      assert.equal(await tip.getAttribute('data-bridge-in'),bridge?.in_raw||'0');
      assert.equal(await tip.getAttribute('data-bridge-out'),bridge?.out_raw||'0');
-     assert((await tip.innerText()).includes('Мост в эти дни'));
+     assert((await tip.innerText()).includes('Bridge on these days'));
      await graphic.press('ArrowRight');
     }
     await graphic.press('Escape');
-    assert((await page.locator('#leaders-'+side+'-price-summary').innerText()).includes('Больше всего объёма'));
+    assert((await page.locator('#leaders-'+side+'-price-summary').innerText()).includes('Most volume'));
    }
    assert.deepEqual(axes[0],axes[1]);assert.deepEqual(countAxes[0],countAxes[1]);
   };
@@ -56,7 +56,7 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   assert.equal(await bridgeNote.getAttribute('data-excluded'),data.bridge.adjustment.amount_raw);
   await bridgeNote.locator('summary').click();
   assert.equal(await bridgeNote.locator('a[href*="/tx/"]').count(),data.bridge.adjustment.deposits.length);
-  assert((await bridgeNote.innerText()).includes('исходные переводы сохранены'));
+  assert((await bridgeNote.innerText()).includes('the original transfers are kept'));
   await bridgeNote.locator('summary').click();
   await check('5');const summary=await page.locator('#leaders-buy-price-summary').innerText();
   await page.locator('#leaders-price-step').selectOption('10');await check('10');
@@ -64,7 +64,7 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   await page.locator('#leaders-price-step').selectOption('5');await check('5');
   const svg=page.locator('#leaders-buy-chart svg');await svg.focus();await svg.press('Home');
   assert(await page.locator('#leaders-buy-chart .chart-tooltip').isVisible());
-  await svg.press('End');assert((await page.locator('#leaders-buy-chart .chart-tooltip').innerText()).includes('Дней на уровне'));
+  await svg.press('End');assert((await page.locator('#leaders-buy-chart .chart-tooltip').innerText()).includes('Days at level'));
   await svg.press('Escape');assert(!(await page.locator('#leaders-buy-chart .chart-tooltip').isVisible()));
   for(const side of ['buy','sell']){
    const chart=page.locator('#leaders-'+side+'-chart'),tip=chart.locator('.chart-tooltip');
@@ -90,14 +90,14 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   const panel=page.locator('.leader-panel.buy .leader-chart-panel');await panel.scrollIntoViewIfNeeded();
   await panel.screenshot({path:'test-results/price-bands-mobile.jpg',type:'jpeg',quality:85});
   await svg.click({position:{x:100,y:100}});assert(await page.locator('#leaders-buy-chart .chart-tooltip').isVisible());
-  assert((await page.locator('#leaders-buy-chart .chart-tooltip').innerText()).includes('Дней на уровне'));
+  assert((await page.locator('#leaders-buy-chart .chart-tooltip').innerText()).includes('Days at level'));
   const mobileTip=await page.locator('#leaders-buy-chart .price-band-tooltip').boundingBox(),mobileChart=await svg.boundingBox();
   assert(mobileTip.x>=mobileChart.x&&mobileTip.x+mobileTip.width<=mobileChart.x+mobileChart.width,'Tooltip fits mobile width');
   assert(mobileTip.y>=mobileChart.y&&mobileTip.y+mobileTip.height<=mobileChart.y+mobileChart.height,'Tooltip fits mobile height');
   await panel.screenshot({path:'test-results/price-bands-mobile-tooltip.jpg',type:'jpeg',quality:85});
   await page.route('**/api/mints/leaders',route=>route.fulfill({status:503,body:'test outage'}));
   await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
-  await page.waitForFunction(()=>document.querySelector('#leaders-status').textContent.includes('Предыдущие данные сохранены'));
+  await page.waitForFunction(()=>document.querySelector('#leaders-status').textContent.includes('Previous data is kept'));
   await check('5');await page.unroute('**/api/mints/leaders');
   const make=(from,to)=>({from_price_raw:from,to_price_raw:to,volume_raw:'1000000000',volume:'1',quote_raw:'100000',quote:'0.1',swaps:1,price_raw:from});
   const bands={buy:[make('100000000000','150000000000'),make('200000000000','250000000000')],sell:[]};
@@ -112,13 +112,13 @@ assert(['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Use a
   assert.equal(await page.locator('#leaders-buy-chart .chart-tooltip').getAttribute('data-days'),'0');
   assert.equal(await page.locator('#leaders-buy-chart .chart-tooltip').getAttribute('data-bridge-in'),'0');
   assert.equal(await page.locator('#leaders-sell-chart svg').count(),0);
-  assert((await page.locator('#leaders-sell-chart').innerText()).includes('пока нет'));
+  assert((await page.locator('#leaders-sell-chart').innerText()).includes('with a confirmed address yet'));
   await page.unroute('**/api/mints/leaders');
   await page.route('**/api/mints/leaders',route=>route.fulfill({json:{...data,bridge:{ready:false},price_bridge:{'5':null,'10':null}}}));
   await page.reload();await page.locator('#leaders-buy-chart svg').waitFor();
   await page.locator('#leaders-buy-chart svg').press('Home');
   assert.equal(await page.locator('#leaders-buy-chart .chart-tooltip').getAttribute('data-bridge-in'),'');
-  assert((await page.locator('#leaders-buy-chart .price-bridge-stats').innerText()).includes('Данные пока не подтверждены'));
+  assert((await page.locator('#leaders-buy-chart .price-bridge-stats').innerText()).includes('Data not confirmed yet'));
   await page.unroute('**/api/mints/leaders');
   await page.route('**/api/mints/leaders',route=>route.fulfill({json:{...data,ready:false,price_distribution:null}}));
   await page.reload();await page.waitForFunction(()=>document.querySelector('#leaders-view').getAttribute('aria-busy')==='false');

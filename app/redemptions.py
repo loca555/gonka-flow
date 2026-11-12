@@ -36,11 +36,11 @@ def burn_index(burn):
             or int(burn['amount_raw']) >= 2**256 or not match or int(match[1]) != burn['height']
             or not re.fullmatch(r'0x[0-9a-f]{64}', burn['tx_hash'])
             or not re.fullmatch(r'0x[0-9a-f]{64}', burn['block_hash']) or burn['idx'] < 0):
-        raise ValueError('Некорректное финальное событие сжигания WGNK')
+        raise ValueError('Invalid final WGNK burn event')
     index = int(match[2])
     # Public starter archives retain request_key even when metadata was stripped.
     if 'transaction_index' in meta and meta['transaction_index'] != index:
-        raise ValueError('Индекс транзакции не совпадает с координатами сжигания')
+        raise ValueError('Transaction index does not match the burn coordinates')
     return index
 
 
@@ -49,20 +49,20 @@ def verify_burn(burn, reply):
     index = burn_index(burn)
     records = reply.get('bridgeTransactions')
     if not isinstance(records, list):
-        raise ValueError('Неполный ответ о состоянии обратного моста')
+        raise ValueError('Incomplete reverse bridge state response')
     matches = [r for r in records if isinstance(r, dict)
                and r.get('chainId') == 'ethereum' and str(r.get('contractAddress', '')).lower() == TOKEN
                and str(r.get('blockNumber')) == str(burn['height'])
                and str(r.get('receiptIndex')) == str(index) and r.get('amount') == burn['amount_raw']]
     if len(matches) != 1:
-        raise ValueError('Однозначная запись обратного моста ещё не найдена')
+        raise ValueError('An unambiguous reverse bridge record has not been found yet')
     record = matches[0]
     if record.get('status') != 'BRIDGE_COMPLETED':
-        raise ValueError('Сжигание найдено; зачисление GNK ещё не подтверждено')
+        raise ValueError('Burn found; GNK credit is not confirmed yet')
     if (not GNK.fullmatch(record.get('ownerAddress', ''))
             or not re.fullmatch(r'0|[1-9][0-9]*', record.get('epochIndex', ''))
             or not isinstance(record.get('id'), str) or not 0 < len(record['id']) <= 200):
-        raise ValueError('Некорректный получатель или идентификатор обратного моста')
+        raise ValueError('Invalid reverse bridge recipient or identifier')
     return {'event_id':burn['id'], 'tx_hash':burn['tx_hash'], 'log_index':burn['idx'],
             'eth_address':burn['src'], 'eth_height':burn['height'], 'eth_ts':burn['ts'],
             'eth_block_hash':burn['block_hash'], 'receipt_index':index,
@@ -76,26 +76,26 @@ def verify_burn(burn, reply):
 def save_burn_link(db, link):
     burn = db.conn.execute('SELECT * FROM events WHERE id=?', (link['event_id'],)).fetchone()
     if not burn:
-        raise ValueError('Нет исходного сжигания в архиве Ethereum')
+        raise ValueError('No source burn in the Ethereum archive')
     expected=verify_burn(dict(burn),{'bridgeTransactions':[{'chainId':'ethereum',
         'contractAddress':TOKEN,'ownerAddress':link['gnk_address'],'amount':link['amount_raw'],
         'blockNumber':str(link['eth_height']),'receiptIndex':str(link['receipt_index']),
         'status':'BRIDGE_COMPLETED','id':link['request_id'],'epochIndex':link['epoch_id']}]})
     if (set(link)!=set(expected) or any(link[k]!=v for k,v in expected.items() if k!='verified_at')
             or type(link['verified_at']) is not int or link['verified_at']<1):
-        raise ValueError('Некорректная проверенная связь обратного моста')
+        raise ValueError('Invalid verified reverse bridge link')
     if any(link[a] != burn[b] for a,b in [('tx_hash','tx_hash'),('log_index','idx'),
             ('eth_address','src'),('eth_height','height'),('eth_ts','ts'),
             ('eth_block_hash','block_hash'),('amount_raw','amount_raw')]):
-        raise ValueError('Связь не совпадает с исходным сжиганием')
+        raise ValueError('The link does not match the source burn')
     if db.conn.execute("SELECT COUNT(*) FROM events WHERE chain='ethereum' AND kind='bridge_burn' AND finalized=1 AND tx_hash=?", (burn['tx_hash'],)).fetchone()[0] != 1:
-        raise ValueError('Несколько сжиганий в одной транзакции: автоматическое сопоставление неоднозначно')
+        raise ValueError('Several burns in one transaction: automatic matching is ambiguous')
     with db.conn:
         previous = db.conn.execute('SELECT value FROM gonka_burn_links WHERE event_id=?', (link['event_id'],)).fetchone()
         if previous:
             old = json.loads(previous[0])
             if any(old.get(k) != v for k,v in link.items() if k != 'verified_at'):
-                raise ValueError('Противоречивая подтверждённая связь обратного моста')
+                raise ValueError('Inconsistent confirmed reverse bridge link')
             return
         db.conn.execute('INSERT INTO gonka_burn_links VALUES(?,?,?)',
                         (link['event_id'],link['gnk_address'],json.dumps(link)))
@@ -150,7 +150,7 @@ async def collect_burns(collector):
     if time.time()-collector.balance_chain_checked>60:
         status=(await collector.request('/chain-rpc/status'))['result']
         if status['node_info']['network']!='gonka-mainnet' or status['sync_info']['catching_up']:
-            raise ValueError('Источник обратного моста не синхронизирован с Gonka mainnet')
+            raise ValueError('The reverse bridge source is not synced with Gonka mainnet')
         collector.balance_chain_checked=int(time.time())
     for row in rows:
         try:

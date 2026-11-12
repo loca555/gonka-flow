@@ -176,8 +176,8 @@ class DBTests(unittest.TestCase):
         e=blank("ethereum",B,"tx",1,"sell",99,actor=USER,meta={"attribution":"initiator_only"})
         self.db.save_batch("ethereum",100,100,[e],[B])
         self.assertEqual(rankings(self.db,24,"sell")["items"],[])
-        self.assertIn("разблокированного",rankings(self.db,24,"unlocks")["note"])
-        self.assertIn("награды",rankings(self.db,24,"rewards")["note"])
+        self.assertIn("unlocked",rankings(self.db,24,"unlocks")["note"])
+        self.assertIn("rewards",rankings(self.db,24,"rewards")["note"])
     def test_api_empty_database_and_validation(self):
         cfg=Settings(data_dir=Path(self.temp.name)/"api",indexer_enabled=False)
         with TestClient(create_app(cfg)) as client:

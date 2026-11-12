@@ -105,7 +105,7 @@ def holders_list(db, asset, hours=24, minimum=10000, tag="", query="", limit=50,
         "asset":asset,"hours":hours,"since":since,"minimum":minimum,"census":db.get("holders:"+asset,{}),
         "collector":db.get("status:"+("gnk_holders" if asset=="GNK" else "wgnk_holders"),{}),
         "coverage":db.coverage("ethereum"),
-        "note":"Метки — только финальные Swap с подтверждённым движением WGNK инициатора. Отсутствие метки не доказывает отсутствие торговли. Адреса разных сетей не объединяются по владельцу."}
+        "note":"Tags are only final Swaps with a confirmed WGNK movement of the initiator. A missing tag does not prove the absence of trading. Addresses on different networks are not merged by owner."}
 
 def address_page(db, address, hours=0, kind="trades", limit=50, offset=0, since=None):
     since = (int(time.time())-hours*3600 if hours else 0) if since is None else since
@@ -117,7 +117,7 @@ def address_page(db, address, hours=0, kind="trades", limit=50, offset=0, since=
     return {"address":address,"asset":asset,"holder":record,"label":db.labels().get(address),
         "activity":act,"events":events,"hours":hours,"since":since,"kind":kind,
         "coverage":db.coverage(chain),"census":db.get("holders:"+asset,{}),
-        "note":"Все страницы доступной локальной истории, не обещание полной истории блокчейна. Итоги торговли включают только финальные события с подтверждённым движением WGNK инициатора; пул/маршрутизатор не автоматически покупатель."}
+        "note":"All pages of the available local history, not a promise of full blockchain history. Trading totals include only final events with a confirmed WGNK movement of the initiator; a pool/router is not automatically a buyer."}
 
 class HolderCollector:
     def __init__(self,indexer):

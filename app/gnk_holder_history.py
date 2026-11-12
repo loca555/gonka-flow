@@ -152,7 +152,7 @@ class HolderHistory:
         native_balances.update({r[0]:int(r[1]) for r in self.db.conn.execute('SELECT address,amount_raw FROM holder_native_balances WHERE height=? AND amount_raw IS NOT NULL',(snapshot['height'],))})
         values=await asyncio.to_thread(estimate,roots,native,ethereum,mints,burns,{p['address'] for p in eth['pools']},set(modules),native_complete,native_balances)
         for address,name in modules.items():
-            values[address]=dict(category='module',classification_note='Системный модуль Gonka: '+name,estimated=False)
+            values[address]=dict(category='module',classification_note='Gonka system module: '+name,estimated=False)
         self.db.put('holder_history:classification',dict(items=values,gnk_height=snapshot['height'],eth_height=eth['height'],checked_at=int(time.time())))
 
     async def run(self):

@@ -63,7 +63,7 @@ function rpc(method,params){
   assert.equal(await page.getByLabel('Сумма действия',{exact:true}).inputValue(),'123');
   result.latest100HidesOldDeal=true;result.selectedDealChangedFrom=1;result.selectedDealChangedTo=101;result.oldAmountRetained='123';
   await page.locator('#otc-view').screenshot({path:path.join(out,'ui-context-reset.png')});
-  await page.getByRole('link',{name:'Торговля',exact:true}).click();await page.locator('#otc-view').waitFor({state:'hidden'});
+  await page.getByRole('link',{name:'Trading',exact:true}).click();await page.locator('#otc-view').waitFor({state:'hidden'});
   await page.getByRole('link',{name:'OTC · локально',exact:true}).click();await page.locator('#otc-view').waitFor({state:'visible'});
   await page.locator('#theme-toggle').click();await page.setViewportSize({width:390,height:844});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));

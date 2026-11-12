@@ -241,7 +241,7 @@ def save_page(db,address,page,modules=None):
         # Offset feeds move as new transactions arrive. Never silently jump over
         # a missing boundary; restart this pass while retaining all cached rows.
         state.update(offset=0,anchor=None,next_check=0,
-                     error="Порядок истории изменился; повторяем проход без удаления сохранённых данных")
+                     error="History order changed; repeating the pass without deleting stored data")
         with db.conn:
             db.conn.execute("INSERT OR REPLACE INTO gonka_address_sync VALUES(?,?)",(address,json.dumps(state)))
         return
@@ -260,7 +260,7 @@ def save_page(db,address,page,modules=None):
             raise ValueError("Explorer page cannot advance")
         next_offset = offset+len(rows)-OVERLAP
         if next_offset > 1000000:
-            raise ValueError("Достигнут лимит пагинации эксплорера; история неполная")
+            raise ValueError("Explorer pagination limit reached; history is incomplete")
         state.update(offset=next_offset,anchor=hashes[-1],next_check=0)
     with db.conn:
         from .gnk_holder_history import discover
@@ -326,7 +326,7 @@ def balance_state(db,address):
 def balance_height(headers):
     heights=[headers.get(k) for k in ("x-cosmos-block-height","grpc-metadata-x-cosmos-block-height") if headers.get(k)]
     if not heights or any(not re.fullmatch(r"[1-9][0-9]*",str(h)) for h in heights) or len(set(heights))!=1:
-        raise ValueError("Источник не подтвердил высоту снимка баланса Gonka")
+        raise ValueError("The source did not confirm the height of the Gonka balance snapshot")
     return int(heights[0])
 
 
@@ -336,10 +336,10 @@ def save_balance(db,address,coin,height,checked_at=None):
     if (not GNK.fullmatch(address) or not isinstance(coin,dict) or coin.get("denom")!="ngonka"
             or not isinstance(coin.get("amount"),str) or not re.fullmatch(r"0|[1-9][0-9]*",coin["amount"])
             or type(height) is not int or height<1 or type(now) is not int or now<1):
-        raise ValueError("Некорректный снимок баланса Gonka")
+        raise ValueError("Invalid Gonka balance snapshot")
     state=balance_state(db,address);old=state["snapshot"]
     if old and (height<old["height"] or (height==old["height"] and coin["amount"]!=old["amount_raw"])):
-        raise ValueError("Устаревший или противоречивый снимок баланса Gonka")
+        raise ValueError("Stale or inconsistent Gonka balance snapshot")
     state.update(snapshot={"address":address,"denom":"ngonka","amount_raw":coin["amount"],
         "height":height,"checked_at":now,"source":SOURCE,"scope":"bank_balance"},
         last_attempt=now,next_check=now+BALANCE_INTERVAL,error=None)
@@ -368,7 +368,7 @@ def incoming_history(db,address,sort="time_desc"):
             "balance_status":{k:v for k,v in balance.items() if k!="snapshot"},
             "balance_poll_seconds":BALANCE_INTERVAL,"now":int(time.time()),
             "index_head":db.get("provenance:index_head"),
-            "coverage_note":"Поступления из адресной истории GonkaLabs. Завершение загрузки означает конец ленты эксплорера, не независимую проверку всей сети. Автоматические выплаты в событиях блока и неиндексированные получатели могут отсутствовать."}
+            "coverage_note":"Receipts from the GonkaLabs address history. The end of loading means the end of the explorer feed, not an independent verification of the whole network. Automatic payouts in block events and unindexed recipients may be missing."}
 
 
 class ProvenanceCollector:
@@ -387,7 +387,7 @@ class ProvenanceCollector:
         # of Ethereum. No arbitrary URL or wallet is accepted from browser input.
         async with self.lock:
             if self.cooldown > time.monotonic():
-                raise RuntimeError("GonkaLabs временно недоступен; сохранённые данные не удалены")
+                raise RuntimeError("GonkaLabs is temporarily unavailable; stored data was not deleted")
             await asyncio.sleep(max(0,self.next_request-time.monotonic()))
             self.next_request = time.monotonic()+.3
         response = await (self.net.client.post(SOURCE+path,json=payload) if payload is not None else
@@ -397,7 +397,7 @@ class ProvenanceCollector:
         response.raise_for_status()
         result = response.json()
         if isinstance(result,dict) and result.get("error"):
-            raise ValueError("GonkaLabs RPC вернул ошибку")
+            raise ValueError("GonkaLabs RPC returned an error")
         return {"data":result,"height":balance_height(response.headers)} if include_height else result
 
     async def native_blocks(self,heights):
@@ -410,10 +410,10 @@ class ProvenanceCollector:
         expected={r["id"] for r in payload}
         def accept(rows):
             if not isinstance(rows,list) or len(rows)!=len(payload):
-                raise ValueError("Неполный ответ Gonka block/results")
+                raise ValueError("Incomplete Gonka block/results response")
             by_id={r.get("id"):r for r in rows}
             if set(by_id)!=expected or any(r.get("error") for r in rows):
-                raise ValueError("Блок Gonka временно недоступен")
+                raise ValueError("Gonka block is temporarily unavailable")
             for h in heights:
                 b,r=by_id[f"block:{h}"],by_id[f"block_results:{h}"]
                 if (b["result"]["block"]["header"]["chain_id"]!="gonka-mainnet" or
@@ -448,7 +448,7 @@ class ProvenanceCollector:
             except Exception as error:
                 self.net.native_cooldown[base]=time.monotonic()+60
                 errors.append(type(error).__name__)
-        raise ValueError("Архивные блоки Gonka временно недоступны: "+','.join(errors))
+        raise ValueError("Gonka archive blocks are temporarily unavailable: "+','.join(errors))
 
     async def native_block(self,height):
         await self.native_blocks([height])
@@ -511,7 +511,7 @@ class ProvenanceCollector:
             if now-self.balance_chain_checked>60:
                 status=(await self.request("/chain-rpc/status"))["result"]
                 if status["node_info"]["network"]!="gonka-mainnet" or status["sync_info"]["catching_up"]:
-                    raise ValueError("Источник баланса Gonka не синхронизирован с основной сетью")
+                    raise ValueError("The Gonka balance source is not synced with mainnet")
                 self.balance_chain_checked=now
             reply=await self.request("/chain-api/cosmos/bank/v1beta1/balances/"+address+"/by_denom",
                                      {"denom":"ngonka"},include_height=True)

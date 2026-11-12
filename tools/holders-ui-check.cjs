@@ -24,7 +24,7 @@ const fs=require('node:fs/promises');
    assert.equal(await panel.locator('tbody tr[data-address]').count(),1);
    assert.equal(await panel.locator('tbody tr[data-address]').getAttribute('data-address'),data.items[2].address);
    await panel.locator('input').fill('zzzzzzz');await panel.locator('button[type=submit]').click();await idle(asset);
-   assert.match(await panel.locator('tbody').innerText(),/Адрес не найден/);assert.equal(await panel.locator('tbody tr[data-address]').count(),0);
+   assert.match(await panel.locator('tbody').innerText(),/Address not found/);assert.equal(await panel.locator('tbody tr[data-address]').count(),0);
    await panel.locator('[data-reset]').click();await idle(asset);
   }
   assert.equal(await page.locator('[data-view=holders]').getAttribute('aria-current'),'page');
@@ -50,7 +50,7 @@ const fs=require('node:fs/promises');
   await page.locator('#address-close').click();await page.locator('[data-view=holders]').click();
   await page.route('**/api/mints/holders?*',r=>r.fulfill({status:503,body:'test outage'}));
   await page.locator('#holders-refresh').click();await idle('WGNK');
-  assert.match(await page.locator('#holders-WGNK .holders-status').innerText(),/предыдущий снимок/);
+  assert.match(await page.locator('#holders-WGNK .holders-status').innerText(),/previous snapshot/);
   assert.equal(await page.locator('#holders-WGNK tbody tr[data-address]').count(),25);
   await page.locator('#holders-WGNK input').fill('abc');await page.locator('#holders-WGNK button[type=submit]').click();await idle('WGNK');
   assert.equal(await page.locator('#holders-WGNK tbody tr[data-address]').count(),0);

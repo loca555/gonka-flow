@@ -9,7 +9,7 @@ function displayed(value){
  const raw=BigInt(whole)*10n**12n+BigInt(fraction.padEnd(12,'0'));
  const n=(raw+500000000n)/1000000000n;
  const f=(n%1000n).toString().padStart(3,'0');
- return '$'+(n/1000n).toLocaleString('ru-RU')+'.'+f;
+ return '$'+(n/1000n).toLocaleString('en-US')+'.'+f;
 }
 (async()=>{
  const browser=await chromium.launch({headless:true,chromiumSandbox:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{channel:'chrome'})});
@@ -33,7 +33,7 @@ function displayed(value){
   assert.equal(await page.locator('#header-price>span').count(),0,'no visible unit label');
   assert.equal(await page.locator('#refresh').count(),0,'global refresh button is removed');
   assert.equal(await page.locator('#header-price').innerText(),displayed(data.latest_trade.price));
-  assert.match(await page.locator('#header-price-value').getAttribute('aria-label'),/Цена за 1 WGNK, USDT/);
+  assert.match(await page.locator('#header-price-value').getAttribute('aria-label'),/Price per 1 WGNK, USDT/);
   assert.equal(data.trades[0].price,data.latest_trade.price,'header matches newest all-side execution');
   await page.locator('.masthead').screenshot({path:path.join(out,'light.png')});
   await page.locator('#theme-toggle').click();
@@ -69,7 +69,7 @@ function displayed(value){
   await background();
   await page.waitForFunction(()=>document.getElementById('header-price').dataset.state==='stale');
   await verifyPrice(lastPrice);
-  assert.match(await page.locator('#header-price').getAttribute('title'),/Нет свежего ответа/);
+  assert.match(await page.locator('#header-price').getAttribute('title'),/No fresh response/);
   await page.unroute('**/api/mints/flows?**');
   await action(background);
   await page.route('**/api/mints/flows?**',route=>route.fulfill({json:{...data,ready:false,latest_trade:null}}));

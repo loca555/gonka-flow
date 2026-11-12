@@ -1,14 +1,14 @@
 /* Address attribution means verified receipt initiator, not a person's identity. */
 window.WgnkAddress=(()=>{
  const wallet={address:"",sort:"time_desc",request:0,data:null,loading:false,opener:null};
- document.body.insertAdjacentHTML("beforeend",'<dialog id="address-dialog" aria-labelledby="address-title"><div class="dialog-heading"><div><span class="eyebrow">WGNK / ВСЯ ИСТОРИЯ</span><h2 id="address-title">Покупки и продажи адреса</h2></div><button id="address-close" aria-label="Закрыть сделки адреса" autofocus>✕</button></div><div class="address-identity"><a id="address-link" class="mono" target="_blank" rel="noopener noreferrer"></a><button id="address-copy">Копировать</button></div><p id="address-status" class="search-result" role="status" aria-live="polite"></p><div id="address-data" hidden><section id="address-metrics" class="metrics address-metrics" aria-label="Баланс и итоги торговли адреса"></section><p class="flow-explanation">Только подтверждённый приток/отток WGNK у инициатора в двух пулах Uniswap V3. Покупки и продажи — валовой оборот, не прибыль. Переводы, чеканка и ликвидность не являются сделками. CEX, OTC и другие DEX не покрыты. Цены — USDT за 1 WGNK.</p><div class="table-container address-table" tabindex="0" aria-label="Все сделки адреса, прокручиваемый список"><table id="address-trades-table"><thead><tr><th data-sort="time">Дата и время</th><th data-sort="kind" data-default="asc">Сделка</th><th data-sort="amount" class="numeric">Объём WGNK</th><th data-sort="quote" class="numeric">Сумма USDT</th><th data-sort="price" class="numeric">Цена за 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Пул</th><th data-sort="tx" data-default="asc">Транзакция</th></tr></thead><tbody id="address-rows"></tbody></table></div><p id="address-trade-count" class="address-trade-count"></p></div><div class="address-footer"><span>Вся история одним списком · прокрутка внутри таблицы</span><button id="address-refresh">Обновить сделки</button></div></dialog>');
+ document.body.insertAdjacentHTML("beforeend",'<dialog id="address-dialog" aria-labelledby="address-title"><div class="dialog-heading"><div><span class="eyebrow">WGNK / ALL HISTORY</span><h2 id="address-title">Address buys and sells</h2></div><button id="address-close" aria-label="Close address trades" autofocus>✕</button></div><div class="address-identity"><a id="address-link" class="mono" target="_blank" rel="noopener noreferrer"></a><button id="address-copy">Copy</button></div><p id="address-status" class="search-result" role="status" aria-live="polite"></p><div id="address-data" hidden><section id="address-metrics" class="metrics address-metrics" aria-label="Address balance and trading totals"></section><p class="flow-explanation">Only confirmed WGNK inflow/outflow of the initiator in two Uniswap V3 pools. Buys and sells are gross turnover, not profit. Transfers, mints and liquidity are not trades. CEX, OTC and other DEXes are not covered. Prices are USDT per 1 WGNK.</p><div class="table-container address-table" tabindex="0" aria-label="All address trades, scrollable list"><table id="address-trades-table"><thead><tr><th data-sort="time">Date and time</th><th data-sort="kind" data-default="asc">Trade</th><th data-sort="amount" class="numeric">WGNK volume</th><th data-sort="quote" class="numeric">USDT amount</th><th data-sort="price" class="numeric">Price per 1 WGNK, USDT</th><th data-sort="pool" data-default="asc">Pool</th><th data-sort="tx" data-default="asc">Transaction</th></tr></thead><tbody id="address-rows"></tbody></table></div><p id="address-trade-count" class="address-trade-count"></p></div><div class="address-footer"><span>All history in one list · scroll inside the table</span><button id="address-refresh">Refresh trades</button></div></dialog>');
  const dialog=el("address-dialog");
  const PAGE_SIZE=50;
  const REFRESH_INTERVAL=30000;
  let retryAt=0,retryTimer,retryRequest;
- el("address-trade-count").insertAdjacentHTML("afterend",'<div class="pagination address-pagination" aria-label="Страницы сделок адреса"><button id="address-previous" type="button">← Назад</button><span id="address-page" aria-live="polite"></span><button id="address-next" type="button">Далее →</button></div>');
- dialog.querySelector(".address-footer span").textContent="По 50 исполнений на странице · итоги и график за всю историю";
- dialog.querySelector(".address-table").setAttribute("aria-label","Страница сделок адреса, прокручиваемый список");
+ el("address-trade-count").insertAdjacentHTML("afterend",'<div class="pagination address-pagination" aria-label="Address trade pages"><button id="address-previous" type="button">← Back</button><span id="address-page" aria-live="polite"></span><button id="address-next" type="button">Next →</button></div>');
+ dialog.querySelector(".address-footer span").textContent="50 executions per page · totals and chart for all history";
+ dialog.querySelector(".address-table").setAttribute("aria-label","Address trades page, scrollable list");
  function pageButtons(){
   el("address-previous").disabled=wallet.loading||Boolean(retryRequest)||!wallet.data?.ready||wallet.data.offset<=0;
   el("address-next").disabled=wallet.loading||Boolean(retryRequest)||!wallet.data?.ready||!wallet.data.has_more;
@@ -16,7 +16,7 @@ window.WgnkAddress=(()=>{
  for(const [id,direction] of [["address-previous",-1],["address-next",1]]){
   el(id).addEventListener("click",()=>{if(!wallet.loading&&wallet.data?.ready)refresh(true,true,Math.max(0,wallet.data.offset+direction*PAGE_SIZE));});
  }
- el("address-metrics").insertAdjacentHTML("afterend",'<article class="panel address-chart-panel" aria-labelledby="address-chart-title"><div class="panel-title"><div><h2 id="address-chart-title">Покупки, продажи и баланс</h2><p>По дням · вся история адреса · средняя цена взвешена по объёму</p></div><div class="market-chart-legend"><span class="trade-key buy">Покупки</span><span class="trade-key sell">Продажи</span><span class="price-key">Баланс</span></div></div><div id="address-chart" class="interactive-chart"></div><div class="chart-footer"><span>Баланс — на конец дня, последний день — на снимке.<br>Учитывает все переводы, чеканку и сжигания WGNK.</span><span>Наведите курсор или коснитесь графика</span></div></article>');
+ el("address-metrics").insertAdjacentHTML("afterend",'<article class="panel address-chart-panel" aria-labelledby="address-chart-title"><div class="panel-title"><div><h2 id="address-chart-title">Buys, sells and balance</h2><p>By day · all address history · average price weighted by volume</p></div><div class="market-chart-legend"><span class="trade-key buy">Buys</span><span class="trade-key sell">Sells</span><span class="price-key">Balance</span></div></div><div id="address-chart" class="interactive-chart"></div><div class="chart-footer"><span>Balance is at end of day; the last day is at the snapshot.<br>Includes all WGNK transfers, mints and burns.</span><span>Hover or tap the chart</span></div></article>');
  let chartKey="";
  function renderChart(data){
   const host=el("address-chart");
@@ -28,15 +28,15 @@ window.WgnkAddress=(()=>{
    GonkaChart.renderAddress(host,data.address_history);chartKey=key;
   }catch{
    chartKey="";
-   host.innerHTML='<div class="empty" role="status"><p>График не загрузился. Обновите страницу, чтобы загрузить актуальные файлы.</p><button type="button">Обновить страницу</button></div>';
+   host.innerHTML='<div class="empty" role="status"><p>The chart failed to load. Reload the page to load the current files.</p><button type="button">Reload page</button></div>';
    host.querySelector("button").addEventListener("click",()=>location.reload());
   }
  }
  new ResizeObserver(()=>renderChart(wallet.data)).observe(el("address-chart"));
  closeOnBackdrop(dialog);
  window.GonkaProvenance.mount(dialog);
- el("address-title").textContent="История адреса";
- el("address-refresh").textContent="Обновить";
+ el("address-title").textContent="Address history";
+ el("address-refresh").textContent="Refresh";
  configureTableSort("address-trades-table",wallet.sort,sort=>refresh(true,false,0,sort));
  el("address-close").addEventListener("click",()=>dialog.close());
  dialog.addEventListener("close",()=>{
@@ -46,24 +46,24 @@ window.WgnkAddress=(()=>{
  });
  el("address-refresh").addEventListener("click",()=>window.GonkaProvenance.isActive()?window.GonkaProvenance.refresh():refresh(true));
  el("address-copy").addEventListener("click",async()=>{
-  try{await navigator.clipboard.writeText(wallet.address);el("address-copy").textContent="Скопировано";}
-  catch{el("address-status").textContent="Копирование недоступно. Выделите адрес вручную.";}
+  try{await navigator.clipboard.writeText(wallet.address);el("address-copy").textContent="Copied";}
+  catch{el("address-status").textContent="Copying is unavailable. Select the address manually.";}
  });
  function render(data,resetScroll=false){
   if(!data.ready){
-   el("address-status").textContent="Сверенный снимок ещё не готов. Это не означает отсутствие сделок.";
+   el("address-status").textContent="The reconciled snapshot is not ready yet. This does not mean there are no trades.";
    el("address-data").hidden=true;return;
   }
   const table=dialog.querySelector(".address-table"),scrollTop=resetScroll?0:table.scrollTop,dialogTop=resetScroll?0:dialog.scrollTop;
-  el("address-status").textContent=count(data.total)+" исполнений · "+count(data.summary.transactions)+" транзакций · снимок #"+count(data.snapshot.height)+" · "+date(data.snapshot.ts)+" "+clock(data.snapshot.ts)+
-   (data.coverage.complete?" · история без пропусков":" · есть незагруженные блоки")+
-   (data.status.error?" · свежие данные временно недоступны":data.now-data.snapshot.checked_at>180?" · обновляем данные":"");
+  el("address-status").textContent=count(data.total)+" executions · "+count(data.summary.transactions)+" transactions · snapshot #"+count(data.snapshot.height)+" · "+date(data.snapshot.ts)+" "+clock(data.snapshot.ts)+
+   (data.coverage.complete?" · history without gaps":" · some blocks not loaded yet")+
+   (data.status.error?" · fresh data is temporarily unavailable":data.now-data.snapshot.checked_at>180?" · updating data":"");
   const s=data.summary,balance=data.address_balance;
-  setLiveHTML(el("address-metrics"),'<article><span>Текущий баланс <small>WGNK</small></span><strong id="address-balance">'+(balance?esc(amount(balance.amount)):"—")+'</strong><p>'+(balance?'На проверенном блоке #'+count(balance.height)+'<br>С учётом всех переводов WGNK':'Баланс пока не подтверждён')+'</p></article><article><span>Куплено <small>WGNK</small></span><strong>'+esc(amount(s.bought))+'</strong><p>'+count(s.buys_count)+' исполнений · уплачено '+esc(amount(s.buy_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.buy_average_price))+' USDT</p></article><article><span>Продано <small>WGNK</small></span><strong>'+esc(amount(s.sold))+'</strong><p>'+count(s.sales_count)+' исполнений · получено '+esc(amount(s.sale_quote))+' USDT<br>Средняя цена за 1 WGNK: '+esc(price(s.sale_average_price))+' USDT</p></article>');
+  setLiveHTML(el("address-metrics"),'<article><span>Current balance <small>WGNK</small></span><strong id="address-balance">'+(balance?esc(amount(balance.amount)):"—")+'</strong><p>'+(balance?'At verified block #'+count(balance.height)+'<br>Including all WGNK transfers':'Balance not confirmed yet')+'</p></article><article><span>Bought <small>WGNK</small></span><strong>'+esc(amount(s.bought))+'</strong><p>'+count(s.buys_count)+' executions · paid '+esc(amount(s.buy_quote))+' USDT<br>Average price per 1 WGNK: '+esc(price(s.buy_average_price))+' USDT</p></article><article><span>Sold <small>WGNK</small></span><strong>'+esc(amount(s.sold))+'</strong><p>'+count(s.sales_count)+' executions · received '+esc(amount(s.sale_quote))+' USDT<br>Average price per 1 WGNK: '+esc(price(s.sale_average_price))+' USDT</p></article>');
   setTableSort("address-trades-table",data.sort);
-  setLiveHTML(el("address-rows"),data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Покупка":"Продажа")+'</span></td><td class="numeric">'+esc(amount(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td>Uniswap V3<small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' б.п.</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):'<tr><td colspan="7" class="empty">Подтверждённых покупок и продаж этого адреса в отслеживаемых пулах не найдено.</td></tr>');
-  el("address-trade-count").textContent=count(data.total)+" исполнений за всю историю";
-  el("address-page").textContent=data.total?count(data.offset+1)+"–"+count(data.offset+data.trades.length)+" из "+count(data.total):"0 исполнений";
+  setLiveHTML(el("address-rows"),data.trades.length?data.trades.map(e=>'<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+e.kind+'">'+(e.kind==="buy"?"Buy":"Sell")+'</span></td><td class="numeric">'+esc(amount(e.amount))+'</td><td class="numeric">'+esc(amount(e.quote))+'</td><td class="numeric price-value">'+esc(price(e.price))+'</td><td>Uniswap V3<small>'+count((data.pools.find(p=>p.address===e.pool)?.fee||0)/100)+' bps</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>Swap #'+e.idx+'</small></td></tr>').join(""):'<tr><td colspan="7" class="empty">No confirmed buys or sells of this address found in the tracked pools.</td></tr>');
+  el("address-trade-count").textContent=count(data.total)+" executions over all history";
+  el("address-page").textContent=data.total?count(data.offset+1)+"–"+count(data.offset+data.trades.length)+" of "+count(data.total):"0 executions";
   el("address-data").hidden=false;
   renderChart(data);
   table.scrollTop=scrollTop;dialog.scrollTop=dialogTop;
@@ -80,9 +80,9 @@ window.WgnkAddress=(()=>{
  function queueRetry(request){
   retryRequest=request;
   const delay=Math.max(0,retryAt-Date.now());
-  el("address-status").textContent="Сервис временно ограничил запросы. "+
-   (wallet.data?.ready?"Последние данные сохранены. ":"")+
-   "Повторим автоматически через "+count(Math.ceil(delay/1000))+" с.";
+  el("address-status").textContent="The service has temporarily limited requests. "+
+   (wallet.data?.ready?"The latest data is kept. ":"")+
+   "Will retry automatically in "+count(Math.ceil(delay/1000))+" s.";
   clearTimeout(retryTimer);
   retryTimer=setTimeout(resumeRetry,Math.min(delay,2147483647));
  }
@@ -102,7 +102,7 @@ window.WgnkAddress=(()=>{
   const controller=wallet.abort=new AbortController(),id=++wallet.request;
   const timer=setTimeout(()=>controller.abort(),30000);wallet.loading=true;pageButtons();dialog.setAttribute("aria-busy","true");
   const previous=wallet.data;
-  if(!wallet.data){el("address-status").textContent="Загружаем покупки и продажи за всю историю…";dialog.setAttribute("aria-busy","true");}
+  if(!wallet.data){el("address-status").textContent="Loading buys and sells over all history…";dialog.setAttribute("aria-busy","true");}
   try{
    const params=new URLSearchParams({sort,limit:PAGE_SIZE,offset});
    if(pageOnly&&previous?.ready){params.set("through",previous.snapshot.height);params.set("snapshot_hash",previous.snapshot.hash);params.set("as_of",previous.as_of??previous.now);}
@@ -112,16 +112,16 @@ window.WgnkAddress=(()=>{
     retryAt=Date.now()+Math.max(retryDelay(response.headers.get("Retry-After")),retrying?REFRESH_INTERVAL:0);
     queueRetry(request);return;
    }
-   if(!response.ok)throw new Error(response.status===409?"Снимок истории изменился. Нажмите «Обновить».":"HTTP "+response.status);
+   if(!response.ok)throw new Error(response.status===409?"The history snapshot has changed. Click “Refresh”.":"HTTP "+response.status);
    let data=await response.json();if(id!==wallet.request||!dialog.open)return;
-   if(wallet.data?.ready&&!data.ready){el("address-status").textContent="Сервис восстанавливает снимок. Последние проверенные данные адреса сохранены; повторим автоматически.";return;}
-   if(data.ready&&(data.offset!==offset||data.limit!==PAGE_SIZE||!Array.isArray(data.trades)||data.trades.length!==Math.max(0,Math.min(PAGE_SIZE,data.total-offset))))throw new Error("Страница истории загружена не полностью.");
+   if(wallet.data?.ready&&!data.ready){el("address-status").textContent="The service is restoring the snapshot. The last verified address data is kept; will retry automatically.";return;}
+   if(data.ready&&(data.offset!==offset||data.limit!==PAGE_SIZE||!Array.isArray(data.trades)||data.trades.length!==Math.max(0,Math.min(PAGE_SIZE,data.total-offset))))throw new Error("The history page was not loaded completely.");
    if(pageOnly&&data.ready){
-    if(!previous?.ready||data.snapshot_height!==previous.snapshot.height||data.snapshot_hash!==previous.snapshot.hash||data.as_of!==(previous.as_of??previous.now))throw new Error("Снимок истории изменился. Нажмите «Обновить».");
+    if(!previous?.ready||data.snapshot_height!==previous.snapshot.height||data.snapshot_hash!==previous.snapshot.hash||data.as_of!==(previous.as_of??previous.now))throw new Error("The history snapshot has changed. Click “Refresh”.");
     data={...previous,trades:data.trades,total:data.total,offset:data.offset,limit:data.limit,has_more:data.has_more,sort:data.sort};
    }
    render(data,resetScroll||!wallet.data);wallet.data=data;
-  }catch(error){if(id===wallet.request&&dialog.open)el("address-status").textContent="Не удалось обновить сделки. "+(wallet.data?"Ниже сохранён предыдущий результат. ":"")+"Нажмите «Обновить». "+(error.name==="AbortError"?"Таймаут.":error.message);}
+  }catch(error){if(id===wallet.request&&dialog.open)el("address-status").textContent="Failed to refresh trades. "+(wallet.data?"The previous result is kept below. ":"")+"Click “Refresh”. "+(error.name==="AbortError"?"Timeout.":error.message);}
   finally{
    clearTimeout(timer);
    if(id===wallet.request){wallet.loading=false;dialog.setAttribute("aria-busy","false");pageButtons();}
@@ -133,7 +133,7 @@ window.WgnkAddress=(()=>{
   Object.assign(wallet,{address,opener,sort:"time_desc",data:null});
   dialog.setAttribute("aria-busy","false");pageButtons();
   chartKey="";el("address-chart").replaceChildren();
-  el("address-data").hidden=true;el("address-copy").textContent="Копировать";
+  el("address-data").hidden=true;el("address-copy").textContent="Copy";
   el("address-link").textContent=address+" ↗";el("address-link").href="https://etherscan.io/address/"+address;
   if(!dialog.open)dialog.showModal();
   window.GonkaProvenance.open(address,gonkaAddress);

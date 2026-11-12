@@ -80,19 +80,19 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
    ['Recovery',{},'live']
   ]){
    const text=await reload(value,expected);reports.push(name);
-   if(!value.offline)await page.waitForFunction(()=>/^\d{2}\.\d{2}\.\d{4}/.test(document.querySelector('#sync-progress').textContent));
+   if(!value.offline)await page.waitForFunction(()=>/^\d{2}\/\d{2}\/\d{4}/.test(document.querySelector('#sync-progress').textContent));
    const progress=await page.locator('#sync-progress').innerText();
    assert(await page.locator('#sync-progress').isVisible());
-   if(!value.offline)assert.match(progress,/^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2} · /,name);
-   else assert(progress.includes('получаем состояние истории'));
-   if(expected==='live')assert(progress.endsWith('история без пропусков'));
-   if(value.snapshotTs)assert(progress.startsWith('12.09.2026 09:12:11 · '));
-   if(value.marketLag===1)assert(progress.endsWith('история неполная, догружаем 1 блок'));
-   if(value.marketLag===2)assert(progress.endsWith(value.paused?'осталось загрузить 2 блока':'догружаем 2 блока'));
-   if(value.marketLag===5)assert(progress.endsWith('догружаем 5 блоков'));
-   if(value.mintLag&&value.marketLag)assert(progress.includes('торговля и мост: догружаем 3 блока · чеканка: догружаем 100 блоков'));
-   if(expected==='verifying')assert(progress.endsWith('история загружена, сверяем снимок'));
-   if(['paused','error','stale'].includes(expected))assert(!progress.includes('догружаем'));
+   if(!value.offline)assert.match(progress,/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}\s[AP]M · /,name);
+   else assert(progress.includes('fetching history status'));
+   if(expected==='live')assert(progress.endsWith('history without gaps'));
+   if(value.snapshotTs)assert.match(progress,/^09\/12\/2026 09:12:11\sAM · /);
+   if(value.marketLag===1)assert(progress.endsWith('history incomplete, loading 1 block'));
+   if(value.marketLag===2)assert(progress.endsWith(value.paused?'left to load 2 blocks':'loading 2 blocks'));
+   if(value.marketLag===5)assert(progress.endsWith('loading 5 blocks'));
+   if(value.mintLag&&value.marketLag)assert(progress.includes('trading and bridge: loading 3 blocks · mints: loading 100 blocks'));
+   if(expected==='verifying')assert(progress.endsWith('history loaded, reconciling snapshot'));
+   if(['paused','error','stale'].includes(expected))assert(!progress.includes('loading'));
    if(value.marketLag===1){
     await fs.mkdir('test-results',{recursive:true});
     await page.locator('.connection-status').screenshot({path:'test-results/sync-progress-one-block.jpg',type:'jpeg',quality:90});
@@ -101,7 +101,7 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
     await fs.mkdir('test-results',{recursive:true});
     await page.locator('.page-top').screenshot({path:'test-results/sync-status-loading.jpg',type:'jpeg',quality:85});
    }
-   if(value.liveTail)assert(!text.includes('финализаци'));
+   if(value.liveTail)assert(!text.includes('finaliz'));
    if(value.rpcError)assert(text.includes('RPC temporarily unavailable'));
   }
   // Preserve old rows while reporting that the service is rebuilding its snapshot.
@@ -112,10 +112,10 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
   reports.push('Retained table does not hide snapshot rebuilding');
   // Successful mint refresh cannot clear a failed market request.
   scenario={offline:true};await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await state('error');
-  await page.getByRole('link',{name:'Мост',exact:true}).click();
+  await page.getByRole('link',{name:'Bridge',exact:true}).click();
   const updated=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/mints');
   await page.locator('#bridge-volume-filter button[type=submit]').click();await updated;await state('error');
-  assert((await page.locator('#rpc-note').textContent()).includes('торговле'));
+  assert((await page.locator('#rpc-note').textContent()).includes('trading'));
   reports.push('Mint refresh preserves market outage');
   scenario={newHead:32,bridgeNotReady:true};await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await state('syncing');
   reports.push('Retained bridge table still updates sync progress');
@@ -133,7 +133,7 @@ const base=process.env.SYNC_TEST_BASE||'http://127.0.0.1:8796';
    await page.locator('.page-top').screenshot({path:'test-results/sync-progress-'+width+'.jpg',type:'jpeg',quality:90});
   }
   await reload({liveTail:84},'live');
-  assert((await page.locator('.sales-table-heading').innerText()).includes('Покупки и продажи показаны вместе'));
+  assert((await page.locator('.sales-table-heading').innerText()).includes('Buys and sells are shown together'));
   assert.equal(await page.locator('#holder-group-cards [data-holder-group]').count(),4);
   assert.equal(await page.locator('.holder-history-panel, #holder-history-chart').count(),0);
   await page.locator('#sales-chart svg').waitFor();

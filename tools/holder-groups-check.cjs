@@ -5,7 +5,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const fmt=value=>{
  const [whole,fraction='']=String(value).split('.');
- return BigInt(whole)===0n&&/[1-9]/.test(fraction)?'< 1':BigInt(whole).toLocaleString('ru-RU');
+ return BigInt(whole)===0n&&/[1-9]/.test(fraction)?'< 1':BigInt(whole).toLocaleString('en-US');
 };
 (async()=>{
  const base=process.env.TEST_URL||'http://127.0.0.1:8790',out=path.resolve('test-results');
@@ -88,12 +88,12 @@ const fmt=value=>{
   // Failed refresh retains verified cards; unavailable data is not presented as zero.
   const saved=await page.locator('#holder-group-cards').innerText();
   await page.route('**/api/mints/flows?**',r=>r.fulfill({status:503,body:'test source outage'}));
-  await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('trade-status').textContent.includes('Нет свежего ответа'));
+  await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('trade-status').textContent.includes('No fresh response'));
   assert.equal(await page.locator('#holder-group-cards').innerText(),saved);
   await page.unroute('**/api/mints/flows?**');
   await page.route('**/api/mints/flows?**',r=>r.fulfill({json:{...data,outside_holders:{ready:false}}}));
   await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('outside-holders-content').hidden);
-  assert.match(await page.locator('#outside-holders-total').innerText(),/не подтверждена/);
+  assert.match(await page.locator('#outside-holders-total').innerText(),/not confirmed/);
   await page.unroute('**/api/mints/flows?**');
   // Numeric minter labels use all-history totals, while burn rows keep their own label.
   await page.locator('[data-view="bridge"]').click();
@@ -104,17 +104,17 @@ const fmt=value=>{
    if(!await row.count())continue;
    if(item.kind==='bridge_mint'){
     const label=row.locator('.minter-sales-summary'),totals=item.minter_totals;
-    assert.equal(await label.innerText(),'Слил '+fmt(totals.sold)+' из '+fmt(totals.minted)+' WGNK');
+    assert.equal(await label.innerText(),'Dumped '+fmt(totals.sold)+' of '+fmt(totals.minted)+' WGNK');
     assert.equal(await label.getAttribute('data-sold-raw'),totals.sold_raw);
     assert.equal(await label.getAttribute('data-minted-raw'),totals.minted_raw);
-    assert.match(await label.getAttribute('title'),/Конкретные партии токенов не отслеживаются/);
-   }else assert.match(await row.innerText(),/Адрес сжигания/);
+    assert.match(await label.getAttribute('title'),/Specific token lots are not tracked/);
+   }else assert.match(await row.innerText(),/Burn address/);
   }
   await page.locator('#mint-rows tr').first().scrollIntoViewIfNeeded();
   await page.screenshot({path:path.join(out,'minter-sales-light.png')});
   const mint=actualBridge.items.find(e=>e.kind==='bridge_mint'),sample={...actualBridge,total:1,has_more:false,items:[{...mint,minter_totals:null}]};
   await page.route('**/api/mints/bridge?**',r=>r.fulfill({json:sample}));
-  await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('mint-rows').textContent.includes('Продажи / чеканка —'));
+  await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('mint-rows').textContent.includes('Sales / mints —'));
   await page.unroute('**/api/mints/bridge?**');
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({ok:true,height:info.height,total:info.total,groups:info.groups.map(({id,balance,addresses})=>({id,balance,addresses})),minterLabels:true,sorting:true,addressCharts:true,mobile:true,errors}));

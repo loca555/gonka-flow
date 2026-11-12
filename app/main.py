@@ -105,7 +105,7 @@ def create_app(settings=None):
         if (cfg.mode == "mints" and request.url.path.startswith("/api/")
                 and not (request.url.path == "/api/docs" or request.url.path == "/api/mints"
                          or request.url.path.startswith("/api/mints/"))):
-            response = JSONResponse({"detail":"Этот раздел отключён. Активен только монитор чеканки WGNK.",
+            response = JSONResponse({"detail":"This section is disabled. Only the WGNK mint monitor is active.",
                                      "mode":"mints"},410)
         else:
             response = await call_next(request)
@@ -149,7 +149,7 @@ def create_app(settings=None):
                         finality: str=Query("finalized",pattern="^(finalized|all)$"),
                         sort: str=Query("newest",pattern=MINT_SORT_PATTERN),
                         limit: int=Query(50,ge=1,le=200),offset: int=Query(0,ge=0,le=5000000)):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор чеканки отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"Mint monitor is disabled")
         key=("mints",minimum,hours,q.lower(),finality,sort,limit,offset)
         def build(db):
             data=mint_listing(db,minimum,hours,q.lower(),finality,sort,limit,offset)
@@ -165,7 +165,7 @@ def create_app(settings=None):
                          side:str=Query("sell",pattern="^(sell|buy|all)$"),
                          sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN),
                          minimum:int=Query(0,ge=0,le=10**12)):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
         key=("flows",hours,q.lower(),limit,offset,side,sort,minimum)
         return await request.app.state.read_api.run(
             lambda db: flow_analysis(db,hours,q.lower(),limit,offset,side,sort,minimum),key=key,ttl=8)
@@ -179,7 +179,7 @@ def create_app(settings=None):
                               sort:str=Query("time_desc",pattern=TRADE_SORT_PATTERN),
                               minimum:int=Query(0,ge=0,le=10**12),
                               snapshot_hash:str=Query("",pattern="^(|0x[0-9a-fA-F]{64})$")):
-        if cfg.mode!="mints":raise HTTPException(404,"Монитор WGNK отключён")
+        if cfg.mode!="mints":raise HTTPException(404,"WGNK monitor is disabled")
         return await request.app.state.read_api.run(lambda db: trade_page(db,through=through,as_of=as_of,hours=hours,
                                        q=q.lower(),limit=limit,offset=offset,side=side,sort=sort,minimum=minimum,
                                        snapshot_hash=snapshot_hash.lower()))
@@ -188,7 +188,7 @@ def create_app(settings=None):
     async def mint_holders(request:Request,asset:str=Query("WGNK",pattern="^(WGNK|GNK)$"),
                            q:str=Query("",max_length=90,pattern="^[a-zA-Z0-9]*$"),
                            limit:int=Query(25,ge=1,le=100),offset:int=Query(0,ge=0,le=5000000)):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
         from .public_holders import listing
         key=("public_holders",asset,q.lower(),limit,offset)
         def build(db):
@@ -201,7 +201,7 @@ def create_app(settings=None):
     async def mint_leaders(request:Request,start_date:calendar_date|None=Query(None),
                            grouped:bool=Query(True)):
         start_date=start_date.isoformat() if start_date else None
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
         db=request.app.state.db
         key=("trade_leaders",db.revision,start_date,grouped)
         return await request.app.state.read_api.run(
@@ -212,12 +212,12 @@ def create_app(settings=None):
                            limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000),
                            through:int|None=Query(None,ge=1),as_of:int|None=Query(None,ge=0),
                            snapshot_hash:str=Query("",pattern="^(|0x[0-9a-fA-F]{64})$")):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        if not re.fullmatch("0x[0-9a-fA-F]{40}",address): raise HTTPException(400,"Нужен полный Ethereum-адрес")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
+        if not re.fullmatch("0x[0-9a-fA-F]{40}",address): raise HTTPException(400,"A full Ethereum address is required")
         address=address.lower()
         pinned=through is not None or as_of is not None or bool(snapshot_hash)
         if pinned and (through is None or as_of is None or not snapshot_hash):
-            raise HTTPException(400,"Для страницы нужны блок, время и хеш снимка. Обновите историю адреса.")
+            raise HTTPException(400,"The page requires the snapshot block, time and hash. Refresh the address history.")
         db=request.app.state.db
         key=("address_trades",db.revision,address,sort,limit,offset,through,as_of,snapshot_hash.lower())
         def build(db):
@@ -225,7 +225,7 @@ def create_app(settings=None):
                 data=trade_page(db,through=through,as_of=as_of,snapshot_hash=snapshot_hash.lower(),
                                 q=address,side="all",sort=sort,limit=limit,offset=offset)
                 if not data["ready"]:
-                    raise HTTPException(409,"Снимок этой истории больше недоступен. Нажмите «Обновить».")
+                    raise HTTPException(409,"The snapshot of this history is no longer available. Click “Refresh”.")
             else:
                 full=flow_analysis(db,q=address,side="all",sort=sort,limit=limit,offset=offset)
                 # Address views need full-history aggregates/chart, never all other minters/holders.
@@ -242,7 +242,7 @@ def create_app(settings=None):
                           q:str=Query("",max_length=66,pattern="^(|0x[0-9a-fA-F]{1,64})$"),
                           sort:str=Query("newest",pattern=BRIDGE_SORT_PATTERN),
                           limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0,le=5000000)):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
         key=("bridge",minimum,hours,q.lower(),sort,limit,offset)
         return await request.app.state.read_api.run(
             lambda db: bridge_listing(db,minimum,hours,q.lower(),sort,limit,offset),key=key,ttl=3)
@@ -250,11 +250,11 @@ def create_app(settings=None):
     @app.get("/api/mints/bridge/export.csv")
     async def bridge_export(request:Request,minimum:int=Query(10000,ge=0,le=10**12),
                             sort:str=Query("newest",pattern=BRIDGE_SORT_PATTERN)):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
         def build(db):
             data=bridge_listing(db,minimum=minimum,sort=sort,limit=50000)
-            if not data["ready"]: raise HTTPException(503,"Сверенный снимок моста ещё не готов")
-            if data["has_more"]: raise HTTPException(413,"Слишком много событий для одного CSV")
+            if not data["ready"]: raise HTTPException(503,"The reconciled bridge snapshot is not ready yet")
+            if data["has_more"]: raise HTTPException(413,"Too many events for one CSV")
             output=io.StringIO()
             fields=["kind","time_local","address","amount","amount_raw","tx_hash","log_index","height","finalized"]
             writer=csv.DictWriter(output,fieldnames=fields);writer.writeheader()
@@ -266,28 +266,28 @@ def create_app(settings=None):
 
     @app.get("/api/mints/provenance")
     async def mint_provenance(request:Request,address:str=Query("",pattern="^(|0x[0-9a-fA-F]{40})$")):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
         return await request.app.state.read_api.run(lambda db: provenance_overview(db,address.lower() or None))
 
     @app.get("/api/mints/gonka/{address}")
     async def gonka_incoming(request:Request,address:str,
                             sort:str=Query("time_desc",pattern="^(time|amount|sender|kind|tx)_(asc|desc)$")):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор WGNK отключён")
-        if not GNK.fullmatch(address): raise HTTPException(400,"Нужен полный адрес Gonka")
+        if cfg.mode!="mints": raise HTTPException(404,"WGNK monitor is disabled")
+        if not GNK.fullmatch(address): raise HTTPException(400,"A full Gonka address is required")
         def build(db):
             if address not in native_addresses(db):
-                raise HTTPException(404,"Адрес ещё не связан с подтверждённым переводом через мост WGNK")
+                raise HTTPException(404,"The address is not yet linked to a confirmed transfer through the WGNK bridge")
             return incoming_history(db,address,sort)
         return await request.app.state.read_api.run(build)
 
     @app.get("/api/mints/tx/{tx_hash}")
     async def mint_transaction(request:Request,tx_hash:str):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор чеканки отключён")
-        if not re.fullmatch(r"0x[0-9a-fA-F]{64}",tx_hash): raise HTTPException(400,"Нужен хеш Ethereum-транзакции")
+        if cfg.mode!="mints": raise HTTPException(404,"Mint monitor is disabled")
+        if not re.fullmatch(r"0x[0-9a-fA-F]{64}",tx_hash): raise HTTPException(400,"An Ethereum transaction hash is required")
         def build(db):
             rows=db.conn.execute("SELECT * FROM wgnk_mints WHERE tx_hash=? ORDER BY log_index",
                                   (tx_hash.lower(),)).fetchall()
-            if not rows: raise HTTPException(404,"Чеканка в этой транзакции не найдена в индексе")
+            if not rows: raise HTTPException(404,"No mint in this transaction was found in the index")
             return {"contract":MINT_TOKEN,"tx_hash":tx_hash.lower(),"items":[mint_event(r) for r in rows],
                     "native_links":[e for e in links_for(db) if e["tx_hash"]==tx_hash.lower()]}
         return await request.app.state.read_api.run(build)
@@ -298,10 +298,10 @@ def create_app(settings=None):
                            q:str=Query("",max_length=66,pattern="^(|0x[0-9a-fA-F]{1,64})$"),
                            finality:str=Query("finalized",pattern="^(finalized|all)$"),
                            sort:str=Query("newest",pattern=MINT_SORT_PATTERN)):
-        if cfg.mode!="mints": raise HTTPException(404,"Монитор чеканки отключён")
+        if cfg.mode!="mints": raise HTTPException(404,"Mint monitor is disabled")
         def build(db):
             data=mint_listing(db,minimum,hours,q.lower(),finality,sort,50000,0)
-            if data["has_more"]: raise HTTPException(413,"Более 50 000 выпусков. Уменьшите период.")
+            if data["has_more"]: raise HTTPException(413,"More than 50,000 mints. Reduce the period.")
             output=io.StringIO()
             columns=["tx_hash","log_index","height","block_hash","ts","time_local","timezone","recipient","amount","amount_raw",
                      "epoch_id","request_id","finalized","source"]
@@ -351,7 +351,7 @@ def create_app(settings=None):
                           since: int | None = Query(None,ge=0,le=4102444800)):
         address=address.lower()
         if not (ETH_ADDRESS.fullmatch(address) or GNK_ADDRESS.fullmatch(address)):
-            raise HTTPException(400,"Нужен корректный адрес Gonka или Ethereum")
+            raise HTTPException(400,"A valid Gonka or Ethereum address is required")
         return address_page(request.app.state.db,address,hours,kind,limit,offset,since)
 
     @app.get("/api/rankings")
@@ -371,7 +371,7 @@ def create_app(settings=None):
                      since: int | None = Query(None,ge=0,le=4102444800)):
         address = address.lower()
         if not re.fullmatch(r"(0x[0-9a-f]{40}|gonka1[02-9ac-hj-np-z]{38})",address):
-            raise HTTPException(400,"Нужен полный адрес Gonka (gonka1…) или Ethereum (0x…).")
+            raise HTTPException(400,"A full Gonka (gonka1…) or Ethereum (0x…) address is required.")
         db, net = request.app.state.db, request.app.state.indexer.net
         key = ("balance",address)
         balance_data = cache.get(key)
@@ -386,7 +386,7 @@ def create_app(settings=None):
                 balance_data = {"balance":balance,"updated_at":int(time.time()),"error":None}
             except Exception:
                 balance_data = {"balance":None,"updated_at":None,
-                                "error":"RPC не вернул баланс; это не нулевой баланс."}
+                                "error":"RPC did not return a balance; this is not a zero balance."}
             cache.put(key,balance_data,45)
         activity = db.events(int(time.time())-hours*3600 if since is None else since,address=address,limit=100)
         linked = []
@@ -401,7 +401,7 @@ def create_app(settings=None):
                      since: int | None = Query(None,ge=0,le=4102444800)):
         rows = request.app.state.db.events(int(time.time())-hours*3600 if since is None else since,limit=50000)
         if rows["has_more"]:
-            raise HTTPException(413,"В окне больше 50 000 событий. Уменьшите период.")
+            raise HTTPException(413,"More than 50,000 events in the window. Reduce the period.")
         output = io.StringIO()
         fields = ["chain","height","ts","tx_hash","idx","kind","src","dst","actor","amount","asset",
                   "quote_amount","quote_asset","pool","finalized","request_key"]

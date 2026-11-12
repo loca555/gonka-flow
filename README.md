@@ -1,16 +1,16 @@
 # Gonka Flow
 
-Монитор моста WGNK и торговли WGNK / USDT. Только чтение.
+WGNK bridge and WGNK / USDT trading monitor. Read only.
 
-## Локальный запуск
+## Local run
 
 ```sh
 python -m venv .venv
-# Активируйте .venv и установите зависимости:
+# Activate .venv and install dependencies:
 pip install -r requirements.txt
 ```
 
-Задайте `APP_MODE=mints`, `LOAD_SEED_ARCHIVE=true`, затем запустите:
+Set `APP_MODE=mints`, `LOAD_SEED_ARCHIVE=true`, then run:
 
 ```sh
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
@@ -24,6 +24,6 @@ python tools/build_ipfs.py --output dist-ipfs
 ipfs add -r --cid-version=1 dist-ipfs
 ```
 
-Откройте `/ipfs/<CID>/#trading` через шлюз своей IPFS-ноды. При повторной сборке используйте новую пустую папку.
+Open `/ipfs/<CID>/#trading` through the gateway of your own IPFS node. Use a new empty folder for a rebuild.
 
-В IPFS публикуется интерфейс. Живые данные поступают из публичного API `https://gonka-flow.onrender.com`; сервер и индексатор остаются на Render. Другой API можно указать через `--api-origin https://example.com` — он должен разрешать GET-запросы с IPFS-шлюзов через CORS.
+The interface is published to IPFS. Live data comes from the public API `https://gonka-flow.onrender.com`; the server and indexer stay on Render. Another API can be set with `--api-origin https://example.com` — it must allow GET requests from IPFS gateways via CORS.

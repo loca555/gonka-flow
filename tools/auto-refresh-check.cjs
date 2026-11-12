@@ -34,7 +34,7 @@ const account='0x0a34924dd04ac5e5589c5e849c95d927bfd50bd1';
   await page.waitForFunction(address=>document.getElementById('sales-result').textContent.includes(address),account);
   await page.locator('#trades-table th[data-sort="time"] button').click();
   await page.waitForFunction(()=>document.getElementById('trades-table').dataset.order==='time_asc');
-  await page.locator('#sales-query').fill('несохранённый текст');
+  await page.locator('#sales-query').fill('unsaved text');
   const rows=page.locator('#sales-rows [data-flow-address]');
   assert(await rows.count()>0,'address must have trades');
   await rows.first().click();
@@ -54,7 +54,7 @@ const account='0x0a34924dd04ac5e5589c5e849c95d927bfd50bd1';
    const observer=new MutationObserver(()=>{
     for(const id of ['sales-result','address-status']){
      const text=document.getElementById(id).textContent;
-     if(/Ищем|Загружаем покупки/.test(text))window.__quiet.loading.push(text);
+     if(/Searching|Loading buys/.test(text))window.__quiet.loading.push(text);
     }
    });
    for(const id of ['sales-result','address-status'])observer.observe(document.getElementById(id),{childList:true,subtree:true,characterData:true});
@@ -82,7 +82,7 @@ const account='0x0a34924dd04ac5e5589c5e849c95d927bfd50bd1';
   });
   assert(state.open&&state.sameRows&&state.sameChart&&state.sameAddressRows&&state.sameAddressChart,JSON.stringify(state));
   assert.equal(state.top,state.expectedTop);assert.equal(state.tableTop,state.expectedTableTop);
-  assert.equal(state.query,'несохранённый текст');assert.equal(state.sort,'time_asc');assert.equal(state.addressSort,'time_asc');
+  assert.equal(state.query,'unsaved text');assert.equal(state.sort,'time_asc');assert.equal(state.addressSort,'time_asc');
   assert.deepEqual(state.loading,[]);assert.deepEqual(errors,[]);
   console.log(JSON.stringify({ok:true,nativeTimer:true,flowResponses,state,errors},null,2));
  }finally{await browser.close();}

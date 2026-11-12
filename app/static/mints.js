@@ -1,11 +1,11 @@
 "use strict";
 const el=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const count=n=>Number(n)>0&&Number(n)<1?"< 1":Math.trunc(Number(n)).toLocaleString("ru-RU");
+const count=n=>Number(n)>0&&Number(n)<1?"< 1":Math.trunc(Number(n)).toLocaleString("en-US");
 function amount(value){
  const [whole,fraction=""]=String(value??"0").split(".");
  if(BigInt(whole)===0n&&/[1-9]/.test(fraction))return "< 1";
- return BigInt(whole).toLocaleString("ru-RU");
+ return BigInt(whole).toLocaleString("en-US");
 }
 const compact=value=>amount(value);
 // USDT per one WGNK; exact integer rounding with a decimal point, no float.
@@ -16,8 +16,8 @@ function price(value){
  return GonkaChart.formatPrice(raw);
 }
 const short=(v,n=8)=>v.slice(0,n)+"…"+v.slice(-6);
-const date=ts=>new Date(ts*1000).toLocaleDateString("ru-RU",{timeZone:"Asia/Nicosia",day:"2-digit",month:"2-digit",year:"numeric"});
-const clock=ts=>new Date(ts*1000).toLocaleTimeString("ru-RU",{timeZone:"Asia/Nicosia",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+const date=ts=>new Date(ts*1000).toLocaleDateString("en-US",{timeZone:"Asia/Nicosia",day:"2-digit",month:"2-digit",year:"numeric"});
+const clock=ts=>new Date(ts*1000).toLocaleTimeString("en-US",{timeZone:"Asia/Nicosia",hour:"2-digit",minute:"2-digit",second:"2-digit"});
 const txUrl=h=>"https://etherscan.io/tx/"+encodeURIComponent(h);
 const blockUrl=h=>"https://etherscan.io/block/"+encodeURIComponent(h);
 const state={minimum:10000,sort:"time_desc",offset:0,request:0,data:null,bridge:null};
@@ -62,7 +62,7 @@ function setTableSort(id,sort){
   const arrow=th.querySelector(".sort-arrow");
   if(arrow)arrow.textContent=active?(ascending?"↑":"↓"):"↕";
   const button=th.querySelector("button");
-  if(button)button.title="Сортировать "+(active&&!ascending?"по возрастанию":"по убыванию");
+  if(button)button.title="Sort "+(active&&!ascending?"ascending":"descending");
  });
  table.dataset.order=sort;
 }
@@ -112,7 +112,7 @@ function showView(){
 }
 function renderCoverage(d){
  GonkaSync.update("mints",d);
- el("last-update").textContent="Ответ сервера "+clock(d.now)+" · только чтение";
+ el("last-update").textContent="Server response "+clock(d.now)+" · read only";
  el("contract-link").href="https://etherscan.io/address/"+d.contract;
 }
 function renderMetrics(d){
@@ -121,7 +121,7 @@ function renderMetrics(d){
   ["metric-recipients",d.summary.recipients,false],["metric-largest",d.summary.largest,true]].forEach(([id,value,isAmount])=>{
    el(id).textContent=known?(isAmount?amount(value):count(value)):"—";
   });
- el("metric-events").textContent=count(d.summary.events)+" событий чеканки";
+ el("metric-events").textContent=count(d.summary.events)+" mint events";
 }
 function renderChart(d){
  if(el("mints-view").hidden)return;
@@ -130,19 +130,19 @@ function renderChart(d){
  const anomaly="2026-06-09";
  const daily=d.daily.filter(x=>x.date!==anomaly);
  const chart=el("mint-chart"),options={points:daily.map(x=>({date:x.date,raw:x.amount_raw,events:x.events,price_raw:x.price_raw,weight:x.weight,tokens:x.tokens})),
-  complete:d.coverage.complete,type:"bars",title:"Чеканка WGNK по дням",countLabel:"Выпусков",
-  legend:[{color:"var(--accent)",label:"Чеканка WGNK",bar:true},
-   {color:"#f2801e",label:"Среднее за 7 дней"},
-   {color:"#4db8ff",label:"Цена, USDT"},
-   {color:"#9b59b6",label:"Вес сети"},
-   {color:"#d63384",label:"AI-токены за эпоху (~24 ч)"}]};
+  complete:d.coverage.complete,type:"bars",title:"WGNK mints by day",countLabel:"Mints",
+  legend:[{color:"var(--accent)",label:"WGNK mints",bar:true},
+   {color:"#f2801e",label:"7-day average"},
+   {color:"#4db8ff",label:"Price, USDT"},
+   {color:"#9b59b6",label:"Network weight"},
+   {color:"#d63384",label:"AI tokens per epoch (~24 h)"}]};
  renderLiveChart(chart,options,()=>GonkaChart.render(chart,options));
  const heading=chart.closest('article').querySelector('.panel-title');
  if(!el('download-mint-chart')){
   const button=document.createElement('button');button.id='download-mint-chart';button.type='button';
-  button.title='Скачать график PNG';button.setAttribute('aria-label',button.title);
+  button.title='Download chart PNG';button.setAttribute('aria-label',button.title);
   button.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>';
-  button.addEventListener('click',async()=>{button.disabled=true;try{await downloadMintChart();}catch(error){notify('Не удалось сохранить график: '+error.message);}finally{button.disabled=false;}});
+  button.addEventListener('click',async()=>{button.disabled=true;try{await downloadMintChart();}catch(error){notify('Failed to save the chart: '+error.message);}finally{button.disabled=false;}});
   heading.append(button);
  }
 }
@@ -159,7 +159,7 @@ async function downloadMintChart(){
  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d'),header=100;
  canvas.width=width*2;canvas.height=(height+header)*2;ctx.scale(2,2);
  const theme=getComputedStyle(host);ctx.fillStyle=theme.getPropertyValue('--panel');ctx.fillRect(0,0,width,height+header);
- ctx.fillStyle=theme.getPropertyValue('--text');ctx.font='bold 20px Segoe UI';ctx.fillText('Ритм чеканки · Gonka Flow',18,30);
+ ctx.fillStyle=theme.getPropertyValue('--text');ctx.font='bold 20px Segoe UI';ctx.fillText('Mint rhythm · Gonka Flow',18,30);
  ctx.font='12px Segoe UI';let lx=18,ly=56;
  host.querySelectorAll('.chart-legend-item').forEach(item=>{
   const label=item.textContent,w=ctx.measureText(label).width+32;if(lx+w>width-18){lx=18;ly+=22;}
@@ -168,34 +168,34 @@ async function downloadMintChart(){
  });
  const img=new Image();img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(new XMLSerializer().serializeToString(clone));
  await img.decode();ctx.drawImage(img,0,header,width,height);
- const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG недоступен');
+ const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG unavailable');
  const downloadUrl=URL.createObjectURL(blob),link=document.createElement('a');link.href=downloadUrl;link.download='gonka-mint-chart.png';link.click();setTimeout(()=>URL.revokeObjectURL(downloadUrl),10000);
 }
 function renderRecipients(d){
  setLiveHTML(el("recipient-list"),d.recipients.length?d.recipients.map((r,i)=>
- '<div class="recipient"><span class="rank">'+String(i+1).padStart(2,"0")+'</span><div><button data-flow-address="'+esc(r.address)+'" title="'+esc(r.address)+'">'+esc(short(r.address,10))+'</button><small>'+count(r.events)+' выпусков</small></div><div class="numeric"><strong>'+esc(amount(r.amount))+'</strong><small>WGNK получено</small></div></div>').join(""):'<p class="empty">Минтеров пока не найдено.</p>');
+ '<div class="recipient"><span class="rank">'+String(i+1).padStart(2,"0")+'</span><div><button data-flow-address="'+esc(r.address)+'" title="'+esc(r.address)+'">'+esc(short(r.address,10))+'</button><small>'+count(r.events)+' mints</small></div><div class="numeric"><strong>'+esc(amount(r.amount))+'</strong><small>WGNK received</small></div></div>').join(""):'<p class="empty">No minters found yet.</p>');
 }
 function minterSalesLabel(e){
- if(e.kind==="bridge_burn")return '<small>Адрес сжигания</small>';
+ if(e.kind==="bridge_burn")return '<small>Burn address</small>';
  const totals=e.minter_totals;
- if(!totals)return '<small class="minter-sales-summary" title="Статистика продаж и чеканки адреса пока недоступна">Продажи / чеканка —</small>';
- const label="Слил "+amount(totals.sold)+" из "+amount(totals.minted)+" WGNK";
- const hint="За всю историю адреса до финального снимка, независимо от даты этой чеканки и фильтров ленты. Слил — подтверждённые продажи в двух отслеживаемых пулах Uniswap V3; из — всего получено при чеканке. Продажи могут включать купленные или полученные переводом WGNK и превышать чеканку. Конкретные партии токенов не отслеживаются.";
+ if(!totals)return '<small class="minter-sales-summary" title="Sales and mint statistics for this address are not available yet">Sales / mints —</small>';
+ const label="Dumped "+amount(totals.sold)+" of "+amount(totals.minted)+" WGNK";
+ const hint="Over the whole address history up to the final snapshot, regardless of the date of this mint and the feed filters. Dumped — confirmed sales in the two tracked Uniswap V3 pools; of — total received from mints. Sales may include bought or transferred-in WGNK and exceed the mints. Specific token lots are not tracked.";
  return '<small class="minter-sales-summary" data-sold-raw="'+esc(totals.sold_raw)+'" data-minted-raw="'+esc(totals.minted_raw)+'" tabindex="0" title="'+esc(hint)+'">'+esc(label)+'</small>';
 }
 function renderRows(d){
- el("bridge-note").textContent=!d.ready?"Сверенный снимок моста пока не готов. Это не означает отсутствие событий.":
-  "Чеканка и сжигание "+(d.minimum?"от "+count(d.minimum)+" WGNK":"любого размера")+" · финальный снимок #"+count(d.snapshot.height)+
-  (d.coverage.complete?" · история без пропусков":" · догружаем "+count(d.coverage.missing)+" блоков");
+ el("bridge-note").textContent=!d.ready?"The reconciled bridge snapshot is not ready yet. This does not mean there are no events.":
+  "Mints and burns "+(d.minimum?"from "+count(d.minimum)+" WGNK":"of any size")+" · final snapshot #"+count(d.snapshot.height)+
+  (d.coverage.complete?" · history without gaps":" · loading "+count(d.coverage.missing)+" blocks");
  if(!d.ready){el("prev").disabled=true;el("next").disabled=true;return;}
  el("row-count").textContent=count(d.total);
  setTableSort("mint-table",normalizeMintSort(d.sort));
  setLiveHTML(el("mint-rows"),d.items.length?d.items.map(e=>{
   const burn=e.kind==="bridge_burn";
-  return '<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+(burn?"sell":"buy")+'">'+(burn?"Сжигание":"Чеканка")+'</span></td><td><button class="address-button" data-flow-address="'+esc(e.address)+'" title="'+esc(e.address)+'">'+esc(short(e.address,10))+'</button>'+minterSalesLabel(e)+'</td><td class="numeric"><span class="amount-value">'+esc(amount(e.amount))+'</span><small>WGNK</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>log #'+e.log_index+'</small></td><td><span class="final-badge">✓ Финальный</span><small>#'+count(e.height)+'</small></td><td><button class="detail-button" data-tx="'+esc(e.tx_hash)+'" data-log="'+e.log_index+'" aria-label="Детали события '+esc(short(e.tx_hash))+'">↗</button></td></tr>';
- }).join(""):'<tr><td colspan="7" class="empty">'+(d.minimum?"Событий моста с объёмом от "+count(d.minimum)+" WGNK не найдено. Уменьшите порог или сбросьте фильтр.":"Событий моста в подтверждённой истории пока нет.")+'</td></tr>');
+  return '<tr><td>'+date(e.ts)+'<small>'+clock(e.ts)+'</small></td><td><span class="trade-badge '+(burn?"sell":"buy")+'">'+(burn?"Burn":"Mint")+'</span></td><td><button class="address-button" data-flow-address="'+esc(e.address)+'" title="'+esc(e.address)+'">'+esc(short(e.address,10))+'</button>'+minterSalesLabel(e)+'</td><td class="numeric"><span class="amount-value">'+esc(amount(e.amount))+'</span><small>WGNK</small></td><td><a class="tx-link" href="'+txUrl(e.tx_hash)+'" target="_blank" rel="noopener noreferrer">'+esc(short(e.tx_hash))+' ↗</a><small>log #'+e.log_index+'</small></td><td><span class="final-badge">✓ Final</span><small>#'+count(e.height)+'</small></td><td><button class="detail-button" data-tx="'+esc(e.tx_hash)+'" data-log="'+e.log_index+'" aria-label="Event details '+esc(short(e.tx_hash))+'">↗</button></td></tr>';
+ }).join(""):'<tr><td colspan="7" class="empty">'+(d.minimum?"No bridge events with volume from "+count(d.minimum)+" WGNK found. Lower the threshold or reset the filter.":"No bridge events in the confirmed history yet.")+'</td></tr>');
  el("prev").disabled=d.offset===0;el("next").disabled=!d.has_more;
- el("page-info").textContent=d.total?count(d.offset+1)+"–"+count(Math.min(d.offset+d.limit,d.total))+" из "+count(d.total):"0 событий";
+ el("page-info").textContent=d.total?count(d.offset+1)+"–"+count(Math.min(d.offset+d.limit,d.total))+" of "+count(d.total):"0 events";
  el("csv-filtered").href="/api/mints/bridge/export.csv?"+new URLSearchParams({minimum:d.minimum,sort:d.sort});
 }
 async function refresh(reset=false){
@@ -203,18 +203,18 @@ async function refresh(reset=false){
  state.abort?.abort();const controller=state.abort=new AbortController();state.fetching=true;
  const id=++state.request,timeout=setTimeout(()=>controller.abort(),30000);
  try{
-  const get=async url=>{const r=await fetch(url,{signal:controller.signal});if(!r.ok)throw new Error("Нет свежего ответа (HTTP "+r.status+").");return r.json();};
+  const get=async url=>{const r=await fetch(url,{signal:controller.signal});if(!r.ok)throw new Error("No fresh response (HTTP "+r.status+").");return r.json();};
   const [d,bridge]=await Promise.all([
    get("/api/mints?minimum=0&limit=1"),
    get("/api/mints/bridge?"+new URLSearchParams({minimum:state.minimum,sort:state.sort,offset:state.offset,limit:50}))
   ]);
   if(id!==state.request)return;
   renderCoverage(d);
-  if(state.bridge?.ready&&!bridge.ready){el("error-banner").textContent="Сервис восстанавливает снимок. Последние проверенные данные сохранены; повторим автоматически.";el("error-banner").hidden=false;return;}
+  if(state.bridge?.ready&&!bridge.ready){el("error-banner").textContent="The service is restoring the snapshot. The last verified data is kept; will retry automatically.";el("error-banner").hidden=false;return;}
   state.data=d;state.bridge=bridge;el("error-banner").hidden=true;
   renderMetrics(d);renderChart(d);renderRecipients(d);renderRows(bridge);
  }catch(e){if(id===state.request){
-  el("error-banner").textContent=(e.name==="AbortError"?"Сервер не ответил вовремя.":e.message)+" Предыдущие данные сохранены.";
+  el("error-banner").textContent=(e.name==="AbortError"?"The server did not respond in time.":e.message)+" Previous data is kept.";
   el("error-banner").hidden=false;GonkaSync.fail("mints");
  }}
  finally{clearTimeout(timeout);if(id===state.request)state.fetching=false;}
@@ -223,10 +223,10 @@ function details(tx,index){
  const e=state.bridge?.items.find(e=>e.tx_hash===tx&&e.log_index===index);if(!e)return;
  const burn=e.kind==="bridge_burn";
  el("mint-detail").innerHTML='<div class="detail-amount">'+esc(amount(e.amount))+' <small>WGNK</small></div><p class="detail-notice">'+
-  (burn?"Сжигание WGNK. Не является продажей. Получатель и статус зачисления GNK — в истории адреса, на вкладке Gonka.":"Чеканка WGNK. Не является покупкой. Сопоставление с Gonka — в истории адреса.")+
-  '<br>✓ Финальное событие · '+date(e.ts)+" "+clock(e.ts)+'</p><dl><dt>'+(burn?"Адрес сжигания":"Минтер")+'</dt><dd class="mono">'+esc(e.address)+'</dd><dt>Транзакция / индекс события</dt><dd class="mono">'+esc(e.tx_hash)+' / '+e.log_index+'</dd><dt>Блок Ethereum</dt><dd>#'+count(e.height)+'</dd><dt>Хеш блока</dt><dd class="mono">'+esc(e.block_hash)+'</dd>'+
+  (burn?"WGNK burn. Not a sale. The recipient and the GNK credit status are in the address history, on the Gonka tab.":"WGNK mint. Not a purchase. Matching with Gonka is in the address history.")+
+  '<br>✓ Final event · '+date(e.ts)+" "+clock(e.ts)+'</p><dl><dt>'+(burn?"Burn address":"Minter")+'</dt><dd class="mono">'+esc(e.address)+'</dd><dt>Transaction / event index</dt><dd class="mono">'+esc(e.tx_hash)+' / '+e.log_index+'</dd><dt>Ethereum block</dt><dd>#'+count(e.height)+'</dd><dt>Block hash</dt><dd class="mono">'+esc(e.block_hash)+'</dd>'+
   (e.request_id?'<dt>Request ID</dt><dd class="mono">'+esc(e.request_id)+'</dd>':"")+
-  '<dt>Точное количество в минимальных единицах</dt><dd class="mono">'+esc(e.amount_raw)+'</dd></dl><div class="dialog-actions"><a href="'+txUrl(tx)+'" target="_blank" rel="noopener noreferrer">Транзакция в Etherscan ↗</a><button data-copy="'+esc(e.address)+'">Копировать адрес</button><button data-flow-address="'+esc(e.address)+'">История адреса · WGNK / GNK</button></div>';
+  '<dt>Exact amount in minimal units</dt><dd class="mono">'+esc(e.amount_raw)+'</dd></dl><div class="dialog-actions"><a href="'+txUrl(tx)+'" target="_blank" rel="noopener noreferrer">Transaction on Etherscan ↗</a><button data-copy="'+esc(e.address)+'">Copy address</button><button data-flow-address="'+esc(e.address)+'">Address history · WGNK / GNK</button></div>';
  el("mint-dialog").showModal();
 }
 configureVolumeFilter("bridge-volume-filter",minimum=>{state.minimum=minimum;refresh(true);});
@@ -236,7 +236,7 @@ el("close-dialog").addEventListener("click",()=>el("mint-dialog").close());
 closeOnBackdrop(el("mint-dialog"));
 document.addEventListener("click",async e=>{
  const copy=e.target.closest("[data-copy]");
- if(copy){try{await navigator.clipboard.writeText(copy.dataset.copy);notify("Адрес скопирован");}catch{notify("Копирование недоступно. Адрес можно выделить в деталях.");}return;}
+ if(copy){try{await navigator.clipboard.writeText(copy.dataset.copy);notify("Address copied");}catch{notify("Copying is unavailable. The address can be selected in the details.");}return;}
  const detail=e.target.closest("[data-tx]");
  if(detail)details(detail.dataset.tx,Number(detail.dataset.log));
 });

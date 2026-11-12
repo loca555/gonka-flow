@@ -18,7 +18,7 @@ def overview(db, hours, since=None):
     activity = db.conn.execute("""
         SELECT chain,count(*) events,count(DISTINCT tx_hash) transactions
         FROM events WHERE ts>=? GROUP BY chain""", (since,)).fetchall()
-    status = {name: db.get("status:"+name, {"ok":False, "error": "Запуск источника"}) for name in
+    status = {name: db.get("status:"+name, {"ok":False, "error": "Source starting"}) for name in
               ("gonka","gonka_history","ethereum","ethereum_history","network","market","bridge")}
     return {"now": int(time.time()), "hours": hours, "since": since, "revision": db.revision,
             "history_request": db.get("history_request"),
@@ -71,11 +71,11 @@ def rankings(db, hours, mode, since=None):
         r["amount"] = tokens(r.pop("raw"))
         r["quote"] = tokens(r["quote"],6)
     notes = {
-        "rewards": "Получатели GNK: выплаченные награды и начисления в вестинг показаны раздельно; это не чистая прибыль майнинга.",
-        "unlocks": "Получатели разблокированного GNK из вестинга; это не новые награды и не подтверждённые продажи."
+        "rewards": "GNK recipients: paid rewards and vesting accruals are shown separately; this is not net mining profit.",
+        "unlocks": "Recipients of GNK unlocked from vesting; these are not new rewards or confirmed sales."
     }
     return {"items":results, "mode":mode, "hours":hours, "since":since,
-            "note":notes.get(mode,"Адреса инициаторов с подтверждённым направлением WGNK; это не позиции и не личности.")}
+            "note":notes.get(mode,"Initiator addresses with a confirmed WGNK direction; these are not positions or identities.")}
 
 def bridges(db, hours, limit=100, offset=0, since=None):
     since = int(time.time())-hours*3600 if since is None else since

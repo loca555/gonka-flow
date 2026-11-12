@@ -29,7 +29,7 @@ async function main(){
   const refresh=page.locator('#address-refresh'),next=page.locator('#address-next');
   const rows=page.locator('#address-rows tr'),counter=page.locator('#address-page');
   const waitForStatus=text=>status.filter({hasText:text}).waitFor();
-  await waitForStatus('Повторим автоматически через 2 с.');
+  await waitForStatus('Will retry automatically in 2 s.');
   await refresh.click();
   await page.clock.runFor(750);
   assert.equal(requests.length,1);
@@ -43,7 +43,7 @@ async function main(){
   const chartBefore=await line.getAttribute('d');
   retryAfter=await page.evaluate(()=>new Date(Date.now()+4500).toUTCString());
   await next.click();
-  await waitForStatus('Последние данные сохранены');
+  await waitForStatus('The latest data is kept');
   assert.equal(await counter.innerText(),firstPage);
   assert.equal(await rows.count(),50);
   assert.equal(await line.getAttribute('d'),chartBefore);
@@ -64,7 +64,7 @@ async function main(){
 
   retryAfter='';
   await refresh.click();
-  await waitForStatus('Повторим автоматически через 30 с.');
+  await waitForStatus('Will retry automatically in 30 s.');
   await page.locator('#address-close').click();
   await page.clock.runFor(31000);
   assert.equal(requests.length,5,'closing the dialog must cancel a pending retry');

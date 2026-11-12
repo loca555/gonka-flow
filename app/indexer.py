@@ -194,7 +194,7 @@ class Indexer:
         self.pools = verified
         self.db.put("verified_pools", verified)
         with self.db.conn:
-            self.db.label(TOKEN, "WGNK · официальный мост", "bridge", "gonka.ai/docs")
+            self.db.label(TOKEN, "WGNK · official bridge", "bridge", "gonka.ai/docs")
             for addr in verified:
                 self.db.label(addr, "Uniswap V3 · WGNK / " + verified[addr]["quote_symbol"],
                               "pool", "UniswapV3Factory.getPool")
@@ -316,7 +316,7 @@ class Indexer:
         with self.db.conn:
             self.db.conn.execute("DELETE FROM labels WHERE role='host'")
             for p in active["active_participants"].get("participants", []):
-                self.db.label(p["index"], "Хост · эпоха " + active["active_participants"]["epoch_id"],
+                self.db.label(p["index"], "Host · epoch " + active["active_participants"]["epoch_id"],
                               "host", "Gonka active_participants")
         if self.eth_ready.is_set():
             supply = await self.net.call(TOKEN, "totalSupply()")
